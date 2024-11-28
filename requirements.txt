@@ -1,0 +1,6 @@
+aiogram==3.15.0
+python-dotenv==1.0.1
+aiogram_dialog==2.2.0
+sqlalchemy==2.0.36
+aiosqlite==0.20.0
+starknet-py==0.24.3

@@ -1,0 +1,1 @@
+from .local_middlewares import LocaleMiddleware
