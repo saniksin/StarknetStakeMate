@@ -14,7 +14,9 @@ class LocaleMiddleware(BaseMiddleware):
 
     async def __call__(self, handler, event: Update, data: dict):
         user = await self._get_user(event, data)
-        await self._check_user_blocked(user, event)
+        user_status = await self._check_user_blocked(user, event)
+        if user_status:
+            return
         return await handler(event, data)
 
     async def _get_user(self, event: Update, data: dict):
@@ -33,6 +35,7 @@ class LocaleMiddleware(BaseMiddleware):
 
     async def _check_user_blocked(self, user, event: Update):
         if user.user_is_blocked:
-            block_text = translate("block_message", locale=self.default_locale)
+            block_text = translate("block_message", locale=user.user_language)
             await bot.send_message(chat_id=event.message.from_user.id, text=block_text, parse_mode="HTML")
-            raise EventStop()
+            return True
+        return False

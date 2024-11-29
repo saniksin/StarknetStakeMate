@@ -1,12 +1,17 @@
+import sys
+
 import asyncio
+import concurrent.futures
 from aiogram.filters import Command
 from bot import handlers
+
 from data.tg_bot import dp, bot
 from bot.middlewares import LocaleMiddleware
 from db_api.database import initialize_db
 from utils.create_files import create_files
 from utils.filters import AdminReplyFilter, TextFilter, UserReplyToAdminFilter
 from data.languages import translate, possible_prefixes
+from tasks.strk_notification import send_strk_notification
 
 
 async def register_handlers():
@@ -49,22 +54,64 @@ async def register_handlers():
     dp.message.register(handlers.delete_specific_address, handlers.DeleteInfoState.awaiting_selection)
 
     # cчитывай информацию валидатора/делегатора
-    dp.message.register(handlers.get_tracking_data, Command(commands=["get_full_info"]))
-    #dp.message.register(handlers.handle_validator_address, handlers.ValidatorState.awaiting_address)
+    dp.message.register(handlers.get_tracking_full_info, Command(commands=["get_full_info"]))
+    dp.message.register(handlers.get_tracking_reward_info, Command(commands=["get_reward_info"]))
+
+    # блокировка пользователя 
+    dp.message.register(handlers.start_block_user, Command('ban_user'))
+    dp.message.register(handlers.process_ban, handlers.UserBlockingState.waiting_ban_info)
+    dp.message.register(handlers.confirm_ban_user, handlers.UserBlockingState.confirm_operation)
+
+    # разблокировка пользователя 
+    dp.message.register(handlers.start_unblock_user, Command('unban_user'))
+    dp.message.register(handlers.process_unban, handlers.UserUnblockingState.waiting_unban_info)
+    dp.message.register(handlers.confirm_unban_user, handlers.UserUnblockingState.confirm_unban_operation)
+
+    # установка / удаление ping reward msg
+    dp.message.register(handlers.start_set_threshold, Command('set_reward_notification'))
+    dp.message.register(handlers.set_claim_threshold, handlers.RewardClaimState.waiting_for_threshold)
+    dp.message.register(handlers.clear_claim_threshold, Command('disable_reward_notification'))
+    dp.message.register(handlers.show_claim_treshold_info, Command('show_reward_notification'))
 
     # неизвестное сообщение
     dp.message.register(handlers.unknown_command)
+
+
+async def start_bot():
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await bot.session.close()
+        sys.exit(1)
+
+
+def run_in_thread(loop, func):
+    """Запуск асинхронной функции в отдельном потоке"""
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(func())
 
 
 async def main():
     create_files()
     await initialize_db()
     await register_handlers()
-    try:
-        await dp.start_polling(bot)
-    finally:
-        await bot.session.close()
 
+    # Создаём задачи для асинхронных операций
+    polling_task = asyncio.create_task(start_bot())
+    notification_task = asyncio.create_task(send_strk_notification())
+    
+    # Ждем завершения обеих задач
+    await asyncio.gather(polling_task, notification_task)
+
+    loop = asyncio.get_event_loop()
+
+    # Создаем пул потоков для запуска задач в отдельных потоках
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        # Запуск задач в разные потоки
+        await asyncio.gather(
+            loop.run_in_executor(executor, run_in_thread, loop, start_bot),
+            loop.run_in_executor(executor, run_in_thread, loop, send_strk_notification)
+        )
 
 if __name__ == "__main__":
     asyncio.run(main())

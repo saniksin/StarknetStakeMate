@@ -5,7 +5,7 @@ from aiogram.fsm.state import StatesGroup, State
 
 from data.languages import translate
 from parse.parse_info import parse_validator_staking_info
-from parse.msg_format import parse_validator_info
+from utils.msg_format import parse_validator_info
 from utils.check_valid_addresses import is_valid_starknet_address
 
 
@@ -47,7 +47,7 @@ async def handle_validator_address(message: types.Message, state: FSMContext, us
         if check:
             answer = await parse_validator_staking_info(message.text)
         else:
-            state.clear()
+            await state.clear()
             await message.reply(
                 translate("invalid_validator_address", locale=user_locale), 
                 parse_mode="HTML"

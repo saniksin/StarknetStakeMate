@@ -98,3 +98,32 @@ def parse_validator_info(data, user_locale: str, status=True):
     message += pool_commission
 
     return message
+
+
+def format_section(user_locale, task_type, task_result, address, pool, info_address_key, pool_address_key, no_data=False):
+    """
+    Функция для форматирования секции информации (делегатор или валидатор) с адресами и пулами.
+    """
+    # Формируем разделитель с отступами
+    separator = "\n===================================\n"
+
+    # Заголовок в зависимости от типа задачи
+    if task_type == 'validator':
+        section_title = translate('validator_info_2', user_locale)
+        info_address = translate(info_address_key, user_locale)
+        pool_address = translate(pool_address_key, user_locale)
+    else:
+        section_title = translate('delegator_info', user_locale)
+        info_address = translate(info_address_key, user_locale)
+        pool_address = translate(pool_address_key, user_locale)
+
+    # Формируем контент секции
+    if no_data:
+        section_content = f"{separator}<b>{section_title}</b>{separator}{translate('no_data_for_' + task_type, user_locale)} {address} | {pool}\n"
+    else:
+        section_content = f"{separator}<b>{section_title}</b>{separator}{info_address} <code>{address}</code>\n{pool_address} <code>{pool}</code>\n"
+        # Дополнительные данные (передаем для валидатора или делегатора)
+        if task_result:
+            section_content += parse_delegator_info(task_result, user_locale) if task_type == 'delegator' else parse_validator_info(task_result, user_locale, False)
+
+    return section_content

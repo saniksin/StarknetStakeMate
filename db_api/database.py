@@ -7,6 +7,7 @@ from db_api import sqlalchemy_
 from db_api.models import Users, Base
 from data.all_paths import USERS_DB
 from sqlalchemy import and_, or_
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 db = sqlalchemy_.DB(f'sqlite+aiosqlite:///{USERS_DB}', pool_recycle=3600, connect_args={'check_same_thread': False})
@@ -18,6 +19,7 @@ async def get_account(user_id: str) -> Optional[Users]:
 
 async def get_account_by_username(username: str) -> Optional[Users]:
     return await db.one(Users, Users.user_name == username)
+
 
 async def get_user_tracking(user_id: str) -> Optional[dict]:
     # Получаем пользователя из базы данных по его user_id
@@ -31,21 +33,16 @@ async def get_user_tracking(user_id: str) -> Optional[dict]:
     return None
 
 
-async def get_accounts(
-        quest
-) -> List[Users]:
-    # if quest == 1:
-    #     query = select(Users).where(
-    #         Wallet.layern < today
-    #     )
-    # elif quest == 2:
-    #     query = select(Wallet).where(
-    #         Wallet.twitter_account_status == "GOOD"
-    #     )
-    # else:
-    query = select(Users)
+async def get_strk_notification_users() -> List[Users]:
+    query = select(Users).where(Users.claim_reward_msg != 0)
     return await db.all(query)
 
 
 async def initialize_db():
     await db.create_tables(Base)
+
+
+async def write_to_db(user: Users):
+    async with AsyncSession(db.engine) as session:
+        await session.merge(user)
+        await session.commit()

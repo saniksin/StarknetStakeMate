@@ -1,4 +1,5 @@
 import os
+import asyncio
 
 class AutoRepr:
     """Добавляет поддержку repr для моделей."""
@@ -13,3 +14,6 @@ def get_admins():
     """
     return [int(admin_id) for admin_id in os.getenv("ADMINS_ID", "").split(",") if admin_id]
 
+
+value_of_one_monent_notification = 50
+semaphore = asyncio.Semaphore(value_of_one_monent_notification)

@@ -16,19 +16,21 @@ class Users(Base, AutoRepr):
     user_registration_data = Column(DateTime)
     user_is_blocked = Column(Boolean, default=False)
     tracking_data = Column(Text, nullable=True)
+    claim_reward_msg = Column(Integer)
    
     def __init__(
             self,
             user_id: int,
             user_name: str,
             user_language: str,
-            registration_data: str
+            registration_data: str,
     ) -> None:
         self.user_id = user_id
         self.user_name = user_name
         self.user_language = user_language 
         self.user_registration_data = registration_data
-        self.tracking_data = json.dumps({"wallet_addresses": [], "pools": []})
+        self.tracking_data = json.dumps({"data_pair": []})
+        self.claim_reward_msg = 0
         
     # Метод для получения отслеживаемых данных в виде словаря
     def get_tracking_data(self) -> dict:

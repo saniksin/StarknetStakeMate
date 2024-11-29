@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from data.languages import translate
 from db_api.database import get_user_tracking, Users, db
 from data.contracts import Contracts
+from utils.check_valid_addresses import is_valid_starknet_address
 
 
 class AddInfoState(StatesGroup):
@@ -61,48 +62,72 @@ async def process_add_type(message: types.Message, state: FSMContext, user_local
 # Ввод адреса валидатора
 async def process_validator_address(message: types.Message, state: FSMContext, user_locale: str, user_object: Users):
 
-    # TODO: check address
     validator_address = message.text.strip()
-    
-    # Проверяем, есть ли уже сохраненные адреса и достигает ли лимита
-    user_data = await get_user_tracking(user_object.user_id)
-    if len(user_data['data_pair']) >= 3:
-        await message.reply(translate("info_limit_reached", user_locale))
-        await state.clear()
-        return
+    check = is_valid_starknet_address(validator_address)
+    if check:
+        # Проверяем, есть ли уже сохраненные адреса и достигает ли лимита
+        user_data = await get_user_tracking(user_object.user_id)
+        if len(user_data['data_pair']) >= 3:
+            await message.reply(translate("info_limit_reached", user_locale))
+            await state.clear()
+            return
 
-    await state.update_data(validator_address=validator_address)
-    await state.update_data(pool_address=Contracts.L2_STAKING_CONTRACT.hex_address)
-    await state.update_data(add_validator=True)
-    await state.set_state(AddInfoState.awaiting_prepere_confirmation)
-    await confirm_tracking_data(message, state, user_locale)
+        await state.update_data(validator_address=validator_address)
+        await state.update_data(pool_address=Contracts.L2_STAKING_CONTRACT.hex_address)
+        await state.update_data(add_validator=True)
+        await state.set_state(AddInfoState.awaiting_prepere_confirmation)
+        await confirm_tracking_data(message, state, user_locale)
+    else:
+        await state.clear()
+        await message.reply(
+            translate("invalid_validator_address", locale=user_locale), 
+            parse_mode="HTML"
+        )
+        return
 
 
 # Ввод адреса делегатора
 async def process_delegator_address(message: types.Message, state: FSMContext, user_locale: str, user_object: Users):
-    # TODO: check address
     delegator_address = message.text.strip()
 
-    user_data = await get_user_tracking(user_object.user_id)
-    if len(user_data['data_pair']) >= 3:
-        await message.reply(translate("info_limit_reached", user_locale))
-        await state.clear()
-        return
+    check = is_valid_starknet_address(delegator_address)
+    if check:
+        user_data = await get_user_tracking(user_object.user_id)
+        if len(user_data['data_pair']) >= 3:
+            await message.reply(translate("info_limit_reached", user_locale))
+            await state.clear()
+            return
 
-    # Переход в состояние ожидания адреса пула
-    await state.update_data(delegetor_address=delegator_address)
-    await state.update_data(add_delegator=True)
-    await state.set_state(AddInfoState.awaiting_pool_address)
-    await message.reply(translate("enter_pool_address", user_locale), parse_mode="HTML")
+        # Переход в состояние ожидания адреса пула
+        await state.update_data(delegetor_address=delegator_address)
+        await state.update_data(add_delegator=True)
+        await state.set_state(AddInfoState.awaiting_pool_address)
+        await message.reply(translate("enter_pool_address", user_locale), parse_mode="HTML")
+    else:
+        await state.clear()
+        await message.reply(
+            translate("invalid_delegator_address", locale=user_locale), 
+            parse_mode="HTML"
+        )
+        return
 
 
 # Ввод адреса пула
 async def process_pool_address(message: types.Message, state: FSMContext, user_locale: str):
-    # TODO: check address
     pool_address = message.text.strip()
-    await state.update_data(pool_address=pool_address)
-    await state.set_state(AddInfoState.awaiting_prepere_confirmation)
-    await confirm_tracking_data(message, state, user_locale)
+
+    check = is_valid_starknet_address(pool_address)
+    if check:
+        await state.update_data(pool_address=pool_address)
+        await state.set_state(AddInfoState.awaiting_prepere_confirmation)
+        await confirm_tracking_data(message, state, user_locale)
+    else:
+        await state.clear()
+        await message.reply(
+            translate("invalid_pool_address", locale=user_locale), 
+            parse_mode="HTML"
+        )
+        return
 
 # Функция для подтверждения введенной информации
 async def confirm_tracking_data(message: types.Message, state: FSMContext, user_locale: str):
@@ -146,7 +171,6 @@ async def process_confirmation(message: types.Message, state: FSMContext, user_l
         user_data = await get_user_tracking(user_object.user_id)
 
         if data.get("add_validator"):
-            print(data.get("validator_address"))
             user_data['data_pair'].append([data.get("validator_address"), data.get("pool_address")])
         elif data.get("add_delegator"):
             user_data['data_pair'].append([data.get("delegetor_address"), data.get("pool_address")])
