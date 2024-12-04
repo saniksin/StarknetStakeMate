@@ -20,5 +20,3 @@ ABI_DIR = ROOT_DIR / "smart_contracts_abi"
 for directory in [LOCALES_DIR, FILES_DIR, ABI_DIR]:
     if not directory.exists():
         raise FileNotFoundError(f"Required directory not found: {directory}")
-
-

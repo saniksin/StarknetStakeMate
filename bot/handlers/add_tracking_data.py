@@ -4,13 +4,13 @@ from aiogram import types
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from bot.handlers.clear_state import cancel_operation
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from data.languages import translate
 from db_api.database import get_user_tracking, Users, db
 from data.contracts import Contracts
 from utils.check_valid_addresses import is_valid_starknet_address
+from bot.handlers.clear_state import finish_operation
 
 
 class AddInfoState(StatesGroup):
@@ -56,7 +56,7 @@ async def process_add_type(message: types.Message, state: FSMContext, user_local
         await state.set_state(AddInfoState.awaiting_delegate_address)
 
     else:
-        await cancel_operation(message, state, user_locale)
+        await finish_operation(message, state, user_locale)
 
 
 # Ввод адреса валидатора
@@ -68,8 +68,9 @@ async def process_validator_address(message: types.Message, state: FSMContext, u
         # Проверяем, есть ли уже сохраненные адреса и достигает ли лимита
         user_data = await get_user_tracking(user_object.user_id)
         if len(user_data['data_pair']) >= 3:
-            await message.reply(translate("info_limit_reached", user_locale))
-            await state.clear()
+            await finish_operation(
+                message, state, user_locale, privious_msg=f"{translate("info_limit_reached", user_locale)}"
+            )
             return
 
         await state.update_data(validator_address=validator_address)
@@ -78,10 +79,8 @@ async def process_validator_address(message: types.Message, state: FSMContext, u
         await state.set_state(AddInfoState.awaiting_prepere_confirmation)
         await confirm_tracking_data(message, state, user_locale)
     else:
-        await state.clear()
-        await message.reply(
-            translate("invalid_validator_address", locale=user_locale), 
-            parse_mode="HTML"
+        await finish_operation(
+            message, state, user_locale, privious_msg=f"{translate("invalid_validator_address", user_locale)}"
         )
         return
 
@@ -94,8 +93,9 @@ async def process_delegator_address(message: types.Message, state: FSMContext, u
     if check:
         user_data = await get_user_tracking(user_object.user_id)
         if len(user_data['data_pair']) >= 3:
-            await message.reply(translate("info_limit_reached", user_locale))
-            await state.clear()
+            await finish_operation(
+                message, state, user_locale, privious_msg=f"{translate("info_limit_reached", user_locale)}"
+            )
             return
 
         # Переход в состояние ожидания адреса пула
@@ -104,10 +104,8 @@ async def process_delegator_address(message: types.Message, state: FSMContext, u
         await state.set_state(AddInfoState.awaiting_pool_address)
         await message.reply(translate("enter_pool_address", user_locale), parse_mode="HTML")
     else:
-        await state.clear()
-        await message.reply(
-            translate("invalid_delegator_address", locale=user_locale), 
-            parse_mode="HTML"
+        await finish_operation(
+            message, state, user_locale, privious_msg=f"{translate("invalid_delegator_address", user_locale)}"
         )
         return
 
@@ -122,10 +120,8 @@ async def process_pool_address(message: types.Message, state: FSMContext, user_l
         await state.set_state(AddInfoState.awaiting_prepere_confirmation)
         await confirm_tracking_data(message, state, user_locale)
     else:
-        await state.clear()
-        await message.reply(
-            translate("invalid_pool_address", locale=user_locale), 
-            parse_mode="HTML"
+        await finish_operation(
+            message, state, user_locale, privious_msg=f"{translate("invalid_pool_address", user_locale)}"
         )
         return
 
@@ -145,8 +141,7 @@ async def confirm_tracking_data(message: types.Message, state: FSMContext, user_
             pool_address=data.get('pool_address')
         )
     else:
-        await message.reply(translate("operation_cancelled", user_locale), parse_mode="HTML")
-        await state.clear()
+        await finish_operation(message, state, user_locale)
         return
 
     # Кнопки подтверждения и отмены
@@ -184,12 +179,12 @@ async def process_confirmation(message: types.Message, state: FSMContext, user_l
 
         # Отправляем сообщение пользователю о том, что данные сохранены
         if data.get("add_validator"):
-            await message.reply(translate("validator_info_saved", user_locale), parse_mode="HTML")
+            msg = translate("validator_info_saved", user_locale)
         elif data.get("add_delegator"):
-            await message.reply(translate("delegate_info_saved", user_locale), parse_mode="HTML")
-
-        # Очищаем состояние после успешного сохранения
-        await state.clear()
+            msg = translate("delegate_info_saved", user_locale)
+            
+        # Возвращаемся в главное меню после завершения операции
+        await finish_operation(message, state, user_locale, privious_msg=msg, cancel_msg=False)
 
     elif message.text.lower() == translate("cancel", user_locale).lower():
-        await cancel_operation(message, state, user_locale)
+        await finish_operation(message, state, user_locale)

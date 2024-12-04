@@ -7,6 +7,7 @@ from data.models import get_admins
 from data.languages import translate
 from data.tg_bot import bot
 from db_api.database import get_account_by_username, get_account, Users
+from bot.handlers.clear_state import finish_operation
 
 
 class ContactAdminState(StatesGroup):
@@ -30,6 +31,14 @@ async def start_contact_admin(message: types.Message, state: FSMContext, user_lo
 
 # Отправка сообщения админу
 async def send_message_to_admin(message: types.Message, state: FSMContext, user_locale: str):
+    # Проверяем, что сообщение является текстовым
+    if message.content_type != "text":
+        await message.reply(
+            translate("only_text_supported", user_locale),
+            parse_mode="HTML"
+        )
+        return
+
     admins = get_admins()
 
     # Информация о пользователе
@@ -47,20 +56,38 @@ async def send_message_to_admin(message: types.Message, state: FSMContext, user_
             print(f"Не удалось отправить сообщение админу {admin_id}: {e}")
 
     # Подтверждение пользователю
-    await message.reply(translate("message_sent_to_admin", user_locale), parse_mode="HTML")
-    await state.clear()
+    await finish_operation(
+        message, 
+        state, 
+        user_locale, 
+        privious_msg=f"{translate("message_sent_to_admin", locale=user_locale)}",
+        cancel_msg=False
+    )
 
 
 # Обработчик ответа администратора
-async def admin_reply_handler(message: types.Message, user_locale: str, user_object: Users):
-    # Проверяем, что сообщение является ответом на другое сообщение
+async def admin_reply_handler(message: types.Message, state: FSMContext, user_locale: str, user_object: Users):
+    # Проверяем, что сообщение является ответом и текстовым
     if not message.reply_to_message:
+        return
+
+    if message.content_type != "text":
+        await message.reply(
+            translate("only_text_supported", user_locale),
+            parse_mode="HTML"
+        )
         return
 
     # Получаем текст оригинального сообщения
     original_message = message.reply_to_message
     if not original_message.text:
-        await message.reply(translate("original_message_empty", user_locale))
+        await finish_operation(
+            message, 
+            state, 
+            user_locale, 
+            privious_msg=f"{translate("original_message_empty", locale=user_locale)}",
+            cancel_msg=False
+        )
         return
 
     # Извлекаем упоминание из entities
@@ -83,7 +110,13 @@ async def admin_reply_handler(message: types.Message, user_locale: str, user_obj
                 return
 
     if not user:
-        await message.reply(translate("user_not_found", user_locale))
+        await finish_operation(
+            message, 
+            state, 
+            user_locale, 
+            privious_msg=f"{translate("user_not_found", locale=user_locale)}",
+            cancel_msg=False
+        )
         return
 
     response_text = (
@@ -103,13 +136,20 @@ async def admin_reply_handler(message: types.Message, user_locale: str, user_obj
 
 
 # Обработчик ответа пользователя или администратора
-async def reply_handler(message: types.Message, user_locale: str):
-    # Получаем список администраторов
-    admins = get_admins()
-
-    # Проверяем, является ли сообщение ответом на другое сообщение
+async def reply_handler(message: types.Message, state: FSMContext, user_locale: str):
+    # Проверяем, что сообщение является ответом и текстовым
     if not message.reply_to_message:
         return
+
+    if message.content_type != "text":
+        await message.reply(
+            translate("only_text_supported", user_locale),
+            parse_mode="HTML"
+        )
+        return
+
+    # Получаем список администраторов
+    admins = get_admins()
 
     # Получаем информацию об оригинальном сообщении
     original_message = message.reply_to_message
@@ -205,7 +245,18 @@ async def reply_handler(message: types.Message, user_locale: str):
             # Отправляем сообщение администратору
             await bot.send_message(target_user_id, response_text, parse_mode="HTML")
             # Подтверждение для пользователя, что сообщение успешно отправлено администратору
-            await message.reply(translate("message_sent_to_admin", user_locale), parse_mode="HTML")
+            await finish_operation(
+                message, 
+                state, 
+                user_locale, 
+                privious_msg=f"{translate("message_sent_to_admin", locale=user_locale)}",
+                cancel_msg=False
+            )
         except Exception as e:
-            await message.reply(translate("failed_to_send_message", user_locale) + f": {e}")
-            print(f"Не удалось отправить сообщение администратору {target_user_id}: {e}")
+            await finish_operation(
+                message, 
+                state, 
+                user_locale, 
+                privious_msg=f"{translate("failed_to_send_message", locale=user_locale)}",
+                cancel_msg=False
+            )

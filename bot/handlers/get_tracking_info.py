@@ -10,6 +10,7 @@ from data.contracts import Contracts
 from parse.parse_info import parse_delegator_staking_info, parse_validator_staking_info
 from utils.msg_format import format_section
 from utils.format_decimal import format_decimal
+from bot.handlers.clear_state import finish_operation
 
 
 # Хендлер команды /get_full_info
@@ -18,11 +19,15 @@ async def get_tracking_full_info(message: types.Message, state: FSMContext, user
     if user_object.tracking_data:
         tracking_data = json.loads(user_object.tracking_data)
     else:
-        await message.reply(translate("tracking_data_empty", user_locale), parse_mode="HTML")
+        await finish_operation(
+            message, state, user_locale, privious_msg=f"{translate("tracking_data_empty", user_locale)}"
+        )
         return
     
     if len(tracking_data['data_pair']) == 0:
-        await message.reply(translate("no_addresses_to_parse", user_locale), parse_mode="HTML")
+        await finish_operation(
+            message, state, user_locale, privious_msg=f"{translate("no_addresses_to_parse", user_locale)}"
+        )
         return
 
     # Определение контрактов для стейкинга
@@ -96,11 +101,15 @@ async def get_tracking_reward_info(message: types.Message, state: FSMContext, us
     if user_object.tracking_data:
         tracking_data = json.loads(user_object.tracking_data)
     else:
-        await message.reply(translate("tracking_data_empty", user_locale), parse_mode="HTML")
+        await finish_operation(
+            message, state, user_locale, privious_msg=f"{translate("tracking_data_empty", user_locale)}"
+        )
         return
 
     if len(tracking_data['data_pair']) == 0:
-        await message.reply(translate("no_addresses_to_parse", user_locale), parse_mode="HTML")
+        await finish_operation(
+            message, state, user_locale, privious_msg=f"{translate("no_addresses_to_parse", user_locale)}"
+        )
         return
 
     # Определение контрактов для стейкинга

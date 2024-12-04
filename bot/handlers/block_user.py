@@ -6,7 +6,7 @@ from aiogram.fsm.state import StatesGroup, State
 from data.languages import translate
 from db_api.database import Users, get_account, get_account_by_username, write_to_db
 from data.models import get_admins
-from .clear_state import cancel_operation
+from bot.handlers.clear_state import finish_operation
 
 
 # Состояние для выбора языка
@@ -140,7 +140,7 @@ async def confirm_ban_user(message: types.Message, state: FSMContext, user_local
     
     # Если администратор отменяет блокировку
     elif user_response == translate("no", locale=user_locale).lower():
-        await cancel_operation(message, state, user_locale)
+        await finish_operation(message, state, user_locale)
         return
     
     # Если администратор ввел некорректный ответ

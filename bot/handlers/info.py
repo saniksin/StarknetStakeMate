@@ -7,6 +7,7 @@ from data.languages import translate
 from parse.parse_info import parse_validator_staking_info
 from utils.msg_format import parse_validator_info
 from utils.check_valid_addresses import is_valid_starknet_address
+from bot.handlers.clear_state import finish_operation
 
 
 class ValidatorState(StatesGroup):
@@ -35,11 +36,9 @@ async def get_validator_info(message: types.Message, state: FSMContext, user_loc
 
 async def handle_validator_address(message: types.Message, state: FSMContext, user_locale: str):
     if message.text == translate("cancel", locale=user_locale):
-        await message.reply(
-            translate("operation_cancelled", locale=user_locale), 
-            reply_markup=types.ReplyKeyboardRemove()
+        await finish_operation(
+            message, state, user_locale, privious_msg=f"{translate("operation_cancelled", user_locale)}"
         )
-        await state.clear()
         return
 
     try:
@@ -47,31 +46,29 @@ async def handle_validator_address(message: types.Message, state: FSMContext, us
         if check:
             answer = await parse_validator_staking_info(message.text)
         else:
-            await state.clear()
-            await message.reply(
-                translate("invalid_validator_address", locale=user_locale), 
-                parse_mode="HTML"
+            await finish_operation(
+                message, state, user_locale, privious_msg=f"{translate("invalid_validator_address", user_locale)}"
             )
             return
     except ValueError:
-        await message.reply(
-            translate("invalid_validator_address", locale=user_locale), 
-            parse_mode="HTML"
+        await finish_operation(
+            message, state, user_locale, privious_msg=f"{translate("invalid_validator_address", user_locale)}"
         )
         return
         
     if answer:
-        await message.reply(
-            parse_validator_info(answer, user_locale), 
-            parse_mode="HTML", 
-            reply_markup=types.ReplyKeyboardRemove()
+        await finish_operation(
+            message, 
+            state, 
+            user_locale, 
+            privious_msg=f"{parse_validator_info(answer, user_locale)}",
+            cancel_msg=False
         )
     else:
-        await message.reply(
-            translate(
-                "invalid_validator_address", user_locale), 
-                parse_mode="HTML", 
-                reply_markup=types.ReplyKeyboardRemove()
+        await finish_operation(
+            message, 
+            state, 
+            user_locale, 
+            privious_msg=f"{translate("invalid_validator_address", user_locale)}",
+            cancel_msg=False
         )
-
-    await state.clear()

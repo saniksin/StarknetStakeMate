@@ -4,7 +4,7 @@ from aiogram import types
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from bot.handlers.clear_state import cancel_operation
+from bot.handlers.clear_state import finish_operation
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from data.languages import translate
@@ -39,14 +39,27 @@ async def start_delete_info(message: types.Message, state: FSMContext, user_loca
 async def process_delete_choice(message: types.Message, state: FSMContext, user_locale: str, user_object: Users):
     if message.text.lower() == translate("delete_all_addresses", user_locale).lower():
         # Удаляем все адреса
+        user_data = await get_user_tracking(user_object.user_id)
+
+        # Проверяем, есть ли что удалять
+        if not user_data['data_pair']:
+            await finish_operation(
+                message, state, user_locale, privious_msg=f"{translate("no_addresses_to_delete", user_locale)}"
+            )
+            return
+        
         user_object.tracking_data = json.dumps({"data_pair": []})
 
         async with AsyncSession(db.engine) as session:
             await session.merge(user_object)
             await session.commit()
 
-        await message.reply(translate("all_info_deleted", user_locale), parse_mode="HTML")
-        await state.clear()
+        await finish_operation(
+            message, state, 
+            user_locale, 
+            privious_msg=f"{translate("all_info_deleted", user_locale)}", 
+            cancel_msg=False
+        )
         return
 
     elif message.text.lower() == translate("delete_specific_address", user_locale).lower():
@@ -55,8 +68,9 @@ async def process_delete_choice(message: types.Message, state: FSMContext, user_
 
         # Проверяем, есть ли что удалять
         if not user_data['data_pair']:
-            await message.reply(translate("no_addresses_to_delete", user_locale), parse_mode="HTML")
-            await state.clear()
+            await finish_operation(
+                message, state, user_locale, privious_msg=f"{translate("no_addresses_to_delete", user_locale)}"
+            )
             return
 
         # Определяем контракты для стейкинга
@@ -113,7 +127,7 @@ async def process_delete_choice(message: types.Message, state: FSMContext, user_
             parse_mode="HTML"
         )
     else:
-        await cancel_operation(message, state, user_locale)
+        await finish_operation(message, state, user_locale)
 
 
 async def delete_specific_address(message: types.Message, state: FSMContext, user_locale: str, user_object: Users):
@@ -130,8 +144,9 @@ async def delete_specific_address(message: types.Message, state: FSMContext, use
     pair_to_delete = address_map.get(address_to_delete_text)
 
     if not pair_to_delete:
-        await message.reply(translate("address_not_found", user_locale), parse_mode="HTML")
-        await state.clear()
+        await finish_operation(
+            message, state, user_locale, privious_msg=f"{translate("address_not_found", user_locale)}"
+        )
         return
 
     full_address = pair_to_delete["full_address"]
@@ -141,8 +156,9 @@ async def delete_specific_address(message: types.Message, state: FSMContext, use
     try:
         user_data['data_pair'].remove([full_address, full_pool])
     except ValueError as e:
-        await message.reply(translate("address_not_found", user_locale), parse_mode="HTML")
-        await state.clear()
+        await finish_operation(
+            message, state, user_locale, privious_msg=f"{translate("address_not_found", user_locale)}"
+        )
         return
 
     # Обновляем данные пользователя
@@ -152,7 +168,5 @@ async def delete_specific_address(message: types.Message, state: FSMContext, use
         await session.merge(user_object)
         await session.commit()
 
-    await message.reply(translate("address_deleted", user_locale), parse_mode="HTML")
-    
-    # Очистка состояния после завершения операции
-    await state.clear()
+    msg = translate("address_deleted", user_locale)
+    await finish_operation(message, state, user_locale, privious_msg=msg, cancel_msg=False)
