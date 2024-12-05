@@ -1,7 +1,7 @@
 import sys
+import threading
 
 import asyncio
-import concurrent.futures
 from aiogram.filters import Command
 from bot import handlers
 
@@ -103,39 +103,41 @@ async def register_handlers():
 
 async def start_bot():
     try:
+        await initialize_db()
         await dp.start_polling(bot)
     finally:
         await bot.session.close()
         sys.exit(1)
 
 
-def run_in_thread(loop, func):
-    """Запуск асинхронной функции в отдельном потоке"""
+def run_in_thread(func):
+    """Запуск асинхронной функции в отдельном потоке."""
+    loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(func())
+    try:
+        loop.run_until_complete(func())
+    finally:
+        loop.close()
 
 
 async def main():
+    # Выполняем предварительные задачи
     create_files()
     await initialize_db()
     await register_handlers()
 
-    # Создаём задачи для асинхронных операций
-    polling_task = asyncio.create_task(start_bot())
-    notification_task = asyncio.create_task(send_strk_notification())
-    
-    # Ждем завершения обеих задач
-    await asyncio.gather(polling_task, notification_task)
+    # Создаём поток для уведомлений
+    notification_thread = threading.Thread(
+        target=run_in_thread, args=(send_strk_notification,), daemon=True
+    )
+    notification_thread.start()
 
-    loop = asyncio.get_event_loop()
+    # Запускаем бота в основном потоке
+    await start_bot()
 
-    # Создаем пул потоков для запуска задач в отдельных потоках
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        # Запуск задач в разные потоки
-        await asyncio.gather(
-            loop.run_in_executor(executor, run_in_thread, loop, start_bot),
-            loop.run_in_executor(executor, run_in_thread, loop, send_strk_notification)
-        )
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        print("Программа завершена.")

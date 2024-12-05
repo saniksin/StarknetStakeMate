@@ -1,14 +1,30 @@
 import asyncio
 import json
-
+import aiohttp
 from db_api.database import get_strk_notification_users, write_to_db
 from db_api.models import Users
-from data.tg_bot import bot
 from data.languages import translate
 from data.models import semaphore
 from parse.parse_info import parse_validator_staking_info, parse_delegator_staking_info
 from utils.format_decimal import format_decimal
 from data.contracts import Contracts
+from data.tg_bot import BOT_TOKEN
+
+TELEGRAM_API_BASE = "https://api.telegram.org/bot"
+
+
+async def send_message(chat_id, text):
+    """Отправка сообщения через Telegram API."""
+    url = f"{TELEGRAM_API_BASE}{BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "HTML"
+    }
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=payload) as response:
+            if response.status != 200:
+                print(f"Ошибка отправки сообщения: {await response.text()}")
 
 
 async def start_parse_and_send_notification(user: Users):
@@ -17,7 +33,7 @@ async def start_parse_and_send_notification(user: Users):
 
         user_pool_parse_task = []
         response_message = ""
-        
+
         # Определяем контракты для стейкинга
         staking_contracts = {
             Contracts.L2_STAKING_CONTRACT.hex_address, 
@@ -42,22 +58,14 @@ async def start_parse_and_send_notification(user: Users):
         # Обрабатываем результаты
         for task_result, (address, pool) in zip(results, tracking_data['data_pair']):
             if task_result:
-               
                 result_type = 'validator' if pool in staking_contracts else 'delegator'
-
-                
-                # strk_notification_msg - Уведомление о достижение минимального порога для клейма реварда токенов STRK:
-                # claim_for_validator - Доступный клейм для валидатора: {amount_1} STRK >= {amount_2} 
-                # claim_for_delegator - Доступный клейм для делагатора: {amount_1} STRK >= {amount_2} 
 
                 if result_type == 'validator':
                     unclaimed_rewards_own = format_decimal(task_result[0]['unclaimed_rewards_own'])
                     if float(unclaimed_rewards_own) >= user.claim_reward_msg:
-
                         if message_welcome not in response_message:
                             response_message += message_welcome
 
-                        # Если клейм для валидатора превышает порог
                         response_message += "\n================================\n"
                         response_message += f"{translate('validator_info_2', user.user_language)}\n"
                         response_message += "================================\n"
@@ -69,10 +77,9 @@ async def start_parse_and_send_notification(user: Users):
                 elif result_type == 'delegator':
                     unclaimed_rewards = format_decimal(task_result[0]['unclaimed_rewards'])
                     if float(unclaimed_rewards) >= user.claim_reward_msg:
-                        # Если клейм для делегатора превышает порог
                         if message_welcome not in response_message:
                             response_message += message_welcome
-                            
+
                         response_message += "\n================================\n"
                         response_message += f"{translate('delegator_info', user.user_language)}\n"
                         response_message += "================================\n"
@@ -83,9 +90,7 @@ async def start_parse_and_send_notification(user: Users):
 
         # Если есть уведомления для отправки
         if response_message:
-            await bot.send_message(chat_id=user.user_id, text=response_message, parse_mode="HTML")
-        # else:
-        #     await bot.send_message(chat_id=user.user_id, text=translate("no_rewards_to_claim", user.user_language), parse_mode="HTML")
+            await send_message(chat_id=user.user_id, text=response_message)
 
         # Обновляем информацию о клейме в базе данных
         await write_to_db(user)
@@ -93,7 +98,6 @@ async def start_parse_and_send_notification(user: Users):
 
 async def send_strk_notification():
     while True:
-        
         result_users = await get_strk_notification_users()
         final_user_list = []
         if result_users:
@@ -103,7 +107,7 @@ async def send_strk_notification():
                 if len(tracking_data['data_pair']) == 0:
                     user.claim_reward_msg = 0
                     await write_to_db(user)
-                    await bot.send_message(chat_id=user.user_id, text=translate("no_addresses_to_parse_info", user.user_language), parse_mode="HTML")
+                    await send_message(chat_id=user.user_id, text=translate("no_addresses_to_parse_info", user.user_language))
                 else:
                     final_user_list.append(user)
 
@@ -112,7 +116,7 @@ async def send_strk_notification():
         if final_user_list:
             for user in final_user_list:
                 notification_task.append(asyncio.create_task(start_parse_and_send_notification(user)))
-            
+
             await asyncio.gather(*notification_task)
-        
+
         await asyncio.sleep(3600)
