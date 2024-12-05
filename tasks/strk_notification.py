@@ -1,14 +1,16 @@
+import sys
 import asyncio
 import json
 import aiohttp
 from db_api.database import get_strk_notification_users, write_to_db
 from db_api.models import Users
 from data.languages import translate
-from data.models import semaphore
+from data.models import semaphore, get_admins
 from parse.parse_info import parse_validator_staking_info, parse_delegator_staking_info
 from utils.format_decimal import format_decimal
 from data.contracts import Contracts
 from data.tg_bot import BOT_TOKEN
+
 
 TELEGRAM_API_BASE = "https://api.telegram.org/bot"
 
@@ -98,25 +100,32 @@ async def start_parse_and_send_notification(user: Users):
 
 async def send_strk_notification():
     while True:
-        result_users = await get_strk_notification_users()
-        final_user_list = []
-        if result_users:
-            for user in result_users:
-                tracking_data = json.loads(user.tracking_data)
+        try:
+            result_users = await get_strk_notification_users()
+            final_user_list = []
+            if result_users:
+                for user in result_users:
+                    tracking_data = json.loads(user.tracking_data)
 
-                if len(tracking_data['data_pair']) == 0:
-                    user.claim_reward_msg = 0
-                    await write_to_db(user)
-                    await send_message(chat_id=user.user_id, text=translate("no_addresses_to_parse_info", user.user_language))
-                else:
-                    final_user_list.append(user)
+                    if len(tracking_data['data_pair']) == 0:
+                        user.claim_reward_msg = 0
+                        await write_to_db(user)
+                        await send_message(chat_id=user.user_id, text=translate("no_addresses_to_parse_info", user.user_language))
+                    else:
+                        final_user_list.append(user)
 
-        print(f'Длинна списка с уведомлениями - {len(final_user_list)}')
-        notification_task = []
-        if final_user_list:
-            for user in final_user_list:
-                notification_task.append(asyncio.create_task(start_parse_and_send_notification(user)))
+            print(f'Длинна списка с уведомлениями - {len(final_user_list)}')
+            notification_task = []
+            if final_user_list:
+                for user in final_user_list:
+                    notification_task.append(asyncio.create_task(start_parse_and_send_notification(user)))
 
-            await asyncio.gather(*notification_task)
+                await asyncio.gather(*notification_task)
 
-        await asyncio.sleep(3600)
+            await asyncio.sleep(3600)
+        except KeyError:
+            sys.exit(1)
+        except:
+            admins = get_admins()
+            await send_message(chat_id=admins[0], text="Не работают запросы!")
+            await asyncio.sleep(3600)

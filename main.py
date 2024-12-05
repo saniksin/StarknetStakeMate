@@ -12,6 +12,7 @@ from utils.create_files import create_files
 from utils.filters import AdminReplyFilter, TextFilter, UserReplyToAdminFilter
 from data.languages import translate, possible_prefixes
 from tasks.strk_notification import send_strk_notification
+from data.models import get_admins
 
 
 async def register_handlers():
