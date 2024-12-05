@@ -11,6 +11,7 @@ from db_api.database import get_user_tracking, Users, db
 from data.contracts import Contracts
 from utils.check_valid_addresses import is_valid_starknet_address
 from bot.handlers.clear_state import finish_operation
+from parse.parse_info import parse_delegator_staking_info, parse_validator_staking_info
 
 
 class AddInfoState(StatesGroup):
@@ -24,6 +25,7 @@ class AddInfoState(StatesGroup):
 
 # Начало процесса добавления информации
 async def add_info(message: types.Message, state: FSMContext, user_locale: str):
+    await state.clear()
     # Создаем клавиатуру для выбора типа добавляемой информации
     options_buttons = ReplyKeyboardMarkup(
         keyboard=[
@@ -131,11 +133,43 @@ async def confirm_tracking_data(message: types.Message, state: FSMContext, user_
     # Формируем сообщение для подтверждения на основе того, что добавляется
     confirm_message = ""
     if data.get("add_validator"):
+        await message.reply(
+            translate('check_correct_validator_data', user_locale), 
+            parse_mode="HTML"
+        )
+
+        result = await parse_validator_staking_info(data.get('validator_address'))
+        if not result[0]:
+            await state.clear()
+            await finish_operation(
+                message, 
+                state, 
+                user_locale, 
+                privious_msg=f"{translate("incorrect_validator_data", user_locale)}", 
+                cancel_msg=False
+            )
+            return
         confirm_message = translate("confirm_validator_info", user_locale).format(
             validator_address=data.get('validator_address'),
             pool_address=data.get('pool_address')
         )
     elif data.get("add_delegator"):
+        await message.reply(
+            translate('check_correct_delegator_data', user_locale), 
+            parse_mode="HTML"
+        )
+
+        result = await parse_delegator_staking_info(data.get('delegetor_address'), data.get('pool_address'))
+        if not result:
+            await state.clear()
+            await finish_operation(
+                message, 
+                state, 
+                user_locale, 
+                privious_msg=f"{translate("incorrect_delegator_data", user_locale)}", 
+                cancel_msg=False
+            )
+            return
         confirm_message = translate("confirm_delegate_info", user_locale).format(
             delegate_address=data.get('delegetor_address'),
             pool_address=data.get('pool_address')
@@ -180,11 +214,13 @@ async def process_confirmation(message: types.Message, state: FSMContext, user_l
         # Отправляем сообщение пользователю о том, что данные сохранены
         if data.get("add_validator"):
             msg = translate("validator_info_saved", user_locale)
+            await state.clear()
+            await finish_operation(message, state, user_locale, privious_msg=msg, cancel_msg=False)
         elif data.get("add_delegator"):
             msg = translate("delegate_info_saved", user_locale)
-            
-        # Возвращаемся в главное меню после завершения операции
-        await finish_operation(message, state, user_locale, privious_msg=msg, cancel_msg=False)
+            await state.clear()
+            await finish_operation(message, state, user_locale, privious_msg=msg, cancel_msg=False)
 
     elif message.text.lower() == translate("cancel", user_locale).lower():
+        await state.clear()
         await finish_operation(message, state, user_locale)

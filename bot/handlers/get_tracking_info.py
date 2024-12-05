@@ -150,9 +150,9 @@ async def get_tracking_reward_info(message: types.Message, state: FSMContext, us
             if task_type == 'validator':
                 # Формируем информацию только по реварду для валидатора
                 unclaimed_rewards_own = f"{format_decimal(task_data['unclaimed_rewards_own'])} STRK"
-                response_message += "\n===================================\n"
+                response_message += "\n================================\n"
                 response_message += f"<b>{translate('validator_info_2', user_locale)}</b>\n"
-                response_message += "===================================\n"
+                response_message += "================================\n"
                 response_message += f"{translate('reward_address', user_locale)} <code>{address}</code>\n"
                 response_message += f"{translate('staking_info_address', user_locale)} <code>{pool}</code>\n"
                 response_message += f"{translate('unclaimed_rewards_own', user_locale)} {unclaimed_rewards_own}\n"
@@ -160,9 +160,9 @@ async def get_tracking_reward_info(message: types.Message, state: FSMContext, us
             elif task_type == 'delegator':
                 # Формируем информацию только по реварду для делегатора
                 unclaimed_rewards = f"{format_decimal(task_data['unclaimed_rewards'])} STRK"
-                response_message += "\n===================================\n"
+                response_message += "\n================================\n"
                 response_message += f"<b>{translate('delegator_info', user_locale)}</b>\n"
-                response_message += "===================================\n"
+                response_message += "================================\n"
                 response_message += f"{translate('reward_address', user_locale)} <code>{address}</code>\n"
                 response_message += f"{translate('pool_info_address', user_locale)} <code>{pool}</code>\n"
                 response_message += f"{translate('delegator_unclaimed_rewards', user_locale)} {unclaimed_rewards}\n"
@@ -170,18 +170,18 @@ async def get_tracking_reward_info(message: types.Message, state: FSMContext, us
         else:
             if task_type == 'validator':
                 # Если нет данных для валидатора
-                response_message += "\n===================================\n"
+                response_message += "\n================================\n"
                 response_message += f"<b>{translate('validator_info_2', user_locale)}</b>\n"
-                response_message += "===================================\n"
+                response_message += "================================\n"
                 response_message += f"{translate('reward_address', user_locale)} <code>{address}</code>\n"
                 response_message += f"{translate('staking_info_address', user_locale)} <code>{pool}</code>\n"
                 response_message += f"{translate('invalid_validator_address', user_locale)}"
                 #response_message += "\n"  # Разделитель
             elif task_type == 'delegator':
                 # Если нет данных для делегатора
-                response_message += "\n===================================\n"
+                response_message += "\n================================\n"
                 response_message += f"<b>{translate('delegator_info', user_locale)}</b>\n"
-                response_message += "===================================\n"
+                response_message += "================================\n"
                 response_message += f"{translate('reward_address', user_locale)} <code>{address}</code>\n"
                 response_message += f"{translate('pool_info_address', user_locale)} <code>{pool}</code>\n"
                 response_message += f"{translate('invalid_delegator_address', user_locale)}"

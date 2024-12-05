@@ -58,9 +58,9 @@ async def start_parse_and_send_notification(user: Users):
                             response_message += message_welcome
 
                         # Если клейм для валидатора превышает порог
-                        response_message += "\n===================================\n"
+                        response_message += "\n================================\n"
                         response_message += f"{translate('validator_info_2', user.user_language)}\n"
-                        response_message += "===================================\n"
+                        response_message += "================================\n"
                         response_message += f"{translate('reward_address', user.user_language)} <code>{address}</code>\n"
                         response_message += f"{translate('staking_info_address', user.user_language)} <code>{pool}</code>\n"
                         response_message += f"{translate('claim_for_validator', user.user_language).format(
@@ -73,9 +73,9 @@ async def start_parse_and_send_notification(user: Users):
                         if message_welcome not in response_message:
                             response_message += message_welcome
                             
-                        response_message += "\n===================================\n"
+                        response_message += "\n================================\n"
                         response_message += f"{translate('delegator_info', user.user_language)}\n"
-                        response_message += "===================================\n"
+                        response_message += "================================\n"
                         response_message += f"{translate('reward_address', user.user_language)} <code>{address}</code>\n"
                         response_message += f"{translate('pool_info_address', user.user_language)} <code>{pool}</code>\n"
                         response_message += f"{translate('claim_for_delegator', user.user_language).format(

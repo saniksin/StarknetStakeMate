@@ -23,7 +23,7 @@
     "enter_validator_address_2": "Enter the validator address or use the default address button",
     "cancel": "Cancel",
     "operation_cancelled": "❌ Operation cancelled.",
-    "invalid_choice": "Unknown command. Please use /help for a list of available commands.",
+    "invalid_choice": "Unknown command. Please use <code><b>❓ Available commands</b></code> for a list of available commands.",
     "invalid_language_choice": "The specified language is not supported. Available languages: English, Русский, Українська",
     "contact_admin_prompt": "✉️ <b>Contact the administrator:</b>\n\nPlease enter your message for the administrator. Only text messages are supported.\n\nTo cancel, use the <b>Cancel</b> button.",
     "message_from_user": "Message from user",
@@ -116,5 +116,9 @@
     "language": "🌐 Set up language",
     "contact_admin": "📞 Contact Administration",
     "only_text_supported": "❌ Only text messages are supported.",
-    "help": "❓ Available commands"
+    "help": "❓ Available commands",
+    "check_correct_validator_data": "🔍 Checking if such a validator exists...",
+    "check_correct_delegator_data": "🔍 Checking if such a delegator exists in the specified pool or if such a pool exists...",
+    "incorrect_validator_data": "❌ <b>Error:</b> Failed to retrieve information. The specified validator does not exist. Please check if the validator address is correct.",
+    "incorrect_delegator_data": "❌ <b>Error:</b> Failed to retrieve information. Please check if the delegator address is correct, the pool address is valid, and whether the delegator has delegated tokens to the pool."
 }
