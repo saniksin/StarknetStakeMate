@@ -14,9 +14,9 @@ LOCALES_DIR = ROOT_DIR / "locales"
 FILES_DIR = ROOT_DIR / "files"
 USERS_DB = FILES_DIR / "users.db"
 ABI_DIR = ROOT_DIR / "smart_contracts_abi"
+LOG_DIR = ROOT_DIR / "logs"
 
 
-# Проверяем существование необходимых директорий
-for directory in [LOCALES_DIR, FILES_DIR, ABI_DIR]:
-    if not directory.exists():
-        raise FileNotFoundError(f"Required directory not found: {directory}")
+# Создаем необходимые директории, если они не существуют
+for directory in [LOCALES_DIR, FILES_DIR, ABI_DIR, LOG_DIR]:
+    directory.mkdir(parents=True, exist_ok=True)

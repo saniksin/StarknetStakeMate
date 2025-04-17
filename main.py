@@ -1,6 +1,5 @@
 import sys
 import threading
-
 import asyncio
 from aiogram.filters import Command
 from bot import handlers
@@ -13,6 +12,7 @@ from utils.filters import AdminReplyFilter, TextFilter, UserReplyToAdminFilter
 from data.languages import translate, possible_prefixes
 from tasks.strk_notification import send_strk_notification
 from data.models import get_admins
+from utils.logger import logger
 
 
 async def register_handlers():
@@ -104,9 +104,15 @@ async def register_handlers():
 
 async def start_bot():
     try:
+        logger.info("Starting bot initialization...")
         await initialize_db()
+        logger.info("Database initialized successfully")
         await dp.start_polling(bot)
+    except Exception as e:
+        logger.error(f"Error during bot startup: {e}")
+        raise
     finally:
+        logger.info("Closing bot session...")
         await bot.session.close()
         sys.exit(1)
 
@@ -122,6 +128,7 @@ def run_in_thread(func):
 
 
 async def main():
+    logger.info("Starting application...")
     # Выполняем предварительные задачи
     create_files()
     await initialize_db()
@@ -132,8 +139,10 @@ async def main():
         target=run_in_thread, args=(send_strk_notification,), daemon=True
     )
     notification_thread.start()
+    logger.info("Notification thread started")
 
     # Запускаем бота в основном потоке
+    logger.info("Starting bot...")
     await start_bot()
 
 
@@ -141,4 +150,7 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        print("Программа завершена.")
+        logger.info("Program terminated by user")
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        raise

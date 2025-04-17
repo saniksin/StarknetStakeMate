@@ -4,3 +4,4 @@ aiogram_dialog==2.2.0
 sqlalchemy==2.0.36
 aiosqlite==0.20.0
 starknet-py==0.24.3
+loguru==0.7.2
