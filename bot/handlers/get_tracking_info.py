@@ -12,11 +12,21 @@ from utils.msg_format import format_section
 from utils.format_decimal import format_decimal
 from bot.handlers.clear_state import finish_operation
 from utils.logger import logger
+from utils.cache import cache, get_cache_key
 
 
 # Хендлер команды /get_full_info
 async def get_tracking_full_info(message: types.Message, state: FSMContext, user_locale: str, user_object: Users):
     logger.info(f"User {message.from_user.id} requested full tracking info")
+    
+    # Проверяем кеш
+    cache_key = get_cache_key(message.from_user.id, "full_info")
+    cached_data = await cache.get(cache_key)
+    
+    if cached_data:
+        logger.info(f"Found cached data for user {message.from_user.id}")
+        await message.reply(cached_data, parse_mode="HTML")
+        return
     
     # Загрузка данных отслеживания пользователя
     if user_object.tracking_data:
@@ -102,6 +112,8 @@ async def get_tracking_full_info(message: types.Message, state: FSMContext, user
     # Отправляем пользователю сообщение
     if response_message:
         logger.info(f"Successfully sent full tracking info to user {message.from_user.id}")
+        # Сохраняем в кеш
+        await cache.set(cache_key, response_message)
         await message.reply(response_message, parse_mode="HTML")
     else:
         logger.warning(f"No tracking info to send to user {message.from_user.id}")
@@ -111,6 +123,15 @@ async def get_tracking_full_info(message: types.Message, state: FSMContext, user
 # Хендлер команды /get_reward_info
 async def get_tracking_reward_info(message: types.Message, state: FSMContext, user_locale: str, user_object: Users):
     logger.info(f"User {message.from_user.id} requested reward info")
+    
+    # Проверяем кеш
+    cache_key = get_cache_key(message.from_user.id, "reward_info")
+    cached_data = await cache.get(cache_key)
+    
+    if cached_data:
+        logger.info(f"Found cached data for user {message.from_user.id}")
+        await message.reply(cached_data, parse_mode="HTML")
+        return
     
     # Загрузка данных отслеживания пользователя
     if user_object.tracking_data:
@@ -209,6 +230,8 @@ async def get_tracking_reward_info(message: types.Message, state: FSMContext, us
     # Отправляем пользователю сообщение
     if response_message:
         logger.info(f"Successfully sent reward info to user {message.from_user.id}")
+        # Сохраняем в кеш
+        await cache.set(cache_key, response_message.strip())
         await message.reply(response_message.strip(), parse_mode="HTML")
     else:
         logger.warning(f"No reward info to send to user {message.from_user.id}")

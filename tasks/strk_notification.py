@@ -10,6 +10,8 @@ from parse.parse_info import parse_validator_staking_info, parse_delegator_staki
 from utils.format_decimal import format_decimal
 from data.contracts import Contracts
 from data.tg_bot import BOT_TOKEN
+from utils.cache import clear_user_cache
+from utils.logger import logger
 
 
 TELEGRAM_API_BASE = "https://api.telegram.org/bot"
@@ -129,3 +131,22 @@ async def send_strk_notification():
             admins = get_admins()
             await send_message(chat_id=admins[0], text="Не работают запросы!")
             await asyncio.sleep(3600)
+
+
+async def update_user_notification_data(user_id: int, new_data: dict):
+    """Обновляет данные уведомлений пользователя"""
+    try:
+        async with AsyncSession(db.engine) as session:
+            user = await session.get(Users, user_id)
+            if user:
+                user.notification_data = json.dumps(new_data)
+                await session.commit()
+                
+                # Очищаем кеш пользователя после обновления данных
+                logger.info(f"Clearing cache for user {user_id} after updating notification data")
+                await clear_user_cache(user_id)
+                
+                return True
+    except Exception as e:
+        logger.error(f"Error updating notification data for user {user_id}: {str(e)}")
+    return False

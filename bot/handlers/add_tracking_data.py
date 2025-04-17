@@ -12,6 +12,8 @@ from data.contracts import Contracts
 from utils.check_valid_addresses import is_valid_starknet_address
 from bot.handlers.clear_state import finish_operation
 from parse.parse_info import parse_delegator_staking_info, parse_validator_staking_info
+from utils.cache import clear_user_cache
+from utils.logger import logger
 
 
 class AddInfoState(StatesGroup):
@@ -210,6 +212,10 @@ async def process_confirmation(message: types.Message, state: FSMContext, user_l
         async with AsyncSession(db.engine) as session:
             await session.merge(user_object)
             await session.commit()
+
+        # Очищаем кеш пользователя
+        logger.info(f"Clearing cache for user {user_object.user_id} after adding new data")
+        await clear_user_cache(user_object.user_id)
 
         # Отправляем сообщение пользователю о том, что данные сохранены
         if data.get("add_validator"):

@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from data.languages import translate
 from db_api.database import get_user_tracking, Users, db
 from data.contracts import Contracts
+from utils.cache import clear_user_cache
+from utils.logger import logger
 
 
 class DeleteInfoState(StatesGroup):
@@ -168,5 +170,48 @@ async def delete_specific_address(message: types.Message, state: FSMContext, use
         await session.merge(user_object)
         await session.commit()
 
+    # Очищаем кеш пользователя после удаления адреса
+    logger.info(f"Clearing cache for user {user_object.user_id} after deleting specific address")
+    await clear_user_cache(user_object.user_id)
+
     msg = translate("address_deleted", user_locale)
     await finish_operation(message, state, user_locale, privious_msg=msg, cancel_msg=False)
+
+
+async def process_confirmation(message: types.Message, state: FSMContext, user_locale: str, user_object: Users):
+    data = await state.get_data()
+
+    if message.text.lower() == translate("delete", user_locale).lower():
+        # Получаем текущие данные пользователя
+        user_data = await get_user_tracking(user_object.user_id)
+        
+        # Удаляем выбранные адреса
+        if data.get("delete_all"):
+            user_data['data_pair'] = []
+        else:
+            selected_indices = data.get("selected_indices", [])
+            # Удаляем адреса в обратном порядке, чтобы индексы не смещались
+            for index in sorted(selected_indices, reverse=True):
+                if 0 <= index < len(user_data['data_pair']):
+                    user_data['data_pair'].pop(index)
+
+        # Сохраняем обновленные данные
+        user_object.tracking_data = json.dumps(user_data)
+
+        # Сохраняем обновленные данные в базу
+        async with AsyncSession(db.engine) as session:
+            await session.merge(user_object)
+            await session.commit()
+
+        # Очищаем кеш пользователя
+        logger.info(f"Clearing cache for user {user_object.user_id} after deleting data")
+        await clear_user_cache(user_object.user_id)
+
+        # Отправляем сообщение пользователю о том, что данные удалены
+        msg = translate("data_deleted", user_locale)
+        await state.clear()
+        await finish_operation(message, state, user_locale, privious_msg=msg, cancel_msg=False)
+
+    elif message.text.lower() == translate("cancel", user_locale).lower():
+        await state.clear()
+        await finish_operation(message, state, user_locale)
