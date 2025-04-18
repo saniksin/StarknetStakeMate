@@ -110,7 +110,7 @@ def parse_validator_info(data, user_locale: str, address, pool, status=True):
 
     # Обработка данных пула
     pool_contract = f"<code>{to_hex(data['pool_info']['pool_contract'])}</code>"
-    pool_unclaimed_rewards = f"{format_decimal(data['pool_info']['unclaimed_rewards'])} STRK"
+    pool_unclaimed_rewards = f"{format_decimal(data['unclaimed_rewards_own'])} STRK"
     pool_commission = data["pool_info"]["commission"] / 100
 
     if status:
