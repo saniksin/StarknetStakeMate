@@ -2,6 +2,7 @@ from aiogram import types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
+import asyncio
 
 from data.languages import translate
 from parse.parse_info import parse_validator_staking_info
@@ -105,6 +106,14 @@ async def handle_validator_address(message: types.Message, state: FSMContext, us
         )
         return
 
+    # Проверяем, не обрабатывается ли уже запрос этого пользователя
+    if queue_manager.is_processing("validator_info", message.from_user.id):
+        await message.reply(
+            translate("request_already_processing", user_locale),
+            parse_mode="HTML"
+        )
+        return
+
     # Добавляем задачу в очередь
     position, success = await queue_manager.add_to_queue(
         "validator_info",
@@ -126,5 +135,5 @@ async def handle_validator_address(message: types.Message, state: FSMContext, us
         parse_mode="HTML"
     )
 
-    # Запускаем обработку очереди
-    await queue_manager.process_queue("validator_info", process_validator_info)
+    # Запускаем обработку очереди в фоновом режиме
+    asyncio.create_task(queue_manager.process_queue("validator_info", process_validator_info))

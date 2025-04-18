@@ -128,6 +128,7 @@
     "rate_limit_warning": "⚠️ <b>Rate limit exceeded!</b>\n\nYou have exceeded the limit of 20 commands per minute. Please wait a bit before sending more commands.",
     "queue_position": "⏳ <b>Your request has been added to the queue</b>\n\nCurrent position in queue: <b>{position}</b>\n\nPlease wait while your request is being processed.",
     "queue_full": "⚠️ <b>Request queue is full</b>\n\nPlease try again later.",
+    "request_already_processing": "⏳ <b>Your previous request is still being processed</b>\n\nPlease wait until the current request is completed before sending a new one.",
     "basic_info": "📋 <b>Basic Information</b>",
     "staking": "💰 <b>Staking</b>",
     "delegated": "Delegated",
