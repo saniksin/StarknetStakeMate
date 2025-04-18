@@ -18,7 +18,7 @@ class RequestQueue:
     def __init__(self):
         self.queue: Deque[QueueItem] = deque()
         self.processing: Dict[int, QueueItem] = {}
-        self.max_concurrent = 3  # Максимальное количество одновременных запросов
+        self.max_concurrent = 300  # Максимальное количество одновременных запросов
         
     async def add_request(self, user_id: int, request_type: str, task: asyncio.Task) -> int:
         """Добавляет запрос в очередь и возвращает позицию в очереди"""
