@@ -38,7 +38,7 @@ def parse_delegator_info(data, user_locale: str, address, pool):
         f"├ • {translate('unclaimed', user_locale)}: {unclaimed_rewards}\n"
         f"└ • {translate('withdrawing', user_locale)}: {unpool_amount}\n\n"
 
-        f"• 🔄 {translate('unstake_status', user_locale)} {translate('delegator_cannot_unstake', user_locale)} {f'- {unpool_time}' if unpool_time else ''}\n"
+        f"• 🔄 {translate('unstake_status_2', user_locale)} {translate('delegator_cannot_unstake', user_locale)} {f'- {unpool_time}' if unpool_time else ''}\n"
         f"• 📈 {translate('pool_commission', user_locale)} {commission:.2f}%\n"
         f"─────────────────────"
     )
@@ -100,7 +100,7 @@ def parse_validator_info(data, user_locale: str, address, pool, status=True):
             f"├<code>{pool}</code>\n"
             f"├ • {translate('reward_address_2', user_locale)}:\n"
             f"├{reward_address}\n"
-            f"├ • {translate('operational_address', user_locale)}:\n"
+            f"├ • {translate('operational_address_2', user_locale)}:\n"
             f"├{operational_address}\n"
             f"├ • {translate('pool_contract', user_locale)}:\n"
             f"└{pool_contract}\n\n"
@@ -111,7 +111,7 @@ def parse_validator_info(data, user_locale: str, address, pool, status=True):
             f"└ • {translate('pool_unclaimed_rewards_2', user_locale)} {pool_unclaimed_rewards}\n\n"
 
 
-            f"• 🔄 {translate('unstake_status', user_locale)} {unstake_status}\n"
+            f"• 🔄 {translate('unstake_status_2', user_locale)} {unstake_status}\n"
             f"• 📈 {translate('pool_commission', user_locale)} {pool_commission:.2f}%\n"
             f"─────────────────────"
         )
@@ -140,7 +140,6 @@ def format_section(user_locale, task_type, task_result, address, pool, info_addr
     if no_data:
         section_content = f"\n{separator}\n<b>{section_title}</b>\n{separator}\n{translate('no_data_for_' + task_type, user_locale)} {address} | {pool}\n"
     else:
-        print(f"<code>{address}</code>\n{pool_address} <code>{pool}</code>\n")
         section_content = f"\n{separator}\n<b>{section_title}</b>\n{separator}\n" # {info_address} <code>{address}</code>\n{pool_address} <code>{pool}</code>\n
         # Дополнительные данные (передаем для валидатора или делегатора)
         if task_result:

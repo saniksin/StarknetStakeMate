@@ -7,8 +7,10 @@
     "validator_info": "🛠️ <b>Validator Information</b>",
     "reward_address": "🏦 <b>Reward Address:</b>",
     "reward_address_2": "Reward Address",
-    "operational_address": "Operational Address",
-    "unstake_status": "Unstake Status:",
+    "operational_address": "⚙️ <b>Operational Address:</b>",
+    "operational_address_2": "Operational Address",
+    "unstake_status": "🚪 <b>Unstake Status:</b>",
+    "unstake_status_2": "Unstake Status:",
     "can_unstake": "Validator has not initiated an unstake tokens.✅",
     "cannot_unstake": "Validator <b>has initiated</b> an unstake tokens. ❌",
     "amount_own": "Validator's Own Stake:",
@@ -131,7 +133,8 @@
     "delegated": "Delegated",
     "unclaimed": "Unclaimed",
     "withdrawing": "Withdrawing",
-    "amount_own_2": "Own Stake",
-    "unclaimed_rewards_own_2": "Unclaimed",
-    "pool_unclaimed_rewards_2": "Unclaimed in Pool"
+    "amount_own_2": "Own Stake:",
+    "unclaimed_rewards_own_2": "Unclaimed:",
+    "pool_unclaimed_rewards_2": "Unclaimed in Pool:",
+    "contract_address": "Staking Contract"
 }

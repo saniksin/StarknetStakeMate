@@ -58,7 +58,7 @@ async def process_validator_info(user_id: int, task_data: dict):
         return
         
     if answer:
-        response_message = parse_validator_info(answer, user_locale)
+        response_message = parse_validator_info(answer, user_locale, message.text, "mainnet")
         # Сохраняем в кеш
         await cache.set(cache_key, response_message)
         await finish_operation(
