@@ -9,6 +9,7 @@ from utils.msg_format import parse_validator_info
 from utils.check_valid_addresses import is_valid_starknet_address
 from bot.handlers.clear_state import finish_operation
 from utils.queue_manager import queue_manager
+from utils.cache import cache, get_cache_key
 import logging
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,21 @@ async def process_validator_info(user_id: int, task_data: dict):
     try:
         check = is_valid_starknet_address(message.text)
         if check:
+            # Проверяем кеш
+            cache_key = get_cache_key(user_id, f"validator_info_{message.text}")
+            cached_data = await cache.get(cache_key)
+            
+            if cached_data:
+                logger.info(f"Found cached data for validator {message.text}")
+                await finish_operation(
+                    message, 
+                    state, 
+                    user_locale, 
+                    privious_msg=cached_data,
+                    cancel_msg=False
+                )
+                return
+
             answer = await parse_validator_staking_info(message.text)
         else:
             await finish_operation(
@@ -42,11 +58,14 @@ async def process_validator_info(user_id: int, task_data: dict):
         return
         
     if answer:
+        response_message = parse_validator_info(answer, user_locale)
+        # Сохраняем в кеш
+        await cache.set(cache_key, response_message)
         await finish_operation(
             message, 
             state, 
             user_locale, 
-            privious_msg=f"{parse_validator_info(answer, user_locale)}",
+            privious_msg=response_message,
             cancel_msg=False
         )
     else:
