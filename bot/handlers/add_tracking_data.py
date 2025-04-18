@@ -71,7 +71,7 @@ async def process_validator_address(message: types.Message, state: FSMContext, u
     if check:
         # Проверяем, есть ли уже сохраненные адреса и достигает ли лимита
         user_data = await get_user_tracking(user_object.user_id)
-        if len(user_data['data_pair']) >= 3:
+        if len(user_data['data_pair']) >= 5:
             await finish_operation(
                 message, state, user_locale, privious_msg=f"{translate("info_limit_reached", user_locale)}"
             )
@@ -96,7 +96,7 @@ async def process_delegator_address(message: types.Message, state: FSMContext, u
     check = is_valid_starknet_address(delegator_address)
     if check:
         user_data = await get_user_tracking(user_object.user_id)
-        if len(user_data['data_pair']) >= 3:
+        if len(user_data['data_pair']) >= 5:
             await finish_operation(
                 message, state, user_locale, privious_msg=f"{translate("info_limit_reached", user_locale)}"
             )
