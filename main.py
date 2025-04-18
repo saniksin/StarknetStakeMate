@@ -5,7 +5,7 @@ from aiogram.filters import Command
 from bot import handlers
 
 from data.tg_bot import dp, bot
-from bot.middlewares import LocaleMiddleware
+from bot.middlewares import LocaleMiddleware, RateLimitMiddleware
 from db_api.database import initialize_db
 from utils.create_files import create_files
 from utils.filters import AdminReplyFilter, TextFilter, UserReplyToAdminFilter
@@ -18,6 +18,7 @@ from utils.logger import logger
 async def register_handlers():
     # проверка пользователя
     dp.update.middleware(LocaleMiddleware(supported_locales=possible_prefixes, default_locale="en"))
+    dp.update.middleware(RateLimitMiddleware())
     
     # возвращаемся в главное меню
     dp.message.register(handlers.finish_operation, TextFilter(text=[translate("cancel", locale) for locale in possible_prefixes]))

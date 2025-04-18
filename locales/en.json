@@ -120,5 +120,6 @@
     "check_correct_validator_data": "🔍 Checking if such a validator exists...",
     "check_correct_delegator_data": "🔍 Checking if such a delegator exists in the specified pool or if such a pool exists...",
     "incorrect_validator_data": "❌ <b>Error:</b> Failed to retrieve information. The specified validator does not exist. Please check if the validator address is correct.",
-    "incorrect_delegator_data": "❌ <b>Error:</b> Failed to retrieve information. Please check if the delegator address is correct, the pool address is valid, and whether the delegator has delegated tokens to the pool."
+    "incorrect_delegator_data": "❌ <b>Error:</b> Failed to retrieve information. Please check if the delegator address is correct, the pool address is valid, and whether the delegator has delegated tokens to the pool.",
+    "rate_limit_warning": "⚠️ <b>Rate limit exceeded!</b>\n\nYou have exceeded the limit of 20 commands per minute. Please wait a bit before sending more commands."
 }
