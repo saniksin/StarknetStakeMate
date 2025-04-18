@@ -10,9 +10,10 @@ class AutoRepr:
 
 def get_admins():
     """
-    Получение списка ID администраторов из .env
+    Получение списка администраторов из переменной окружения
     """
-    return [int(admin_id) for admin_id in os.getenv("ADMINS_ID", "").split(",") if admin_id]
+    admins_str = os.getenv("ADMINS_ID", "").strip("[]")
+    return [int(admin_id) for admin_id in admins_str.split(",") if admin_id]
 
 
 value_of_one_monent_notification = 50
