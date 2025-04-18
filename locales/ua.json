@@ -136,5 +136,6 @@
     "amount_own_2": "Власний стейк:",
     "unclaimed_rewards_own_2": "Незаклеймлено:",
     "pool_unclaimed_rewards_2": "Незаклеймлена в пулі:",
-    "contract_address": "Контракт стейкінгу"
+    "contract_address": "Контракт стейкінгу",
+    "unpool_time": "Токени будуть доступні для виведення:"
 }

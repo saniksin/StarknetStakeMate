@@ -1,5 +1,17 @@
 from data.languages import translate
 from utils.format_decimal import format_decimal
+from datetime import datetime
+
+
+def convert_timestamp_to_utc(timestamp):
+    """
+    Конвертирует Unix timestamp в строку UTC времени
+    """
+    try:
+        dt = datetime.fromtimestamp(int(timestamp))
+        return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+    except (ValueError, TypeError):
+        return str(timestamp)
 
 
 def parse_delegator_info(data, user_locale: str, address, pool):
@@ -24,7 +36,19 @@ def parse_delegator_info(data, user_locale: str, address, pool):
     commission = data["commission"] / 100  # Конвертируем в проценты
     unpool_amount = f"{format_decimal(data.get('unpool_amount', 0))} STRK"
     unpool_time = data.get("unpool_time", None)
-    print(f"{pool}")
+    
+    # Форматируем время анстейка, если оно есть
+    if unpool_time and isinstance(unpool_time, dict):
+        unpool_time = unpool_time.get('seconds', None)
+        if unpool_time:
+            unpool_time = convert_timestamp_to_utc(unpool_time)
+    
+    # Определяем статус анстейка
+    if unpool_time:
+        unstake_status = f"{translate('delegator_cannot_unstake_2', user_locale)}\n└ {translate('unpool_time', user_locale)} {unpool_time} UTC"
+    else:
+        unstake_status = f"{translate('delegator_cannot_unstake', user_locale)}"
+    
     # Формирование сообщения для делегатора
     message = (
         f"┌ {translate('basic_info', user_locale)}\n"
@@ -37,8 +61,9 @@ def parse_delegator_info(data, user_locale: str, address, pool):
         f"├ • {translate('delegated', user_locale)}: {amount}\n"
         f"├ • {translate('unclaimed', user_locale)}: {unclaimed_rewards}\n"
         f"└ • {translate('withdrawing', user_locale)}: {unpool_amount}\n\n"
-
-        f"• 🔄 {translate('unstake_status_2', user_locale)} {translate('delegator_cannot_unstake', user_locale)} {f'- {unpool_time}' if unpool_time else ''}\n"
+        
+        f"• 🔄 {translate('unstake_status_2', user_locale)} {unstake_status}\n" if not unpool_time else f"┌ 🔄 {translate('unstake_status_2', user_locale)} {unstake_status}\n\n"
+        
         f"• 📈 {translate('pool_commission', user_locale)} {commission:.2f}%\n"
         f"─────────────────────"
     )
@@ -65,16 +90,28 @@ def parse_validator_info(data, user_locale: str, address, pool, status=True):
     reward_address = f"<code>{to_hex(data['reward_address'])}</code>"
     operational_address = f"<code>{to_hex(data['operational_address'])}</code>"
     unstake_time = data["unstake_time"]
-    unstake_status = (
-        translate("can_unstake", user_locale) if unstake_time is None else f"{translate('cannot_unstake', user_locale)} - {unstake_time}"
-    )
+    
+    # Форматируем время анстейка, если оно есть
+    if unstake_time and isinstance(unstake_time, dict):
+        unstake_time = unstake_time.get('seconds', None)
+        if unstake_time:
+            unstake_time = convert_timestamp_to_utc(unstake_time)
+
+    unpool_time = data.get("unpool_time", None)
+    
+    # Определяем статус анстейка
+    if unstake_time:
+        unstake_status = f"{translate('cannot_unstake', user_locale)}\n└ •{translate('unpool_time', user_locale)} {unpool_time} UTC"
+    else:
+        unstake_status = f"{translate('can_unstake', user_locale)}"
+        
     amount_own = f"{format_decimal(data['amount_own'])} STRK"  # Форматируем в удобный вид
     unclaimed_rewards_own = f"{format_decimal(data['unclaimed_rewards_own'])} STRK"
 
     # Обработка данных пула
     pool_contract = f"<code>{to_hex(data['pool_info']['pool_contract'])}</code>"
     pool_unclaimed_rewards = f"{format_decimal(data['pool_info']['unclaimed_rewards'])} STRK"
-    pool_commission = data["pool_info"]["commission"] / 100  # Конвертируем в проценты
+    pool_commission = data["pool_info"]["commission"] / 100
 
     if status:
         # Стандартный формат
