@@ -23,7 +23,8 @@ async def clear_user_cache(user_id: int):
     """Очищает кеш для конкретного пользователя"""
     keys_to_delete = [
         get_cache_key(user_id, "full_info"),
-        get_cache_key(user_id, "reward_info")
+        get_cache_key(user_id, "reward_info"),
+        get_cache_key(user_id, "validator_info")
     ]
     for key in keys_to_delete:
         await cache.delete(key) 

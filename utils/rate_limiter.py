@@ -33,10 +33,10 @@ class RateLimiter:
         
         # Проверяем количество запросов
         if len(self.user_requests[user_id]) >= self.max_requests:
-            if user_id not in self.warned_users:
-                self.warned_users.add(user_id)
-                return False, translate("rate_limit_warning", locale=locale)
-            return False, None
+            # if user_id not in self.warned_users:
+            #     self.warned_users.add(user_id)
+            #     return False, translate("rate_limit_warning", locale=locale)
+            return False, translate("rate_limit_warning", locale=locale)
         
         # Добавляем новый запрос
         self.user_requests[user_id].append(current_time)

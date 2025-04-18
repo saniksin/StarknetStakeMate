@@ -71,7 +71,7 @@ async def start_parse_and_send_notification(user: Users):
                             response_message += message_welcome
 
                         response_message += "\n================================\n"
-                        response_message += f"{translate('validator_info_2', user.user_language)}\n"
+                        response_message += f"{translate('validator_info', user.user_language)}\n"
                         response_message += "================================\n"
                         response_message += f"{translate('reward_address', user.user_language)} <code>{address}</code>\n"
                         response_message += f"{translate('staking_info_address', user.user_language)} <code>{pool}</code>\n"

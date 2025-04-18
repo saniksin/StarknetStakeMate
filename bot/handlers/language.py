@@ -6,6 +6,7 @@ from aiogram.fsm.state import StatesGroup, State
 from data.languages import translate, possible_language
 from db_api.database import db, Users, write_to_db
 from bot.handlers.clear_state import finish_operation
+from utils.cache import clear_user_cache
 
 
 # Состояние для выбора языка
@@ -48,6 +49,9 @@ async def set_language(message: types.Message, state: FSMContext, user_locale: s
         # Сохраняем язык
         user_object.user_language = locale
         await write_to_db(user_object)
+        
+        # Очищаем кеш пользователя
+        await clear_user_cache(message.from_user.id)
     else:
         await finish_operation(
             message, 

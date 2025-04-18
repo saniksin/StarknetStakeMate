@@ -247,39 +247,43 @@ async def process_reward_info(user_id: int, task_data: dict):
             if task_type == 'validator':
                 # Формируем информацию для валидатора
                 unclaimed_rewards_own = format_decimal(task_result[0]['unclaimed_rewards_own'])
-                response_message += "\n================================\n"
-                response_message += f"{translate('validator_info_2', user_locale)}\n"
+                response_message += "\n\n================================\n"
+                response_message += f"🛠️ {translate('validator_info', user_locale)}\n"
                 response_message += "================================\n"
-                response_message += f"{translate('reward_address', user_locale)} <code>{address}</code>\n"
-                response_message += f"{translate('staking_info_address', user_locale)} <code>{pool}</code>\n"
-                response_message += f"{translate('claim_for_validator', user_locale).format(amount_1=unclaimed_rewards_own)}"
+                response_message += f"🏦 {translate('reward_address', user_locale)} <code>{address}</code>\n"
+                response_message += f"🔗 {translate('staking_info_address', user_locale)} <code>{pool}</code>\n"
+                response_message += f"💵 {translate('claim_for_validator', user_locale).format(amount_1=unclaimed_rewards_own)}\n"
+                response_message += "================================\n"
             elif task_type == 'delegator':
                 # Формируем информацию для делегатора
                 unclaimed_rewards = format_decimal(task_result[0]['unclaimed_rewards'])
-                response_message += "\n================================\n"
-                response_message += f"{translate('delegator_info', user_locale)}\n"
+                response_message += "\n\n================================\n"
+                response_message += f"⭐️ {translate('delegator_info', user_locale)} ⭐️\n"
                 response_message += "================================\n"
-                response_message += f"{translate('reward_address', user_locale)} <code>{address}</code>\n"
-                response_message += f"{translate('pool_info_address', user_locale)} <code>{pool}</code>\n"
-                response_message += f"{translate('claim_for_delegator', user_locale).format(amount_1=unclaimed_rewards)}"
+                response_message += f"🏦 {translate('reward_address', user_locale)} <code>{address}</code>\n"
+                response_message += f"🏊‍♂️ {translate('pool_info_address', user_locale)} <code>{pool}</code>\n"
+                response_message += f"💵 {translate('claim_for_delegator', user_locale).format(amount_1=unclaimed_rewards)}\n"
+                response_message += "================================\n"
         else:
             logger.warning(f"Failed to parse {task_type} reward data for address {address}")
             if task_type == 'validator':
                 # Если нет данных для валидатора
-                response_message += "\n================================\n"
-                response_message += f"{translate('validator_info_2', user_locale)}\n"
+                response_message += "\n\n================================\n"
+                response_message += f"🛠️ {translate('validator_info', user_locale)}\n"
                 response_message += "================================\n"
-                response_message += f"{translate('reward_address', user_locale)} <code>{address}</code>\n"
-                response_message += f"{translate('staking_info_address', user_locale)} <code>{pool}</code>\n"
-                response_message += f"{translate('invalid_validator_address', user_locale)}"
+                response_message += f"🏦 {translate('reward_address', user_locale)} <code>{address}</code>\n"
+                response_message += f"🔗 {translate('staking_info_address', user_locale)} <code>{pool}</code>\n"
+                response_message += f"❌ {translate('invalid_validator_address', user_locale)}\n"
+                response_message += "================================\n"
             elif task_type == 'delegator':
                 # Если нет данных для делегатора
-                response_message += "\n================================\n"
-                response_message += f"{translate('delegator_info', user_locale)}\n"
+                response_message += "\n\n================================\n"
+                response_message += f"⭐️ {translate('delegator_info', user_locale)} ⭐️\n"
                 response_message += "================================\n"
-                response_message += f"{translate('reward_address', user_locale)} <code>{address}</code>\n"
-                response_message += f"{translate('pool_info_address', user_locale)} <code>{pool}</code>\n"
-                response_message += f"{translate('invalid_delegator_address', user_locale)}"
+                response_message += f"🏦 {translate('reward_address', user_locale)} <code>{address}</code>\n"
+                response_message += f"🏊‍♂️ {translate('pool_info_address', user_locale)} <code>{pool}</code>\n"
+                response_message += f"❌ {translate('invalid_delegator_address', user_locale)}\n"
+                response_message += "================================\n"
 
     # Отправляем пользователю сообщение
     if response_message:

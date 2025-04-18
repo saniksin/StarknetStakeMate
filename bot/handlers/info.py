@@ -31,11 +31,11 @@ async def process_validator_info(user_id: int, task_data: dict):
         check = is_valid_starknet_address(message.text)
         if check:
             # Проверяем кеш
-            cache_key = get_cache_key(user_id, f"validator_info_{message.text}")
+            cache_key = get_cache_key(user_id, "validator_info")
             cached_data = await cache.get(cache_key)
             
             if cached_data:
-                logger.info(f"Found cached data for validator {message.text}")
+                logger.info(f"Found cached data for user {user_id}")
                 await finish_operation(
                     message, 
                     state, 
