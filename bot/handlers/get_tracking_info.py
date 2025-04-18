@@ -13,34 +13,63 @@ from utils.format_decimal import format_decimal
 from bot.handlers.clear_state import finish_operation
 from utils.logger import logger
 from utils.cache import cache, get_cache_key
+from utils.queue_manager import queue_manager
 
 
 # Хендлер команды /get_full_info
 async def get_tracking_full_info(message: types.Message, state: FSMContext, user_locale: str, user_object: Users):
     logger.info(f"User {message.from_user.id} requested full tracking info")
     
+    # Добавляем задачу в очередь
+    position, success = await queue_manager.add_to_queue(
+        "full_info",
+        message.from_user.id,
+        {
+            "message": message,
+            "state": state,
+            "user_locale": user_locale,
+            "user_object": user_object
+        }
+    )
+
+    if not success:
+        await message.reply(translate("queue_full", user_locale), parse_mode="HTML")
+        return
+
+    # Отправляем сообщение о позиции в очереди
+    await message.reply(
+        translate("queue_position", user_locale).format(position=position),
+        parse_mode="HTML"
+    )
+
+    # Запускаем обработку очереди
+    await queue_manager.process_queue("full_info", process_full_info)
+
+
+async def process_full_info(user_id: int, task_data: dict):
+    """
+    Обработчик для полной информации о стейкинге
+    """
+    message = task_data['message']
+    state = task_data['state']
+    user_locale = task_data['user_locale']
+    user_object = task_data['user_object']
+
     # Проверяем кеш
-    cache_key = get_cache_key(message.from_user.id, "full_info")
+    cache_key = get_cache_key(user_id, "full_info")
     cached_data = await cache.get(cache_key)
     
     if cached_data:
-        logger.info(f"Found cached data for user {message.from_user.id}")
+        logger.info(f"Found cached data for user {user_id}")
         await message.reply(cached_data, parse_mode="HTML")
         return
-    
+
     # Загрузка данных отслеживания пользователя
     if user_object.tracking_data:
         tracking_data = json.loads(user_object.tracking_data)
-        logger.debug(f"User {message.from_user.id} tracking data loaded: {len(tracking_data['data_pair'])} addresses")
+        logger.debug(f"User {user_id} tracking data loaded: {len(tracking_data['data_pair'])} addresses")
     else:
-        logger.warning(f"User {message.from_user.id} has no tracking data")
-        await finish_operation(
-            message, state, user_locale, privious_msg=f"{translate("tracking_data_empty", user_locale)}"
-        )
-        return
-    
-    if len(tracking_data['data_pair']) == 0:
-        logger.warning(f"User {message.from_user.id} has empty tracking data list")
+        logger.warning(f"User {user_id} has no tracking data")
         await finish_operation(
             message, state, user_locale, privious_msg=f"{translate("no_addresses_to_parse", user_locale)}"
         )
@@ -78,7 +107,7 @@ async def get_tracking_full_info(message: types.Message, state: FSMContext, user
 
     # Прочитаем результаты в том порядке, в котором они были запущены
     for index, task_result in zip([t[0] for t in task_info], results):
-        task_type, address, pool = task_info[index][1], task_info[index][2], task_info[index][3]
+        task_type, address, pool = task_info[index][1:4]  
 
         if task_result:
             logger.debug(f"Successfully parsed {task_type} data for address {address}")
@@ -111,12 +140,12 @@ async def get_tracking_full_info(message: types.Message, state: FSMContext, user
 
     # Отправляем пользователю сообщение
     if response_message:
-        logger.info(f"Successfully sent full tracking info to user {message.from_user.id}")
+        logger.info(f"Successfully sent full tracking info to user {user_id}")
         # Сохраняем в кеш
         await cache.set(cache_key, response_message)
         await message.reply(response_message, parse_mode="HTML")
     else:
-        logger.warning(f"No tracking info to send to user {message.from_user.id}")
+        logger.warning(f"No tracking info to send to user {user_id}")
         await message.reply(translate("no_tracking_info", user_locale), parse_mode="HTML")
 
         
@@ -124,30 +153,58 @@ async def get_tracking_full_info(message: types.Message, state: FSMContext, user
 async def get_tracking_reward_info(message: types.Message, state: FSMContext, user_locale: str, user_object: Users):
     logger.info(f"User {message.from_user.id} requested reward info")
     
+    # Добавляем задачу в очередь
+    position, success = await queue_manager.add_to_queue(
+        "reward_info",
+        message.from_user.id,
+        {
+            "message": message,
+            "state": state,
+            "user_locale": user_locale,
+            "user_object": user_object
+        }
+    )
+
+    if not success:
+        await message.reply(translate("queue_full", user_locale), parse_mode="HTML")
+        return
+
+    # Отправляем сообщение о позиции в очереди
+    await message.reply(
+        translate("queue_position", user_locale).format(position=position),
+        parse_mode="HTML"
+    )
+
+    # Запускаем обработку очереди
+    await queue_manager.process_queue("reward_info", process_reward_info)
+
+
+async def process_reward_info(user_id: int, task_data: dict):
+    """
+    Обработчик для информации о наградах
+    """
+    message = task_data['message']
+    state = task_data['state']
+    user_locale = task_data['user_locale']
+    user_object = task_data['user_object']
+
     # Проверяем кеш
-    cache_key = get_cache_key(message.from_user.id, "reward_info")
+    cache_key = get_cache_key(user_id, "reward_info")
     cached_data = await cache.get(cache_key)
     
     if cached_data:
-        logger.info(f"Found cached data for user {message.from_user.id}")
+        logger.info(f"Found cached data for user {user_id}")
         await message.reply(cached_data, parse_mode="HTML")
         return
-    
+
     # Загрузка данных отслеживания пользователя
     if user_object.tracking_data:
         tracking_data = json.loads(user_object.tracking_data)
-        logger.debug(f"User {message.from_user.id} tracking data loaded: {len(tracking_data['data_pair'])} addresses")
+        logger.debug(f"User {user_id} tracking data loaded: {len(tracking_data['data_pair'])} addresses")
     else:
-        logger.warning(f"User {message.from_user.id} has no tracking data")
+        logger.warning(f"User {user_id} has no tracking data")
         await finish_operation(
-            message, state, user_locale, privious_msg=f"{translate("tracking_data_empty", user_locale)}"
-        )
-        return
-
-    if len(tracking_data['data_pair']) == 0:
-        logger.warning(f"User {message.from_user.id} has empty tracking data list")
-        await finish_operation(
-            message, state, user_locale, privious_msg=f"{translate("no_addresses_to_parse", user_locale)}"
+            message, state, user_locale, privious_msg=f"{translate('no_addresses_to_parse', user_locale)}"
         )
         return
 
@@ -160,7 +217,7 @@ async def get_tracking_reward_info(message: types.Message, state: FSMContext, us
 
     # Создание списка задач для асинхронного выполнения
     async_tasks = []
-    task_info = [] 
+    task_info = []
 
     for index, (address, pool) in enumerate(tracking_data['data_pair']):
         if pool in staking_contracts:
@@ -183,37 +240,34 @@ async def get_tracking_reward_info(message: types.Message, state: FSMContext, us
 
     # Прочитаем результаты в том порядке, в котором они были запущены
     for index, task_result in zip([t[0] for t in task_info], results):
-        task_type, address, pool = task_info[index][1], task_info[index][2], task_info[index][3]
+        task_type, address, pool = task_info[index][1:4]  # Извлекаем только нужные значения
 
-        if task_result[0]:
+        if task_result:
             logger.debug(f"Successfully parsed {task_type} reward data for address {address}")
-            # Получаем первый элемент кортежа, который является OrderedDict
-            task_data = task_result[0]  # task_result это кортеж, берем первый элемент
-
             if task_type == 'validator':
-                # Формируем информацию только по реварду для валидатора
-                unclaimed_rewards_own = f"{format_decimal(task_data['unclaimed_rewards_own'])} STRK"
+                # Формируем информацию для валидатора
+                unclaimed_rewards_own = format_decimal(task_result[0]['unclaimed_rewards_own'])
                 response_message += "\n================================\n"
-                response_message += f"<b>{translate('validator_info_2', user_locale)}</b>\n"
+                response_message += f"{translate('validator_info_2', user_locale)}\n"
                 response_message += "================================\n"
                 response_message += f"{translate('reward_address', user_locale)} <code>{address}</code>\n"
                 response_message += f"{translate('staking_info_address', user_locale)} <code>{pool}</code>\n"
-                response_message += f"{translate('unclaimed_rewards_own', user_locale)} {unclaimed_rewards_own}\n"
+                response_message += f"{translate('claim_for_validator', user_locale).format(amount_1=unclaimed_rewards_own)}"
             elif task_type == 'delegator':
-                # Формируем информацию только по реварду для делегатора
-                unclaimed_rewards = f"{format_decimal(task_data['unclaimed_rewards'])} STRK"
+                # Формируем информацию для делегатора
+                unclaimed_rewards = format_decimal(task_result[0]['unclaimed_rewards'])
                 response_message += "\n================================\n"
-                response_message += f"<b>{translate('delegator_info', user_locale)}</b>\n"
+                response_message += f"{translate('delegator_info', user_locale)}\n"
                 response_message += "================================\n"
                 response_message += f"{translate('reward_address', user_locale)} <code>{address}</code>\n"
                 response_message += f"{translate('pool_info_address', user_locale)} <code>{pool}</code>\n"
-                response_message += f"{translate('delegator_unclaimed_rewards', user_locale)} {unclaimed_rewards}\n"
+                response_message += f"{translate('claim_for_delegator', user_locale).format(amount_1=unclaimed_rewards)}"
         else:
             logger.warning(f"Failed to parse {task_type} reward data for address {address}")
             if task_type == 'validator':
                 # Если нет данных для валидатора
                 response_message += "\n================================\n"
-                response_message += f"<b>{translate('validator_info_2', user_locale)}</b>\n"
+                response_message += f"{translate('validator_info_2', user_locale)}\n"
                 response_message += "================================\n"
                 response_message += f"{translate('reward_address', user_locale)} <code>{address}</code>\n"
                 response_message += f"{translate('staking_info_address', user_locale)} <code>{pool}</code>\n"
@@ -221,7 +275,7 @@ async def get_tracking_reward_info(message: types.Message, state: FSMContext, us
             elif task_type == 'delegator':
                 # Если нет данных для делегатора
                 response_message += "\n================================\n"
-                response_message += f"<b>{translate('delegator_info', user_locale)}</b>\n"
+                response_message += f"{translate('delegator_info', user_locale)}\n"
                 response_message += "================================\n"
                 response_message += f"{translate('reward_address', user_locale)} <code>{address}</code>\n"
                 response_message += f"{translate('pool_info_address', user_locale)} <code>{pool}</code>\n"
@@ -229,10 +283,10 @@ async def get_tracking_reward_info(message: types.Message, state: FSMContext, us
 
     # Отправляем пользователю сообщение
     if response_message:
-        logger.info(f"Successfully sent reward info to user {message.from_user.id}")
+        logger.info(f"Successfully sent reward info to user {user_id}")
         # Сохраняем в кеш
         await cache.set(cache_key, response_message.strip())
         await message.reply(response_message.strip(), parse_mode="HTML")
     else:
-        logger.warning(f"No reward info to send to user {message.from_user.id}")
-        await message.reply(translate("no_rewards_info", user_locale), parse_mode="HTML")
+        logger.warning(f"No reward info to send to user {user_id}")
+        await message.reply(translate("no_tracking_info", user_locale), parse_mode="HTML")
