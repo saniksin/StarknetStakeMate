@@ -135,6 +135,6 @@
     "withdrawing": "Выводится",
     "amount_own_2": "Личный стейк:",
     "unclaimed_rewards_own_2": "Незаклеймлено:",
-    "pool_unclaimed_rewards_2": " Незаклеймлено в пуле:",
+    "pool_unclaimed_rewards_2": "Незаклеймлено в пуле:",
     "contract_address": "Контракт стейкинга"
 }
