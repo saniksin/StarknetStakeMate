@@ -101,21 +101,54 @@ async def process_single_request(user: Users):
 
 async def process_request_queue():
     """
-    Основной цикл обработки очереди запросов.
-    Работает независимо от основного потока бота.
+    Обработчик очереди запросов
     """
     while True:
         try:
-            # Получаем список пользователей с запросами
+            # Получаем пользователей с запросами
             users = await get_users_with_requests()
             
-            # Обрабатываем каждый запрос
             for user in users:
-                await process_single_request(user)
-            
-            # Небольшая пауза между проверками
+                try:
+                    if not user.request_queue:
+                        continue
+                        
+                    request_data = json.loads(user.request_queue)
+                    command = request_data.get('command')
+                    
+                    # Обработка команды
+                    if command == 'validator_info':
+                        await process_validator_info(user)
+                    elif command == 'full_info':
+                        await process_full_info(user)
+                    elif command == 'rewards_info':
+                        await process_reward_info(user)
+                    
+                    # Очищаем request_queue после успешной обработки
+                    user.request_queue = None
+                    await write_to_db(user)
+                    
+                except json.JSONDecodeError:
+                    # Если не можем распарсить JSON - просто очищаем очередь
+                    logger.error(f"Invalid JSON in request_queue for user {user.user_id}")
+                    user.request_queue = None
+                    await write_to_db(user)
+                    await send_message(
+                        user.user_id,
+                        translate("request_error", user.user_language)
+                    )
+                except Exception as e:
+                    # При любой другой ошибке - логируем и очищаем очередь
+                    logger.error(f"Error processing request for user {user.user_id}: {str(e)}")
+                    user.request_queue = None
+                    await write_to_db(user)
+                    await send_message(
+                        user.user_id,
+                        translate("request_error", user.user_language)
+                    )
+                    
             await asyncio.sleep(1)
             
         except Exception as e:
-            logger.error(f"Error in request queue processing: {str(e)}")
+            logger.error(f"Error in process_request_queue: {str(e)}")
             await asyncio.sleep(5) 
