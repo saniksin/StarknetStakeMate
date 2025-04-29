@@ -1,8 +1,13 @@
 import sys
 import threading
 import asyncio
+import logging
+import signal
 from aiogram.filters import Command
-from bot import handlers
+from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.memory import MemoryStorage
+from contextlib import suppress
+from aiogram.exceptions import TelegramAPIError
 
 from data.tg_bot import dp, bot
 from bot.middlewares import LocaleMiddleware, RateLimitMiddleware
@@ -13,7 +18,81 @@ from data.languages import translate, possible_prefixes
 from tasks.strk_notification import send_strk_notification
 from data.models import get_admins
 from utils.logger import logger
+from data.tg_bot import BOT_TOKEN
+from tasks.request_queue import process_request_queue
+from migrate_queue import migrate
+from bot import handlers
 
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Инициализация бота и диспетчера
+bot = Bot(token=BOT_TOKEN)
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
+
+# Флаг для отслеживания состояния завершения
+is_shutting_down = False
+
+async def shutdown(signal_type=None):
+    """
+    Корректное завершение работы бота и всех фоновых задач
+    """
+    global is_shutting_down
+    
+    # Проверяем, не выполняется ли уже завершение работы
+    if is_shutting_down:
+        return
+        
+    is_shutting_down = True
+    
+    logger.info(f'Получен сигнал завершения работы: {signal_type}')
+    
+    try:
+        # Останавливаем поллинг
+        logger.info('Останавливаем поллинг...')
+        with suppress(Exception):
+            await dp.stop_polling()
+        
+        # Отменяем все задачи
+        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        logger.info(f'Отменяем {len(tasks)} задач...')
+        
+        # Отменяем все задачи
+        for task in tasks:
+            with suppress(asyncio.CancelledError):
+                task.cancel()
+            
+        # Ждем завершения всех задач с таймаутом
+        logger.info('Ожидаем завершения задач...')
+        with suppress(asyncio.TimeoutError):
+            await asyncio.wait(tasks, timeout=3)
+        
+        # Закрываем сессию бота
+        logger.info('Закрываем соединения...')
+        with suppress(Exception):
+            await bot.session.close()
+        
+        logger.info('Завершение работы успешно выполнено')
+        
+    except Exception as e:
+        logger.error(f'Ошибка при завершении работы: {e}')
+    finally:
+        # Принудительно завершаем программу
+        sys.exit(0)
+
+def handle_signals(signum, frame):
+    """Обработчик сигналов"""
+    if not is_shutting_down:  # Проверяем, не выполняется ли уже завершение
+        logger.info(f'Получен сигнал: {signal.Signals(signum).name}')
+        # Запускаем завершение работы в новой задаче
+        loop = asyncio.get_event_loop()
+        loop.create_task(shutdown(signal.Signals(signum).name))
+
+# Регистрируем обработчики сигналов
+signal.signal(signal.SIGINT, handle_signals)
+signal.signal(signal.SIGTERM, handle_signals)
 
 async def register_handlers():
     # проверка пользователя
@@ -108,50 +187,54 @@ async def start_bot():
         logger.info("Starting bot initialization...")
         await initialize_db()
         logger.info("Database initialized successfully")
+        
+        # Запускаем бота
         await dp.start_polling(bot)
+        
     except Exception as e:
         logger.error(f"Error during bot startup: {e}")
-        raise
     finally:
-        logger.info("Closing bot session...")
-        await bot.session.close()
-        sys.exit(1)
-
-
-def run_in_thread(func):
-    """Запуск асинхронной функции в отдельном потоке."""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(func())
-    finally:
-        loop.close()
+        if not is_shutting_down:  # Проверяем, не выполняется ли уже завершение
+            await shutdown()
 
 
 async def main():
     logger.info("Starting application...")
-    # Выполняем предварительные задачи
-    create_files()
-    await initialize_db()
-    await register_handlers()
-
-    # Создаём поток для уведомлений
-    notification_thread = threading.Thread(
-        target=run_in_thread, args=(send_strk_notification,), daemon=True
-    )
-    notification_thread.start()
-    logger.info("Notification thread started")
-
-    # Запускаем бота в основном потоке
-    logger.info("Starting bot...")
-    await start_bot()
+    try:
+        # Выполняем предварительные задачи
+        create_files()
+        await initialize_db()
+        await register_handlers()
+        await migrate()
+        
+        # Запускаем фоновые задачи
+        tasks = [
+            asyncio.create_task(send_strk_notification()),
+            asyncio.create_task(process_request_queue()),
+            asyncio.create_task(start_bot())
+        ]
+        
+        # Ждем завершения любой из задач или сигнала завершения
+        done, pending = await asyncio.wait(
+            tasks, 
+            return_when=asyncio.FIRST_COMPLETED
+        )
+        
+        # Отменяем оставшиеся задачи
+        for task in pending:
+            task.cancel()
+        
+    except Exception as e:
+        logger.error(f"Unexpected error in main: {e}")
+    finally:
+        if not is_shutting_down:  # Проверяем, не выполняется ли уже завершение
+            await shutdown()
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt:
         logger.info("Program terminated by user")
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
-        raise

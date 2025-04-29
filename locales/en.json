@@ -138,5 +138,8 @@
     "unclaimed_rewards_own_2": "Unclaimed:",
     "pool_unclaimed_rewards_2": "Unclaimed in Pool:",
     "contract_address": "Staking Contract",
-    "unpool_time": "Tokens will be available for withdrawal:"
+    "unpool_time": "Tokens will be available for withdrawal:",
+    "request_in_queue": "⏳ <b>Your request is being processed</b>\n\nPlease wait while we gather the information.",
+    "request_completed": "✅ <b>Request completed</b>",
+    "request_error": "❌ <b>Error processing request</b>\n\nPlease try again later."
 }

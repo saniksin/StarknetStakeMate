@@ -17,6 +17,7 @@ class Users(Base, AutoRepr):
     user_is_blocked = Column(Boolean, default=False)
     tracking_data = Column(Text, nullable=True)
     claim_reward_msg = Column(Integer)
+    request_queue = Column(Text, nullable=True)
    
     def __init__(
             self,
@@ -31,6 +32,7 @@ class Users(Base, AutoRepr):
         self.user_registration_data = registration_data
         self.tracking_data = json.dumps({"data_pair": []})
         self.claim_reward_msg = 0
+        self.request_queue = None
         
     # Метод для получения отслеживаемых данных в виде словаря
     def get_tracking_data(self) -> dict:

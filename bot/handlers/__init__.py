@@ -10,7 +10,7 @@ from .add_tracking_data import (
     process_pool_address, confirm_tracking_data, process_confirmation
 )
 from .delete_tracking_data import start_delete_info, process_delete_choice, delete_specific_address, DeleteInfoState
-from .get_tracking_info import get_tracking_full_info, get_tracking_reward_info
+from .get_tracking_info import get_tracking_full_info, get_tracking_reward_info, get_tracking_validator_info
 from .block_user import start_block_user, process_ban, confirm_ban_user, UserBlockingState
 from .unblock_user import start_unblock_user, process_unban, confirm_unban_user, UserUnblockingState
 from .strk_notification import start_set_threshold, set_claim_threshold, RewardClaimState, clear_claim_threshold, show_claim_treshold_info, open_strk_notification_menu
