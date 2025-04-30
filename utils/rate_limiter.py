@@ -5,7 +5,7 @@ from data.languages import translate
 
 
 class RateLimiter:
-    def __init__(self, max_requests: int = 20, time_window: int = 60):
+    def __init__(self, max_requests: int = 30, time_window: int = 60):
         """
         Инициализация RateLimiter
         :param max_requests: Максимальное количество запросов
