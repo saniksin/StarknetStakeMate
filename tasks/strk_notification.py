@@ -127,11 +127,11 @@ async def send_strk_notification():
                 await asyncio.gather(*notification_task)
 
             await asyncio.sleep(3600)
-        except KeyError:
-            sys.exit(1)
-        except:
+        except Exception as e:
             admins = get_admins()
-            await send_message(chat_id=admins[0], text="Не работают запросы!")
+            error_message = f"Ошибка в процессе уведомлений: {str(e)}\nТип ошибки: {type(e).__name__}"
+            logger.error(error_message)
+            await send_message(chat_id=admins[0], text=error_message)
             await asyncio.sleep(3600)
 
 

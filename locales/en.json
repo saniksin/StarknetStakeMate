@@ -51,7 +51,7 @@
     "confirm_validator_info": "🔍 <b>Please review the entered information:</b>\n\n🏦 <b>Validator Address:</b> <code>{validator_address}</code>\n📜 <b>Staking Contract Address:</b> <code>{pool_address}</code>\n\n💾 Press 'Save' to confirm or ❌ 'Cancel' to abort.",
     "confirm_delegate_info": "🔍 <b>Please review the entered information:</b>\n\n💳 <b>Delegator Address:</b> <code>{delegate_address}</code>\n📊 <b>Pool Address:</b> <code>{pool_address}</code>\n\n💾 Press 'Save' to confirm or ❌ 'Cancel' to abort.",
     "save": "Save",
-    "info_limit_reached": "You have already saved 3 addresses. Delete one to add a new one.",
+    "info_limit_reached": "You have already saved 4 addresses. Delete one to add a new one.",
     "validator_info_saved": "Validator information successfully saved! ✅",
     "delegate_info_saved": "Delegator information successfully saved! ✅",
     "choose_delete_option": "Choose what you want to delete:",

@@ -3,6 +3,7 @@ import multiprocessing
 import asyncio
 import logging
 import signal
+import atexit
 from aiogram.filters import Command
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -33,58 +34,131 @@ storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
 # Флаг для отслеживания состояния завершения
-is_shutting_down = False
+is_shutting_down = multiprocessing.Value('b', False)
+
+# Список для хранения процессов
+background_processes = []
+
+def cleanup_processes():
+    """Функция очистки процессов при выходе"""
+    global background_processes
+    if background_processes:
+        for process in background_processes:
+            if process and process.is_alive():
+                process.terminate()
+                process.join(timeout=1)
+
+# Регистрируем функцию очистки
+atexit.register(cleanup_processes)
 
 def run_queue_processor():
     """Запуск обработчика очереди в отдельном процессе"""
-    asyncio.run(process_request_queue())
+    try:
+        # Устанавливаем имя процесса
+        proc = multiprocessing.current_process()
+        proc.name = "strk_bot_parsing"
+        
+        # Устанавливаем свой обработчик сигналов
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        
+        asyncio.run(process_request_queue())
+    except Exception as e:
+        logger.error(f"Error in queue processor: {e}")
 
 def run_notification_processor():
     """Запуск обработчика уведомлений в отдельном процессе"""
-    asyncio.run(send_strk_notification())
+    try:
+        # Устанавливаем имя процесса
+        proc = multiprocessing.current_process()
+        proc.name = "strk_bot_notification"
+        
+        # Устанавливаем свой обработчик сигналов
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        
+        asyncio.run(send_strk_notification())
+    except Exception as e:
+        logger.error(f"Error in notification processor: {e}")
+
+def kill_background_processes():
+    """Завершает все фоновые процессы"""
+    global background_processes
+    
+    for process in background_processes:
+        try:
+            if process and process.is_alive():
+                logger.info(f"Terminating process {process.name}")
+                process.terminate()
+                process.join(timeout=2)
+                
+                if process.is_alive():
+                    logger.warning(f"Process {process.name} did not terminate gracefully, killing it")
+                    process.kill()
+                    process.join(timeout=1)
+        except Exception as e:
+            logger.error(f"Error while terminating process: {e}")
+    
+    # Очищаем список процессов
+    background_processes.clear()
 
 async def shutdown(signal_type=None):
     """
     Корректное завершение работы бота и всех фоновых задач
     """
-    global is_shutting_down
-    
-    if is_shutting_down:
-        return
-        
-    is_shutting_down = True
+    with is_shutting_down.get_lock():
+        if is_shutting_down.value:
+            return
+        is_shutting_down.value = True
     
     logger.info(f'Получен сигнал завершения работы: {signal_type}')
     
     try:
         # Останавливаем поллинг
         logger.info('Останавливаем поллинг...')
-        with suppress(Exception):
+        try:
             await dp.stop_polling()
+        except Exception as e:
+            logger.error(f"Error stopping polling: {e}")
         
         # Закрываем сессию бота
         logger.info('Закрываем соединения...')
-        with suppress(Exception):
+        try:
             await bot.session.close()
+        except Exception as e:
+            logger.error(f"Error closing bot session: {e}")
+        
+        # Завершаем фоновые процессы
+        logger.info('Завершаем фоновые процессы...')
+        kill_background_processes()
         
         logger.info('Завершение работы успешно выполнено')
         
     except Exception as e:
         logger.error(f'Ошибка при завершении работы: {e}')
     finally:
-        # Принудительно завершаем программу
         sys.exit(0)
 
 def handle_signals(signum, frame):
     """Обработчик сигналов"""
-    if not is_shutting_down:
-        logger.info(f'Получен сигнал: {signal.Signals(signum).name}')
+    with is_shutting_down.get_lock():
+        if is_shutting_down.value:
+            return
+            
+    signal_name = signal.Signals(signum).name
+    logger.info(f'Получен сигнал: {signal_name}')
+    
+    try:
         loop = asyncio.get_event_loop()
-        loop.create_task(shutdown(signal.Signals(signum).name))
-
-# Регистрируем обработчики сигналов
-signal.signal(signal.SIGINT, handle_signals)
-signal.signal(signal.SIGTERM, handle_signals)
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    
+    try:
+        loop.run_until_complete(shutdown(signal_name))
+    except Exception as e:
+        logger.error(f"Error in signal handler: {e}")
+        sys.exit(1)
 
 async def register_handlers():
     # проверка пользователя
@@ -185,7 +259,7 @@ async def start_bot():
     except Exception as e:
         logger.error(f"Error during bot startup: {e}")
     finally:
-        if not is_shutting_down:
+        if not is_shutting_down.value:
             await shutdown()
 
 async def main():
@@ -201,8 +275,15 @@ async def main():
         queue_process = multiprocessing.Process(target=run_queue_processor)
         notification_process = multiprocessing.Process(target=run_notification_processor)
         
-        queue_process.start()
-        notification_process.start()
+        queue_process.daemon = True
+        notification_process.daemon = True
+        
+        # Добавляем процессы в список для отслеживания
+        background_processes.extend([queue_process, notification_process])
+        
+        # Запускаем процессы
+        for process in background_processes:
+            process.start()
         
         # Запускаем основной процесс бота
         await start_bot()
@@ -210,10 +291,14 @@ async def main():
     except Exception as e:
         logger.error(f"Unexpected error in main: {e}")
     finally:
-        if not is_shutting_down:
+        if not is_shutting_down.value:
             await shutdown()
 
 if __name__ == "__main__":
+    # Регистрируем обработчики сигналов
+    signal.signal(signal.SIGINT, handle_signals)
+    signal.signal(signal.SIGTERM, handle_signals)
+    
     try:
         # Для Windows нужно защитить точку входа
         multiprocessing.freeze_support()
@@ -222,3 +307,4 @@ if __name__ == "__main__":
         logger.info("Program terminated by user")
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
+        sys.exit(1)
