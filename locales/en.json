@@ -142,5 +142,6 @@
     "request_in_queue": "⏳ <b>Your request is being processed</b>\n\nPlease wait while we gather the information.",
     "request_completed": "✅ <b>Request completed</b>",
     "request_error": "❌ <b>Error processing request</b>\n\nPlease try again later.",
-    "error_processing_request": "❌ An error occurred while processing your request. Please try again later."
+    "error_processing_request": "❌ An error occurred while processing your request. Please try again later.",
+    "language_change_blocked": "⏳ <b>Language change is not available while your request is being processed</b>\n\nPlease wait until the current request is completed before changing the language."
 }

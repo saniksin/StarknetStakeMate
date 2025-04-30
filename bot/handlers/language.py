@@ -15,7 +15,15 @@ class LanguageState(StatesGroup):
 
 
 # Хендлер для команды /language
-async def choose_language(message: types.Message, state: FSMContext, user_locale: str):
+async def choose_language(message: types.Message, state: FSMContext, user_locale: str, user_object: Users):
+    # Проверяем есть ли уже запрос в очереди
+    if user_object.request_queue:
+        await message.answer(
+            translate("language_change_blocked", user_locale),
+            parse_mode="HTML"
+        )
+        return
+
     # Создаем клавиатуру
     markup = ReplyKeyboardMarkup(
         keyboard=[
