@@ -4,6 +4,11 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 import logging
+from collections import defaultdict
+import json
+from db_api.database import Users, db
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
@@ -16,68 +21,54 @@ class QueueItem:
 
 class QueueManager:
     def __init__(self):
-        self.queues: Dict[str, Deque[QueueItem]] = {}
-        self.processing: Dict[str, List[QueueItem]] = {}
-        self.queue_locks: Dict[str, asyncio.Lock] = {}
+        # Словарь для хранения очередей
+        self.queues = defaultdict(list)
+        # Словарь для хранения статусов обработки
+        self.processing = defaultdict(set)
         self.max_queue_size = 100  # Максимальный размер очереди
         self.max_concurrent = 5    # Максимальное количество одновременных запросов
         self.semaphores: Dict[str, asyncio.Semaphore] = {}
 
     async def add_to_queue(self, queue_name: str, user_id: int, task_data: dict) -> Tuple[int, bool]:
         """
-        Добавляет задачу в очередь и возвращает позицию в очереди
+        Добавляет задачу в очередь.
+        Возвращает позицию в очереди и флаг успеха.
         """
-        if queue_name not in self.queues:
-            self.queues[queue_name] = deque()
-            self.processing[queue_name] = []
-            self.queue_locks[queue_name] = asyncio.Lock()
-            self.semaphores[queue_name] = asyncio.Semaphore(self.max_concurrent)
+        # Проверяем, не находится ли пользователь уже в очереди
+        if user_id in {task[0] for task in self.queues[queue_name]}:
+            return 0, False
 
-        if len(self.queues[queue_name]) >= self.max_queue_size:
-            return -1, False
+        # Добавляем в очередь
+        self.queues[queue_name].append((user_id, task_data))
+        position = len(self.queues[queue_name])
 
-        queue_item = QueueItem(
-            user_id=user_id,
-            request_type=queue_name,
-            timestamp=datetime.now(),
-            task_data=task_data
-        )
-        
-        position = len(self.queues[queue_name]) + 1
-        self.queues[queue_name].append(queue_item)
         return position, True
 
     async def process_queue(self, queue_name: str, process_func: Callable[[int, dict], Any]):
         """
-        Обрабатывает очередь задач
+        Обрабатывает очередь, вызывая process_func для каждой задачи.
         """
-        async with self.queue_locks[queue_name]:
-            if not self.queues[queue_name]:
-                return
-
         while True:
-            async with self.queue_locks[queue_name]:
-                if not self.queues[queue_name]:
-                    break
+            if self.queues[queue_name]:
+                # Получаем первую задачу из очереди
+                user_id, task_data = self.queues[queue_name][0]
 
-                # Проверяем, есть ли свободные слоты для обработки
-                if len(self.processing[queue_name]) >= self.max_concurrent:
-                    break
-
-                # Берем следующую задачу из очереди
-                item = self.queues[queue_name].popleft()
-                self.processing[queue_name].append(item)
-
-            # Обрабатываем задачу с учетом семафора
-            async with self.semaphores[queue_name]:
                 try:
-                    await process_func(item.user_id, item.task_data)
+                    # Добавляем пользователя в множество обрабатываемых
+                    self.processing[queue_name].add(user_id)
+
+                    # Обрабатываем задачу
+                    await process_func(user_id, task_data)
+
                 except Exception as e:
-                    logger.error(f"Error processing task for user {item.user_id}: {e}")
+                    print(f"Error processing task for user {user_id}: {e}")
+
                 finally:
-                    async with self.queue_locks[queue_name]:
-                        if item in self.processing[queue_name]:
-                            self.processing[queue_name].remove(item)
+                    # Удаляем задачу из очереди и из множества обрабатываемых
+                    self.queues[queue_name].pop(0)
+                    self.processing[queue_name].discard(user_id)
+
+            await asyncio.sleep(1)  # Небольшая пауза между проверками очереди
 
     def get_queue_position(self, queue_name: str, user_id: int) -> int:
         """

@@ -56,6 +56,10 @@ async def process_delete_choice(message: types.Message, state: FSMContext, user_
             await session.merge(user_object)
             await session.commit()
 
+        # Очищаем кеш пользователя после удаления всех адресов
+        logger.info(f"Clearing cache for user {user_object.user_id} after deleting all addresses")
+        await clear_user_cache(user_object.user_id)
+
         await finish_operation(
             message, state, 
             user_locale, 

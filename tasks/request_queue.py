@@ -87,7 +87,6 @@ async def process_single_request(user: Users):
             # Очищаем запрос из БД только если он был обработан
             user.request_queue = None
             await write_to_db(user)
-            await clear_user_cache(user.user_id)
 
     except Exception as e:
         logger.error(f"Critical error processing request for user {user.user_id}: {str(e)}")
@@ -96,6 +95,8 @@ async def process_single_request(user: Users):
                 chat_id=user.user_id,
                 text=translate("error_processing_request", user.user_language)
             )
+            user.request_queue = None
+            await write_to_db(user)
         except:
             pass
 
@@ -120,15 +121,6 @@ async def process_request_queue():
                 # Запускаем все задачи параллельно
                 if request_tasks:
                     await asyncio.gather(*request_tasks)
-                    
-                # Очищаем request_queue для всех пользователей после обработки
-                for user in users:
-                    try:
-                        user.request_queue = None
-                        await write_to_db(user)
-                        await clear_user_cache(user.user_id)
-                    except Exception as e:
-                        logger.error(f"Error clearing request queue for user {user.user_id}: {str(e)}")
             
             # Небольшая пауза между проверками очереди
             await asyncio.sleep(1)
