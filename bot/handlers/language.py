@@ -28,7 +28,8 @@ async def choose_language(message: types.Message, state: FSMContext, user_locale
     markup = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="English"), KeyboardButton(text="Русский")],
-            [KeyboardButton(text="Українська"), KeyboardButton(text=translate("cancel", locale=user_locale))]
+            [KeyboardButton(text="Українська"), KeyboardButton(text="中文")],
+            [KeyboardButton(text="한국어"), KeyboardButton(text=translate("cancel", locale=user_locale))]
         ],
         resize_keyboard=True,
         one_time_keyboard=True
@@ -53,6 +54,10 @@ async def set_language(message: types.Message, state: FSMContext, user_locale: s
             locale = "ru"
         elif selected_language == "українська":
             locale = "ua"
+        elif selected_language == "中文":
+            locale = "zh"
+        elif selected_language == "한국어":
+            locale = "ko"
 
         # Сохраняем язык
         user_object.user_language = locale

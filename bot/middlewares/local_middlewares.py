@@ -9,7 +9,7 @@ from data.tg_bot import bot
 class LocaleMiddleware(BaseMiddleware):
     def __init__(self, supported_locales=None, default_locale="en"):
         super().__init__()
-        self.supported_locales = supported_locales or ["en", "ru", "ua"]
+        self.supported_locales = supported_locales or ["en", "ru", "ua", "zh", "ko"]
         self.default_locale = default_locale
 
     async def __call__(self, handler, event: Update, data: dict):
