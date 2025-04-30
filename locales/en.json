@@ -27,7 +27,7 @@
     "cancel": "Cancel",
     "operation_cancelled": "❌ Operation cancelled.",
     "invalid_choice": "Unknown command. Please use <code><b>❓ Available commands</b></code> for a list of available commands.",
-    "invalid_language_choice": "The specified language is not supported. Available languages: English, Русский, Українська",
+    "invalid_language_choice": "The specified language is not supported. Available languages: English, Русский, Українська, 中文, 한국어",
     "contact_admin_prompt": "✉️ <b>Contact the administrator:</b>\n\nPlease enter your message for the administrator. Only text messages are supported.\n\nTo cancel, use the <b>Cancel</b> button.",
     "message_from_user": "Message from user",
     "message_sent_to_admin": "Your message has been successfully sent to the administrator.",
