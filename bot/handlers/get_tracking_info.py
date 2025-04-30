@@ -100,13 +100,13 @@ async def process_full_info(user: Users):
             return
 
         # Загрузка данных отслеживания пользователя
-        if user.tracking_data:
-            tracking_data = json.loads(user.tracking_data)
-            logger.debug(f"User {user.user_id} tracking data loaded: {len(tracking_data['data_pair'])} addresses")
-        else:
+        if not user.tracking_data or not json.loads(user.tracking_data)['data_pair']:
             logger.warning(f"User {user.user_id} has no tracking data")
             await send_message(user.user_id, translate("no_addresses_to_parse", user.user_language))
             return
+
+        tracking_data = json.loads(user.tracking_data)
+        logger.info(f"Starting parsing for {len(tracking_data['data_pair'])} addresses")
 
         # Определение контрактов для стейкинга
         staking_contracts = {
@@ -245,13 +245,13 @@ async def process_reward_info(user: Users):
             return
 
         # Загрузка данных отслеживания пользователя
-        if user.tracking_data:
-            tracking_data = json.loads(user.tracking_data)
-            logger.debug(f"User {user.user_id} tracking data loaded: {len(tracking_data['data_pair'])} addresses")
-        else:
+        if not user.tracking_data or not json.loads(user.tracking_data)['data_pair']:
             logger.warning(f"User {user.user_id} has no tracking data")
             await send_message(user.user_id, translate("no_addresses_to_parse", user.user_language))
             return
+
+        tracking_data = json.loads(user.tracking_data)
+        logger.info(f"Starting parsing for {len(tracking_data['data_pair'])} addresses")
 
         # Определение контрактов для стейкинга
         staking_contracts = {
