@@ -30,6 +30,6 @@ def translate(key, locale="en"):
         return key
 
 
-possible_prefixes = ["en", "ru", "ua", "zh", "ko"]
+possible_prefixes = ["en", "ru", "ua", "zh", "ko", "es", "de", "pl"]
 
-possible_language = ["english", "русский", "українська", "中文", "한국어"]
+possible_language = ["english", "русский", "українська", "中文", "한국어", "español", "deutsch", "polski"]

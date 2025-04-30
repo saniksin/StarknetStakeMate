@@ -27,7 +27,7 @@
     "cancel": "取消",
     "operation_cancelled": "❌ 操作已取消。",
     "invalid_choice": "未知命令。请使用 <code><b>❓ 可用命令</b></code> 查看可用命令列表。",
-    "invalid_language_choice": "指定的语言不受支持。可用语言：English, Русский, Українська, 中文б, 한국어",
+    "invalid_language_choice": "指定的语言不受支持。可用语言：English, Русский, Українська, 中文, 한국어, Español, Deutsch, Polski",
     "contact_admin_prompt": "✉️ <b>联系管理员：</b>\n\n请输入您要发送给管理员的消息。仅支持文本消息。\n\n要取消，请使用<b>取消</b>按钮。",
     "message_from_user": "来自用户的消息",
     "message_sent_to_admin": "您的消息已成功发送给管理员。",

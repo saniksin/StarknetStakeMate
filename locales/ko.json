@@ -27,7 +27,7 @@
     "cancel": "취소",
     "operation_cancelled": "❌ 작업이 취소되었습니다.",
     "invalid_choice": "알 수 없는 명령어입니다. <code><b>❓ 사용 가능한 명령어</b></code>를 사용하여 사용 가능한 명령어 목록을 확인하세요.",
-    "invalid_language_choice": "지정된 언어는 지원되지 않습니다. 사용 가능한 언어: English, Русский, Українська, 한국어",
+    "invalid_language_choice": "지정된 언어는 지원되지 않습니다. 사용 가능한 언어: English, Русский, Українська, 中文, 한국어, Español, Deutsch, Polski",
     "contact_admin_prompt": "✉️ <b>관리자 연락:</b>\n\n관리자에게 보낼 메시지를 입력하세요. 텍스트 메시지만 지원됩니다.\n\n취소하려면 <b>취소</b> 버튼을 사용하세요.",
     "message_from_user": "사용자로부터의 메시지",
     "message_sent_to_admin": "메시지가 관리자에게 성공적으로 전송되었습니다.",
