@@ -19,6 +19,7 @@ async def migrate():
             await session.commit()
             logger.success('Queue migration completed.')
         except OperationalError as e:
-            logger.error(f'Error during queue migration: {e}')
+            pass
+            # logger.error(f'Error during queue migration: {e}')
         finally:
             await session.close() 

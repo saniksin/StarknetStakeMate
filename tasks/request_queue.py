@@ -101,52 +101,36 @@ async def process_single_request(user: Users):
 
 async def process_request_queue():
     """
-    Обработчик очереди запросов
+    Обработчик очереди запросов с параллельной обработкой
     """
     while True:
         try:
             # Получаем пользователей с запросами
             users = await get_users_with_requests()
             
-            for user in users:
-                try:
+            if users:
+                # Создаем список задач для параллельной обработки
+                request_tasks = []
+                
+                for user in users:
                     if not user.request_queue:
                         continue
-                        
-                    request_data = json.loads(user.request_queue)
-                    command = request_data.get('command')
+                    request_tasks.append(asyncio.create_task(process_single_request(user)))
+                
+                # Запускаем все задачи параллельно
+                if request_tasks:
+                    await asyncio.gather(*request_tasks)
                     
-                    # Обработка команды
-                    if command == 'validator_info':
-                        await process_validator_info(user)
-                    elif command == 'full_info':
-                        await process_full_info(user)
-                    elif command == 'rewards_info':
-                        await process_reward_info(user)
-                    
-                    # Очищаем request_queue после успешной обработки
-                    user.request_queue = None
-                    await write_to_db(user)
-                    
-                except json.JSONDecodeError:
-                    # Если не можем распарсить JSON - просто очищаем очередь
-                    logger.error(f"Invalid JSON in request_queue for user {user.user_id}")
-                    user.request_queue = None
-                    await write_to_db(user)
-                    await send_message(
-                        user.user_id,
-                        translate("request_error", user.user_language)
-                    )
-                except Exception as e:
-                    # При любой другой ошибке - логируем и очищаем очередь
-                    logger.error(f"Error processing request for user {user.user_id}: {str(e)}")
-                    user.request_queue = None
-                    await write_to_db(user)
-                    await send_message(
-                        user.user_id,
-                        translate("request_error", user.user_language)
-                    )
-                    
+                # Очищаем request_queue для всех пользователей после обработки
+                for user in users:
+                    try:
+                        user.request_queue = None
+                        await write_to_db(user)
+                        await clear_user_cache(user.user_id)
+                    except Exception as e:
+                        logger.error(f"Error clearing request queue for user {user.user_id}: {str(e)}")
+            
+            # Небольшая пауза между проверками очереди
             await asyncio.sleep(1)
             
         except Exception as e:

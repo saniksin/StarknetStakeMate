@@ -12,6 +12,8 @@ from data.contracts import Contracts
 from data.tg_bot import BOT_TOKEN
 from utils.cache import clear_user_cache
 from utils.logger import logger
+from sqlalchemy.ext.asyncio import AsyncSession
+from db_api.database import db
 
 
 TELEGRAM_API_BASE = "https://api.telegram.org/bot"

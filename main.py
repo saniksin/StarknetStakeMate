@@ -1,5 +1,5 @@
 import sys
-import threading
+import multiprocessing
 import asyncio
 import logging
 import signal
@@ -35,13 +35,20 @@ dp = Dispatcher(storage=storage)
 # Флаг для отслеживания состояния завершения
 is_shutting_down = False
 
+def run_queue_processor():
+    """Запуск обработчика очереди в отдельном процессе"""
+    asyncio.run(process_request_queue())
+
+def run_notification_processor():
+    """Запуск обработчика уведомлений в отдельном процессе"""
+    asyncio.run(send_strk_notification())
+
 async def shutdown(signal_type=None):
     """
     Корректное завершение работы бота и всех фоновых задач
     """
     global is_shutting_down
     
-    # Проверяем, не выполняется ли уже завершение работы
     if is_shutting_down:
         return
         
@@ -54,20 +61,6 @@ async def shutdown(signal_type=None):
         logger.info('Останавливаем поллинг...')
         with suppress(Exception):
             await dp.stop_polling()
-        
-        # Отменяем все задачи
-        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-        logger.info(f'Отменяем {len(tasks)} задач...')
-        
-        # Отменяем все задачи
-        for task in tasks:
-            with suppress(asyncio.CancelledError):
-                task.cancel()
-            
-        # Ждем завершения всех задач с таймаутом
-        logger.info('Ожидаем завершения задач...')
-        with suppress(asyncio.TimeoutError):
-            await asyncio.wait(tasks, timeout=3)
         
         # Закрываем сессию бота
         logger.info('Закрываем соединения...')
@@ -84,9 +77,8 @@ async def shutdown(signal_type=None):
 
 def handle_signals(signum, frame):
     """Обработчик сигналов"""
-    if not is_shutting_down:  # Проверяем, не выполняется ли уже завершение
+    if not is_shutting_down:
         logger.info(f'Получен сигнал: {signal.Signals(signum).name}')
-        # Запускаем завершение работы в новой задаче
         loop = asyncio.get_event_loop()
         loop.create_task(shutdown(signal.Signals(signum).name))
 
@@ -181,7 +173,6 @@ async def register_handlers():
     # неизвестное сообщение
     dp.message.register(handlers.unknown_command)
 
-
 async def start_bot():
     try:
         logger.info("Starting bot initialization...")
@@ -194,9 +185,8 @@ async def start_bot():
     except Exception as e:
         logger.error(f"Error during bot startup: {e}")
     finally:
-        if not is_shutting_down:  # Проверяем, не выполняется ли уже завершение
+        if not is_shutting_down:
             await shutdown()
-
 
 async def main():
     logger.info("Starting application...")
@@ -207,32 +197,26 @@ async def main():
         await register_handlers()
         await migrate()
         
-        # Запускаем фоновые задачи
-        tasks = [
-            asyncio.create_task(send_strk_notification()),
-            asyncio.create_task(process_request_queue()),
-            asyncio.create_task(start_bot())
-        ]
+        # Запускаем процессы для фоновых задач
+        queue_process = multiprocessing.Process(target=run_queue_processor)
+        notification_process = multiprocessing.Process(target=run_notification_processor)
         
-        # Ждем завершения любой из задач или сигнала завершения
-        done, pending = await asyncio.wait(
-            tasks, 
-            return_when=asyncio.FIRST_COMPLETED
-        )
+        queue_process.start()
+        notification_process.start()
         
-        # Отменяем оставшиеся задачи
-        for task in pending:
-            task.cancel()
+        # Запускаем основной процесс бота
+        await start_bot()
         
     except Exception as e:
         logger.error(f"Unexpected error in main: {e}")
     finally:
-        if not is_shutting_down:  # Проверяем, не выполняется ли уже завершение
+        if not is_shutting_down:
             await shutdown()
-
 
 if __name__ == "__main__":
     try:
+        # Для Windows нужно защитить точку входа
+        multiprocessing.freeze_support()
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("Program terminated by user")
