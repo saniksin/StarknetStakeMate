@@ -31,6 +31,10 @@ class SharedCache:
     async def delete(self, key: str) -> None:
         if key in _cache:
             del _cache[key]
+            
+    async def keys(self, pattern: str) -> list[str]:
+        """Возвращает список ключей, соответствующих шаблону"""
+        return [key for key in _cache.keys() if pattern in key]
 
 # Создаем экземпляр кеша
 cache = SharedCache(ttl=300)
@@ -42,10 +46,9 @@ def get_cache_key(user_id: int, command: str) -> str:
 # Функция для очистки кеша пользователя
 async def clear_user_cache(user_id: int):
     """Очищает кеш для конкретного пользователя"""
-    keys_to_delete = [
-        get_cache_key(user_id, "full_info"),
-        get_cache_key(user_id, "reward_info"),
-        get_cache_key(user_id, "validator_info")
-    ]
-    for key in keys_to_delete:
+    # Получаем все ключи кеша для пользователя
+    all_keys = await cache.keys(f"{user_id}_")
+    
+    # Удаляем все найденные ключи
+    for key in all_keys:
         await cache.delete(key) 
