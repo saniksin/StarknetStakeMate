@@ -1,0 +1,26 @@
+# Keep the build context small and avoid leaking local state into the image.
+.git
+.gitignore
+.github
+.venv
+**/__pycache__
+**/*.pyc
+**/*.pyo
+.pytest_cache
+.mypy_cache
+.ruff_cache
+htmlcov
+coverage.xml
+.coverage
+files/*.db
+files/*.db-journal
+logs/
+*.log
+.DS_Store
+.env
+.env.local
+.vscode
+.idea
+docs/superpowers/specs/*.draft.md
+README.md.bak
+/tmp

@@ -2,3 +2,6 @@
 __pycache__/
 users.db
 logs/
+.claude/
+*.png
+*.bak

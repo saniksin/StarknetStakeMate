@@ -19,10 +19,21 @@ class LocaleMiddleware(BaseMiddleware):
             return
         return await handler(event, data)
 
+    # Telegram delivers ISO-639-1 codes; our internal locale set uses one
+    # non-standard alias (``ua`` instead of ``uk``). Map known aliases so a
+    # Ukrainian/Chinese client doesn't silently fall back to English.
+    _LANGUAGE_ALIASES = {
+        "uk": "ua",
+        "cn": "zh",
+        "zh-hans": "zh",
+        "zh-hant": "zh",
+    }
+
     async def _get_user(self, event: Update, data: dict):
         user_id = event.message.from_user.id
         user_name = event.message.from_user.username or ''
-        telegram_language = event.message.from_user.language_code or self.default_locale
+        raw_language = (event.message.from_user.language_code or self.default_locale).lower()
+        telegram_language = self._LANGUAGE_ALIASES.get(raw_language, raw_language)
         if telegram_language not in self.supported_locales:
             telegram_language = 'en'
         registration_date = event.message.date

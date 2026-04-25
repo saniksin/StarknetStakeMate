@@ -1,0 +1,30 @@
+# Caddyfile — public reverse proxy for StakeMate API + Mini App.
+#
+# Caddy automatically obtains and renews a Let's Encrypt certificate for
+# {$DOMAIN}, redirects HTTP to HTTPS, and proxies everything to the
+# uvicorn container on the internal docker network.
+#
+# Set DOMAIN in .env (e.g. DOMAIN=stakemate.duckdns.org). Without it,
+# Caddy listens on :80 only, useful for sanity-checking the proxy without
+# triggering an ACME exchange.
+
+{$DOMAIN} {
+    encode zstd gzip
+    log {
+        output stdout
+        format console
+    }
+
+    # Forward everything to the FastAPI container. ``api`` is the docker
+    # compose service name — resolved over the project's bridge network.
+    reverse_proxy api:8000 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+}
+
+# Fallback: when DOMAIN is empty, expand to the default site so caddy still
+# starts and we can hit it via raw IP for debugging.
+:80 {
+    respond "Set DOMAIN in .env to enable HTTPS." 200
+}

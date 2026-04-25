@@ -1,7 +1,9 @@
+import os
+
 from aiogram import types
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import KeyboardButton, ReplyKeyboardMarkup, WebAppInfo
 
 from data.languages import translate
 
@@ -11,32 +13,46 @@ class MainMenuState(StatesGroup):
     main = State()
 
 
+def _dashboard_button() -> KeyboardButton | None:
+    """Build the WebApp keyboard button if a public dashboard URL is configured.
+
+    Telegram requires an HTTPS URL for ``web_app=`` keyboard buttons. When
+    ``WEBAPP_URL`` isn't set (e.g. local-only dev), we hide the button rather
+    than render a broken control.
+    """
+    url = os.getenv("WEBAPP_URL", "").strip()
+    if not url:
+        return None
+    return KeyboardButton(text="🖥 Dashboard", web_app=WebAppInfo(url=url))
+
+
 # Функция для создания главного меню
 def create_main_menu(locale: str) -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [
-                KeyboardButton(text=translate("add_info", locale)),
-                KeyboardButton(text=translate("delete_info", locale))
-            ],
-            [
-                KeyboardButton(text=translate("get_full_info", locale)),
-                KeyboardButton(text=translate("get_validator_info", locale))
-            ],
-            [
-                KeyboardButton(text=translate("get_reward_info", locale)),
-                KeyboardButton(text=translate("notifications", locale))
-            ],
-            [
-                KeyboardButton(text=translate("help", locale)),
-                KeyboardButton(text=translate("language", locale))
-            ],
-            [
-                KeyboardButton(text=translate("contact_admin", locale)),
-            ]
+    keyboard = [
+        [
+            KeyboardButton(text=translate("add_info", locale)),
+            KeyboardButton(text=translate("delete_info", locale)),
         ],
-        resize_keyboard=True
-    )
+        [
+            KeyboardButton(text=translate("get_full_info", locale)),
+            KeyboardButton(text=translate("get_validator_info", locale)),
+        ],
+        [
+            KeyboardButton(text=translate("get_reward_info", locale)),
+            KeyboardButton(text=translate("notifications", locale)),
+        ],
+        [
+            KeyboardButton(text=translate("help", locale)),
+            KeyboardButton(text=translate("language", locale)),
+        ],
+        [
+            KeyboardButton(text=translate("contact_admin", locale)),
+        ],
+    ]
+    dash = _dashboard_button()
+    if dash is not None:
+        keyboard.insert(0, [dash])
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
 # Хендлер команды /start

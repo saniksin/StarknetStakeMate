@@ -5,7 +5,7 @@ import logging
 import signal
 import atexit
 from aiogram.filters import Command
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, types
 from aiogram.fsm.storage.memory import MemoryStorage
 from contextlib import suppress
 from aiogram.exceptions import TelegramAPIError
@@ -16,12 +16,13 @@ from db_api.database import initialize_db
 from utils.create_files import create_files
 from utils.filters import AdminReplyFilter, TextFilter, UserReplyToAdminFilter
 from data.languages import translate, possible_prefixes
+from tasks.attestation_alerts import send_attestation_alerts
 from tasks.strk_notification import send_strk_notification
 from data.models import get_admins
 from utils.logger import logger
 from data.tg_bot import BOT_TOKEN
 from tasks.request_queue import process_request_queue
-from migrate_queue import migrate
+from migrations import run_all as run_migrations
 from bot import handlers
 
 # Настройка логирования
@@ -51,18 +52,37 @@ def cleanup_processes():
 # Регистрируем функцию очистки
 atexit.register(cleanup_processes)
 
+async def _warm_contracts() -> None:
+    """Pre-build cached Contract instances. Each ABI parse blocks the loop
+    for several seconds the first time, so we pay it during startup instead
+    of on the first user request."""
+    try:
+        from services.attestation_service import _attestation_contract
+        from services.staking_service import _staking_contract, warm_pool_abi
+
+        _staking_contract()
+        _attestation_contract()
+        warm_pool_abi()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"worker contract warm-up skipped: {exc}")
+
+
 def run_queue_processor():
     """Запуск обработчика очереди в отдельном процессе"""
     try:
         # Устанавливаем имя процесса
         proc = multiprocessing.current_process()
         proc.name = "strk_bot_parsing"
-        
+
         # Устанавливаем свой обработчик сигналов
         signal.signal(signal.SIGINT, signal.SIG_IGN)
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        
-        asyncio.run(process_request_queue())
+
+        async def _runner():
+            await _warm_contracts()
+            await process_request_queue()
+
+        asyncio.run(_runner())
     except Exception as e:
         logger.error(f"Error in queue processor: {e}")
 
@@ -72,12 +92,22 @@ def run_notification_processor():
         # Устанавливаем имя процесса
         proc = multiprocessing.current_process()
         proc.name = "strk_bot_notification"
-        
+
         # Устанавливаем свой обработчик сигналов
         signal.signal(signal.SIGINT, signal.SIG_IGN)
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        
-        asyncio.run(send_strk_notification())
+
+        async def _runner():
+            await _warm_contracts()
+            # Two independent watchers in one process — they share the warm
+            # ABI cache and the price service, but tick at very different
+            # frequencies (rewards: hourly, attestation: 60s).
+            await asyncio.gather(
+                send_strk_notification(),
+                send_attestation_alerts(),
+            )
+
+        asyncio.run(_runner())
     except Exception as e:
         logger.error(f"Error in notification processor: {e}")
 
@@ -195,7 +225,8 @@ async def register_handlers():
     dp.message.register(handlers.process_add_type, handlers.AddInfoState.choose_type)
     dp.message.register(handlers.process_validator_address, handlers.AddInfoState.awaiting_validator_address)
     dp.message.register(handlers.process_delegator_address, handlers.AddInfoState.awaiting_delegate_address)
-    dp.message.register(handlers.process_pool_address, handlers.AddInfoState.awaiting_pool_address)
+    dp.message.register(handlers.process_staker_address, handlers.AddInfoState.awaiting_staker_address)
+    dp.message.register(handlers.process_label, handlers.AddInfoState.awaiting_label)
     dp.message.register(handlers.confirm_tracking_data, handlers.AddInfoState.awaiting_prepere_confirmation)
     dp.message.register(handlers.process_confirmation, handlers.AddInfoState.awaiting_confirmation)
     
@@ -213,6 +244,18 @@ async def register_handlers():
     dp.message.register(handlers.get_tracking_reward_info, TextFilter(
         text=[translate("get_reward_info", locale) for locale in possible_prefixes])
         )
+
+    # /dashboard — compact multi-entry summary with inline buttons
+    dp.message.register(handlers.dashboard_command, Command("dashboard"))
+
+    # /rename — change an existing label
+    dp.message.register(handlers.start_rename, Command("rename"))
+    dp.message.register(handlers.process_rename_selection, handlers.RenameState.awaiting_selection)
+    dp.message.register(handlers.process_new_label, handlers.RenameState.awaiting_new_label)
+
+    # inline callback buttons on cards
+    dp.callback_query.register(handlers.on_card_callback, lambda c: c.data and c.data.startswith("card:"))
+    dp.callback_query.register(handlers.on_menu_dashboard_callback, lambda c: c.data == "menu:dashboard")
 
     # блокировка пользователя 
     dp.message.register(handlers.start_block_user, Command('ban_user'))
@@ -232,7 +275,41 @@ async def register_handlers():
         text=[translate("set_strk_notification", locale) for locale in possible_prefixes])
     )
 
-    # установка / удаление ping strk reward msg
+    # установка / удаление порогов уведомлений (Bug 4: USD + per-token)
+    dp.message.register(handlers.start_set_usd_threshold, TextFilter(
+        text=[translate("set_usd_threshold", locale) for locale in possible_prefixes])
+    )
+    dp.message.register(handlers.set_usd_threshold, handlers.RewardClaimState.waiting_for_usd)
+
+    dp.message.register(handlers.start_set_token_threshold, TextFilter(
+        text=[translate("set_token_threshold", locale) for locale in possible_prefixes])
+    )
+    dp.message.register(handlers.set_token_threshold, handlers.RewardClaimState.waiting_for_token)
+
+    # Bug 5: attestation alerts. Parent-menu button caption embeds an
+    # "X/Y" summary, so we accept the bare prefix or the prefix with any
+    # ``: <num>/<num>`` suffix. Catching the prefix as a startswith filter
+    # is impractical, so we register a custom function-filter on the parent.
+    def _is_attestation_button(message: types.Message) -> bool:
+        text = (message.text or "").strip()
+        for loc in possible_prefixes:
+            prefix = translate("attestation_toggle", loc)
+            if text == prefix or text.startswith(f"{prefix}:"):
+                return True
+        return False
+
+    dp.message.register(
+        handlers.open_attestation_submenu,
+        _is_attestation_button,
+    )
+    # Per-validator submenu — every tap inside lands here.
+    dp.message.register(
+        handlers.handle_attestation_submenu,
+        handlers.AttestationMenuState.picking,
+    )
+
+    # legacy STRK threshold entry — kept under the old "set_strk_reward_notification"
+    # button so users with stale UI still hit a working flow.
     dp.message.register(handlers.start_set_threshold, TextFilter(
         text=[translate("set_strk_reward_notification", locale) for locale in possible_prefixes])
     )
@@ -252,7 +329,21 @@ async def start_bot():
         logger.info("Starting bot initialization...")
         await initialize_db()
         logger.info("Database initialized successfully")
-        
+
+        # Pre-build the staking/attestation Contract objects. starknet-py's
+        # Contract constructor parses the entire ABI synchronously (5+ seconds
+        # per contract for our hand-written cairo interfaces); paying that
+        # cost here keeps the very first user request snappy.
+        try:
+            from services.attestation_service import _attestation_contract
+            from services.staking_service import _staking_contract
+
+            _staking_contract()
+            _attestation_contract()
+            logger.info("Contract ABIs warmed up")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"contract warm-up skipped: {exc}")
+
         # Запускаем бота
         await dp.start_polling(bot)
         
@@ -269,7 +360,7 @@ async def main():
         create_files()
         await initialize_db()
         await register_handlers()
-        await migrate()
+        await run_migrations()
         
         # Запускаем процессы для фоновых задач
         queue_process = multiprocessing.Process(target=run_queue_processor)
@@ -294,17 +385,18 @@ async def main():
         if not is_shutting_down.value:
             await shutdown()
 
-if __name__ == "__main__":
-    # Регистрируем обработчики сигналов
+def run() -> None:
+    """Sync entry point used by ``uv run stakemate-bot``."""
     signal.signal(signal.SIGINT, handle_signals)
     signal.signal(signal.SIGTERM, handle_signals)
-    
     try:
-        # Для Windows нужно защитить точку входа
         multiprocessing.freeze_support()
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("Program terminated by user")
-    except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        sys.exit(1)
+    except Exception as exc:  # noqa: BLE001
+        logger.error(f"Unexpected error: {exc}")
+
+
+if __name__ == "__main__":
+    run()

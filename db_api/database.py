@@ -6,7 +6,7 @@ from sqlalchemy.future import select
 from db_api import sqlalchemy_
 from db_api.models import Users, Base
 from data.all_paths import USERS_DB
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -34,7 +34,14 @@ async def get_user_tracking(user_id: str) -> Optional[dict]:
 
 
 async def get_strk_notification_users() -> List[Users]:
-    query = select(Users).where(Users.claim_reward_msg != 0)
+    """Users that have *any* notification configured.
+
+    Either the legacy STRK-only ``claim_reward_msg`` or the new
+    ``notification_config`` JSON (USD threshold and/or per-token thresholds).
+    """
+    query = select(Users).where(
+        (Users.claim_reward_msg != 0) | (Users.notification_config.isnot(None))
+    )
     return await db.all(query)
 
 
@@ -46,3 +53,60 @@ async def write_to_db(user: Users):
     async with AsyncSession(db.engine) as session:
         await session.merge(user)
         await session.commit()
+
+
+async def update_attestation_state(user_id: int, state: dict) -> None:
+    """Atomically refresh ``notification_config["_attestation_state"]``.
+
+    The notifier loop holds a stale Users snapshot for the whole cycle
+    (RPC + Telegram = many seconds). A blanket ``write_to_db(user)`` would
+    ``merge()`` every column and clobber concurrent edits — most painfully
+    ``user_language``. Here we re-read inside one session, mutate ONLY the
+    JSON slice we own, and emit a targeted ``UPDATE notification_config``
+    so other columns aren't touched at all.
+    """
+    async with AsyncSession(db.engine) as session:
+        result = await session.execute(
+            select(Users).where(Users.user_id == user_id)
+        )
+        user = result.scalar_one_or_none()
+        if user is None:
+            return
+        cfg = user.get_notification_config()
+        cfg["_attestation_state"] = {str(k): int(v) for k, v in state.items()}
+        user.set_notification_config(cfg)
+        await session.execute(
+            update(Users)
+            .where(Users.user_id == user_id)
+            .values(notification_config=user.notification_config)
+        )
+        await session.commit()
+
+
+async def clear_notifications_if_empty(user_id: int) -> Optional[str]:
+    """Wipe notification fields iff the user still has no tracked addresses.
+
+    Used by the hourly notifier when its stale snapshot says the user
+    deleted everything. Refetches before writing — if the user re-added
+    something during the cycle, we leave their config alone.
+
+    Returns the user's current language for the follow-up "no addresses"
+    DM, or ``None`` if nothing was cleared.
+    """
+    async with AsyncSession(db.engine) as session:
+        result = await session.execute(
+            select(Users).where(Users.user_id == user_id)
+        )
+        user = result.scalar_one_or_none()
+        if user is None:
+            return None
+        doc = user.get_tracking_data()
+        if doc.get("validators") or doc.get("delegations"):
+            return None
+        await session.execute(
+            update(Users)
+            .where(Users.user_id == user_id)
+            .values(claim_reward_msg=0, notification_config=None)
+        )
+        await session.commit()
+        return user.user_language or "en"

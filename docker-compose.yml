@@ -1,0 +1,96 @@
+# Two independently-isolated containers from the same image:
+#   • bot  — Telegram polling + background workers (no exposed ports)
+#   • api  — FastAPI + Mini App on ${API_PORT}
+# They share only the SQLite DB and the logs directory (named volumes).
+# Either service can crash or be restarted without touching the other.
+
+name: stakemate
+
+x-base: &base
+  image: stakemate:latest
+  build:
+    context: .
+    dockerfile: Dockerfile
+  env_file:
+    - .env
+  volumes:
+    - stakemate-data:/app/files
+    - stakemate-logs:/app/logs
+  restart: unless-stopped
+  # Small resource fences per container so an accident in one service
+  # cannot starve the other. Tune upward if you track many addresses.
+  # 1G headroom for the bot service: main process plus two multiprocessing
+  # workers (queue + notifier) with warmed-up starknet-py Contract objects
+  # peak around ~600 MB during startup; 512 M tripped the OOM killer
+  # (exit 137) and looped restarts every ~25 s.
+  deploy:
+    resources:
+      limits:
+        cpus: "1.0"
+        memory: 1G
+
+services:
+  bot:
+    <<: *base
+    container_name: stakemate-bot
+    command: ["python", "-m", "main"]
+    healthcheck:
+      # No exposed port: check the sqlite file is reachable from the bot
+      # process (a proxy for "the app booted and initialize_db() ran").
+      test: ["CMD-SHELL", "test -f /app/files/users.db || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  api:
+    <<: *base
+    container_name: stakemate-api
+    command:
+      ["python", "-m", "uvicorn", "api.app:app",
+       "--host", "0.0.0.0", "--port", "8000"]
+    # No host port mapping in prod: Caddy reaches the API over the internal
+    # docker network. Locally you can still expose it via `docker compose`
+    # override or by uncommenting the line below.
+    # ports:
+    #   - "${API_PORT:-8765}:8000"
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz',timeout=2).status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Reverse-proxy + automatic HTTPS (Let's Encrypt / ZeroSSL) for the public
+  # Mini App URL. Uses the bundled Caddyfile alongside this compose file.
+  # ``DOMAIN`` env var (set via .env) tells Caddy which hostname to issue
+  # the certificate for; restart caddy whenever you change it.
+  caddy:
+    image: caddy:2-alpine
+    container_name: stakemate-caddy
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"  # HTTP/3
+    environment:
+      - DOMAIN=${DOMAIN:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data        # cert storage — keep across container rebuilds
+      - caddy-config:/config
+
+volumes:
+  stakemate-data:
+    # SQLite DB (/app/files/users.db) is the only shared mutable state.
+  stakemate-logs:
+    # Loguru rotating logs. Mount readonly into anything that needs them.
+  caddy-data:
+    # Let's Encrypt certificate cache — losing this triggers a re-issue
+    # which is rate-limited (50/week per domain).
+  caddy-config:
