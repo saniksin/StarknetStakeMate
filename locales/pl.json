@@ -216,5 +216,7 @@
     "portfolio_header": "Mój portfel stakingowy",
     "portfolio_counts": "{positions} pozycji · {pools} pul",
     "total_label": "RAZEM",
-    "total_rewards_unclaimed": "Łączne nagrody (nieodebrane)"
+    "total_rewards_unclaimed": "Łączne nagrody (nieodebrane)",
+    "duplicate_validator": "⚠️ Ten walidator jest już na Twojej liście śledzenia.",
+    "duplicate_delegation": "⚠️ Ta delegacja (delegator + walidator) jest już na Twojej liście śledzenia."
 }

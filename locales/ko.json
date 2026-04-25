@@ -216,5 +216,7 @@
     "portfolio_header": "내 스테이킹 포트폴리오",
     "portfolio_counts": "{positions}개 포지션 · {pools}개 풀",
     "total_label": "합계",
-    "total_rewards_unclaimed": "총 미청구 보상"
+    "total_rewards_unclaimed": "총 미청구 보상",
+    "duplicate_validator": "⚠️ 이 검증인은 이미 추적 목록에 있습니다.",
+    "duplicate_delegation": "⚠️ 이 위임(위임자 + 검증인)은 이미 추적 목록에 있습니다."
 }

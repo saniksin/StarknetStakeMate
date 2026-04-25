@@ -222,5 +222,7 @@
     "portfolio_header": "Мой стейкинг-портфель",
     "portfolio_counts": "{positions} позиций · {pools} пулов",
     "total_label": "ИТОГО",
-    "total_rewards_unclaimed": "Всего наград (неполученные)"
+    "total_rewards_unclaimed": "Всего наград (неполученные)",
+    "duplicate_validator": "⚠️ Этот валидатор уже есть в вашем списке отслеживания.",
+    "duplicate_delegation": "⚠️ Эта делегация (делегатор + валидатор) уже есть в вашем списке отслеживания."
 }

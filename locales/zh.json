@@ -216,5 +216,7 @@
     "portfolio_header": "我的质押投资组合",
     "portfolio_counts": "{positions} 个仓位 · {pools} 个池",
     "total_label": "总计",
-    "total_rewards_unclaimed": "未领取奖励合计"
+    "total_rewards_unclaimed": "未领取奖励合计",
+    "duplicate_validator": "⚠️ 该验证人已在您的追踪列表中。",
+    "duplicate_delegation": "⚠️ 该委托（委托人 + 验证人）已在您的追踪列表中。"
 }

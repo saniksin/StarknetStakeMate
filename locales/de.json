@@ -216,5 +216,7 @@
     "portfolio_header": "Mein Staking-Portfolio",
     "portfolio_counts": "{positions} Positionen · {pools} Pools",
     "total_label": "GESAMT",
-    "total_rewards_unclaimed": "Belohnungen gesamt (nicht beansprucht)"
+    "total_rewards_unclaimed": "Belohnungen gesamt (nicht beansprucht)",
+    "duplicate_validator": "⚠️ Dieser Validator befindet sich bereits in deiner Tracking-Liste.",
+    "duplicate_delegation": "⚠️ Diese Delegation (Delegator + Validator) befindet sich bereits in deiner Tracking-Liste."
 }

@@ -216,5 +216,7 @@
     "portfolio_header": "Mi cartera de staking",
     "portfolio_counts": "{positions} posiciones · {pools} pools",
     "total_label": "TOTAL",
-    "total_rewards_unclaimed": "Recompensas totales (sin reclamar)"
+    "total_rewards_unclaimed": "Recompensas totales (sin reclamar)",
+    "duplicate_validator": "⚠️ Este validador ya está en tu lista de seguimiento.",
+    "duplicate_delegation": "⚠️ Esta delegación (delegador + validador) ya está en tu lista de seguimiento."
 }

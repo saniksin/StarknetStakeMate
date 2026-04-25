@@ -216,5 +216,7 @@
     "portfolio_header": "Мій стейкінг-портфель",
     "portfolio_counts": "{positions} позицій · {pools} пулів",
     "total_label": "ЗАГАЛОМ",
-    "total_rewards_unclaimed": "Усього винагород (неотримані)"
+    "total_rewards_unclaimed": "Усього винагород (неотримані)",
+    "duplicate_validator": "⚠️ Цей валідатор вже є у вашому списку відстеження.",
+    "duplicate_delegation": "⚠️ Ця делегація (делегатор + валідатор) вже є у вашому списку відстеження."
 }

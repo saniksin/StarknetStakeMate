@@ -285,13 +285,46 @@ async def process_confirmation(
         doc = await get_user_tracking(user_object.user_id)
 
         if data.get("add_validator"):
-            doc.setdefault("validators", []).append({
+            new_addr = (data["validator_address"] or "").lower()
+            existing = doc.setdefault("validators", [])
+            # Reject duplicates — same staker added twice from the bot UI
+            # produced two identical cards in the tracking list. Compare
+            # case-insensitively because Starknet hex addresses round-trip
+            # in either case.
+            if any((v.get("address") or "").lower() == new_addr for v in existing):
+                await state.clear()
+                await finish_operation(
+                    message, state, user_locale,
+                    privious_msg=translate("duplicate_validator", user_locale),
+                    cancel_msg=False,
+                )
+                return
+            existing.append({
                 "address": data["validator_address"],
                 "label": data.get("label", ""),
             })
             msg_key = "validator_info_saved"
         else:
-            doc.setdefault("delegations", []).append({
+            new_delegator = (data["delegetor_address"] or "").lower()
+            new_staker = (data["staker_address"] or "").lower()
+            existing = doc.setdefault("delegations", [])
+            # The natural identity of a delegation is the (delegator, staker)
+            # pair — pools are auto-discovered, so adding the same pair
+            # twice yields the same card.
+            duplicate = any(
+                (d.get("delegator") or "").lower() == new_delegator
+                and (d.get("staker") or "").lower() == new_staker
+                for d in existing
+            )
+            if duplicate:
+                await state.clear()
+                await finish_operation(
+                    message, state, user_locale,
+                    privious_msg=translate("duplicate_delegation", user_locale),
+                    cancel_msg=False,
+                )
+                return
+            existing.append({
                 "delegator": data["delegetor_address"],
                 "staker": data["staker_address"],
                 "label": data.get("label", ""),

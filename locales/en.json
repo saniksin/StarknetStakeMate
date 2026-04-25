@@ -222,5 +222,7 @@
     "portfolio_header": "My Staking Portfolio",
     "portfolio_counts": "{positions} positions · {pools} pools",
     "total_label": "TOTAL",
-    "total_rewards_unclaimed": "Total rewards (unclaimed)"
+    "total_rewards_unclaimed": "Total rewards (unclaimed)",
+    "duplicate_validator": "⚠️ This validator is already in your tracking list.",
+    "duplicate_delegation": "⚠️ This delegation (delegator + validator) is already in your tracking list."
 }
