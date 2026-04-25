@@ -646,12 +646,15 @@ async function renderDelegator(delegatorAddr, stakerAddr) {
   // record, so we hit /validators/{addr} separately. Render the banner
   // when it lands; on failure we just leave it blank (we don't want to
   // block the rest of the page on this one extra call).
-  $.statusBanner.innerHTML = "";
+  $.statusBanner.innerHTML = `<div class="banner muted">Loading validator status…</div>`;
   api(`/api/v1/validators/${data.staker_address}`)
     .then((vinfo) => {
       $.statusBanner.innerHTML = renderValidatorStatusBanner(vinfo);
     })
-    .catch(() => { /* staker not found / RPC blip — ignore */ });
+    .catch((err) => {
+      console.warn("validator status lookup failed", err);
+      $.statusBanner.innerHTML = `<div class="banner muted">Validator status unavailable</div>`;
+    });
 
   // Stats grid: total stake (per primary token) + total unclaimed (STRK).
   const stakedBySym = entryStakedBySymbol(entry);
@@ -740,7 +743,10 @@ function renderValidatorStatusBanner(data) {
   if (att) {
     return `<div class="banner">Awaiting attestation in epoch ${att.current_epoch}</div>`;
   }
-  return "";
+  // attestation lookup failed (RPC blip, contract returned no data) —
+  // still tell the user we tried, so an empty space doesn't look like
+  // we forgot to render anything.
+  return `<div class="banner muted">Validator status unavailable</div>`;
 }
 
 function renderTotalStakeHero(totalsBySym, prices) {

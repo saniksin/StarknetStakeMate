@@ -350,6 +350,7 @@ main {
 .banner.success { background: color-mix(in srgb, var(--green) 14%, transparent); color: var(--green); }
 .banner.warn    { background: color-mix(in srgb, var(--orange) 14%, transparent); color: var(--orange); }
 .banner.danger  { background: color-mix(in srgb, var(--red) 14%, transparent); color: var(--red); }
+.banner.muted   { background: color-mix(in srgb, var(--hint) 10%, transparent); color: var(--hint); }
 
 .grid-2 {
   display: grid;

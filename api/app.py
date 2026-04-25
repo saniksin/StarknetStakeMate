@@ -15,7 +15,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from api.routers import delegators, status, users, validators
@@ -87,8 +87,25 @@ if _WEBAPP_DIR.is_dir():
     app.mount("/app", StaticFiles(directory=str(_WEBAPP_DIR), html=True), name="webapp")
 
 
+def _asset_version() -> str:
+    """Build a short cache-buster from webapp asset mtimes.
+
+    Telegram's in-app WebView caches static assets aggressively across
+    sessions. Without a versioned URL the user keeps seeing yesterday's
+    ``app.js`` even after a fresh ``docker compose build`` — appending
+    ``?v=<mtime>`` makes the URL change whenever we redeploy and forces
+    a refetch.
+    """
+    parts: list[int] = []
+    for name in ("app.js", "style.css", "index.html"):
+        f = _WEBAPP_DIR / name
+        if f.is_file():
+            parts.append(int(f.stat().st_mtime))
+    return str(max(parts) if parts else 0)
+
+
 @app.get("/", include_in_schema=False, response_model=None)
-async def root():
+async def root() -> HTMLResponse | dict[str, str]:
     """Serve the Mini App's index at the bare ``/`` URL.
 
     We can't redirect to ``/app/`` here: Telegram WebApp passes ``initData``
@@ -97,11 +114,18 @@ async def root():
     without auth context and forcing a ``tg_id`` query fallback. The HTML
     references its assets (``style.css``, ``app.js``) by absolute paths
     rooted at ``/app/`` so they load fine regardless of which URL hits this.
+
+    We rewrite the asset URLs on the fly to add ``?v=<mtime>`` for cache
+    busting (see ``_asset_version``).
     """
     index = _WEBAPP_DIR / "index.html"
-    if index.is_file():
-        return FileResponse(str(index))
-    return {"name": "StarknetStakeMate API", "docs": "/docs", "app": "/app"}
+    if not index.is_file():
+        return {"name": "StarknetStakeMate API", "docs": "/docs", "app": "/app"}
+    html = index.read_text(encoding="utf-8")
+    v = _asset_version()
+    html = html.replace("/app/style.css", f"/app/style.css?v={v}")
+    html = html.replace("/app/app.js", f"/app/app.js?v={v}")
+    return HTMLResponse(content=html)
 
 
 def run() -> None:
