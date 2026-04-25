@@ -9,14 +9,18 @@ A Starknet staking companion: Telegram bot + REST API + Telegram Mini App / loca
 | Feature | Bot | Mini App | Notes |
 | --- | --- | --- | --- |
 | Validator view (STRK + BTC pools, attestation) | ✅ | ✅ | `staker_info_v1` + `staker_pool_info` |
-| Delegator view (any pool, token-aware) | ✅ | ✅ | `pool_member_info_v1` |
-| Reward-threshold notifications | ✅ | planned | background notifier, hourly |
-| Missed-attestation alerts | ✅ | planned | `get_last_epoch_attestation_done` |
-| Multi-language UI (8 locales) | ✅ | fallback en | EN / RU / UA hand-translated for new keys |
+| Delegator view (any pool, token-aware) | ✅ | ✅ | `pool_member_info_v1`; shows the staker's status banner too |
+| Total stake hero (own + delegations, USD-aggregated) | — | ✅ | per-token breakdown line below |
+| Reward-threshold notifications (single-mode USD ⊻ token) | ✅ | ✅ | background notifier, wall-clock-aligned |
+| Missed-attestation alerts | ✅ | ✅ | `get_last_epoch_attestation_done`, per-minute scan |
+| Tap-to-copy addresses (with HapticFeedback) | — | ✅ | every staker / delegator / pool address |
+| Confirm-before-delete (Yes/No on remove flows) | ✅ | ✅ | bot uses FSM; Mini App uses native `showConfirm` |
+| Reject duplicate validator/delegator add | ✅ | n/a | bot returns "already in your tracking list" |
+| Multi-language UI (8 locales × 228 keys) | ✅ | fallback en | EN / RU / UA / DE / ES / KO / PL / ZH parity-checked |
 | REST API (`/api/v1/*`) | — | ✅ | FastAPI + OpenAPI `/docs` |
 | Telegram WebApp HMAC auth | — | ✅ | standard `initData` validation |
 | Local dashboard mode | — | ✅ | no HMAC, uses `?tg_id=` |
-| 8 commands (/start, /help, /add_info, …) | ✅ | — | — |
+| Asset cache-busting (`?v=<mtime>`) | — | ✅ | survives Telegram WebView's aggressive cache |
 
 ---
 
@@ -56,6 +60,28 @@ Then open:
 - `https://<your_public_host>/app/` — Mini App target (set `WebAppInfo(url=…)` in a bot button)
 
 For Mini App production: host `webapp/` behind HTTPS and set `API_AUTH_MODE=telegram` so every API call requires a valid Telegram `initData` HMAC signature.
+
+### Production deployment (Docker + Caddy + DuckDNS)
+
+The repo ships with a 3-service `docker-compose.yml` (`bot` + `api` + `caddy`) and a `Caddyfile` that auto-issues Let's Encrypt certs for any hostname you put in the `DOMAIN` env var. Tested live on a Contabo VPS (Ubuntu 22.04) with a free DuckDNS subdomain.
+
+```bash
+# .env (only the prod-specific bits — bot vars same as local)
+DOMAIN=yourname.duckdns.org
+API_AUTH_MODE=telegram
+
+docker compose up -d --build
+```
+
+Caddy listens on 80/443 (and 443/udp for HTTP/3) and reverse-proxies to the `api` container on the internal Docker network — the API itself is **not** published to the host. SQLite + logs live in named volumes (`stakemate-data`, `stakemate-logs`) and survive `docker compose down`. Cert cache lives in `caddy-data` (don't lose it — Let's Encrypt rate-limits at 50 issuances per domain per week).
+
+Resource fences: each container caps at 1 CPU + 1 GB RAM. The bot needs the full gigabyte because it warms up starknet-py `Contract` objects across multiprocessing workers — 512 MB tripped the OOM killer (exit 137) and looped restarts every ~25 s.
+
+### Mini App entry point
+
+The reliable entry on every Telegram client is the **Menu Button** (the blue button left of the message field), configured via `@BotFather → Bot Settings → Configure Mini App → Menu Button URL`. ReplyKeyboard `web_app` buttons are buggy on Telegram Desktop (initData isn't passed) — we don't ship those.
+
+The bare `/` URL is served by FastAPI directly and on the fly rewrites `/app/style.css` and `/app/app.js` references with `?v=<mtime>` cache-busters, so a redeploy invalidates Telegram's WebView asset cache automatically.
 
 ### Dev tools
 
@@ -117,13 +143,16 @@ Key idea: every contract read and every user-visible string originates in `servi
 ├── data/                  # Config: contracts, bot init, locales, paths
 ├── db_api/                # SQLAlchemy models + DB helpers (SQLite)
 ├── docs/superpowers/specs # Design documents
-├── locales/               # 8 JSON locale bundles (169 keys each)
+├── locales/               # 8 JSON locale bundles (228 keys each)
 ├── parse/                 # Legacy shim — forwards to services.*
 ├── services/              # ✨ new clean domain layer
 ├── smart_contracts_abi/   # l2_staking, l2_pool, l2_attestation ABIs (live)
 ├── tasks/                 # Background loops (queue processor, notifier)
 ├── utils/                 # Caching, rate-limit, filters, logging
 ├── webapp/                # Mini App / local dashboard (vanilla HTML/JS)
+├── Dockerfile             # uv-based slim image, single image runs both bot + api
+├── docker-compose.yml     # bot + api + caddy (HTTPS reverse proxy)
+├── Caddyfile              # auto Let's Encrypt for ${DOMAIN}
 └── main.py                # Bot entry point (aiogram polling + mp workers)
 ```
 
