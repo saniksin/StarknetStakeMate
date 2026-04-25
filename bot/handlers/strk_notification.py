@@ -302,6 +302,11 @@ async def set_claim_threshold(
 
     cfg = user_object.get_notification_config()
     cfg["token_thresholds"]["STRK"] = threshold
+    # Legacy entry-point (the bare "set_strk_reward_notification" button).
+    # Same single-mode rule as the new setters: arming a STRK threshold
+    # clears the USD aggregate so users don't end up double-armed.
+    if threshold > 0:
+        cfg["usd_threshold"] = 0.0
     user_object.set_notification_config(cfg)
     user_object.claim_reward_msg = 0  # migrate away from the legacy column
     await write_to_db(user_object)
@@ -352,6 +357,14 @@ async def set_usd_threshold(
 
     cfg = user_object.get_notification_config()
     cfg["usd_threshold"] = amount
+    # Single-mode rule: arming a positive USD threshold clears any STRK
+    # token threshold (and vice versa in ``set_token_threshold``). A user
+    # should never end up notified twice for the same reward stream from
+    # two competing rules. Setting 0 only disables USD without touching
+    # the other mode — that lets the user explicitly turn off USD while
+    # keeping a previously-armed STRK threshold.
+    if amount > 0:
+        cfg["token_thresholds"] = {}
     user_object.set_notification_config(cfg)
     user_object.claim_reward_msg = 0
     await write_to_db(user_object)
@@ -429,6 +442,10 @@ async def set_token_threshold(
         cfg["token_thresholds"].pop(canonical_sym, None)
     else:
         cfg["token_thresholds"][canonical_sym] = amount
+        # Single-mode rule: arming a positive token threshold clears the
+        # USD aggregate (mirror of ``set_usd_threshold``). See the comment
+        # there for why we don't symmetrically clear when amount == 0.
+        cfg["usd_threshold"] = 0.0
     user_object.set_notification_config(cfg)
     user_object.claim_reward_msg = 0
     await write_to_db(user_object)
