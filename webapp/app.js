@@ -562,6 +562,17 @@ async function renderValidator(address) {
   }
   $.epoch.textContent = data.current_epoch ?? "—";
 
+  // Total stake = own + every pool, summed cross-token via USD prices.
+  // Per-token breakdown lives in the subtitle so the user sees both
+  // "how much do I control" (USD aggregate) and the token mix.
+  const totals = {};
+  totals["STRK"] = ownStrk;
+  for (const p of data.pools || []) {
+    const sym = p.token_symbol || "STRK";
+    totals[sym] = (totals[sym] || 0) + Number(p.amount_decimal || 0);
+  }
+  $.totalStakeBlock.innerHTML = renderTotalStakeHero(totals, state.prices);
+
   // Pools breakdown
   const pools = data.pools || [];
   if (pools.length) {
@@ -660,6 +671,8 @@ async function renderDelegator(delegatorAddr, stakerAddr) {
   }
   $.epoch.textContent = state.status?.current_epoch ?? "—";
 
+  $.totalStakeBlock.innerHTML = renderTotalStakeHero(stakedBySym, state.prices);
+
   // Positions block
   if (positions.length) {
     $.positionsBlock.innerHTML = `
@@ -700,6 +713,36 @@ async function renderDelegator(delegatorAddr, stakerAddr) {
 // ---------------------------------------------------------------------------
 // "Remove from tracking" — confirms, PUTs the trimmed list, navigates back.
 // ---------------------------------------------------------------------------
+
+function renderTotalStakeHero(totalsBySym, prices) {
+  // Filter out zero entries up-front so the breakdown line stays clean
+  // (e.g. validators with no BTC pools just see "X STRK", not
+  // "X STRK · 0 WBTC · 0 LBTC").
+  const nonZero = Object.fromEntries(
+    Object.entries(totalsBySym || {}).filter(([_, v]) => Number(v) > 0)
+  );
+  if (Object.keys(nonZero).length === 0) return "";
+
+  const usdAggregate = totalUsd(nonZero, prices);
+  const breakdown = Object.entries(nonZero)
+    .map(([sym, amt]) => fmtAmount(amt, sym))
+    .join(" · ");
+
+  // Headline: USD aggregate (cross-token sum), prominent.
+  // Subtitle: per-token breakdown so the user sees the actual mix.
+  // If we don't have a price for a symbol, fall back to showing the
+  // breakdown as the headline — better than rendering "—".
+  const headline = usdAggregate !== null ? `≈ ${fmtUsd(usdAggregate)}` : breakdown;
+  const sub = usdAggregate !== null ? breakdown : "";
+
+  return `
+    <div class="hero">
+      <div class="muted small">Total stake (own + delegations)</div>
+      <div class="hero-value">${escapeHtml(headline)}</div>
+      ${sub ? `<div class="hero-sub muted small">${escapeHtml(sub)}</div>` : ""}
+    </div>
+  `;
+}
 
 function attachRemoveButton(btn, { kind, label, matcher }) {
   if (!btn) return;
