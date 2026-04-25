@@ -255,9 +255,49 @@ function bindings() {
   return out;
 }
 
+function _hasAuth() {
+  // Authoritative: real initData hash from Telegram WebApp container.
+  if (tg && tg.initData && tg.initData.length > 0) return true;
+  // Local dashboard fallback: ?tg_id=NNN in the URL is OK in `local`/`both`
+  // server modes (used while the deployment doesn't have HTTPS).
+  if (new URLSearchParams(location.search).get("tg_id")) return true;
+  return false;
+}
+
+function renderAuthHelp() {
+  // Telegram Desktop has a known issue where ReplyKeyboardMarkup
+  // ``web_app`` buttons open the Mini App without ``tgWebAppData`` in
+  // the URL fragment — so initData stays empty and the API returns 401.
+  // BotFather's Menu Button (the blue button left of the message input)
+  // is the reliable entry point on every platform; explain that here
+  // instead of dropping a raw 401.
+  const isDesktopMissing = tg && tg.platform === "tdesktop";
+  const title = isDesktopMissing ? "Open from the menu button" : "Open this Mini App in Telegram";
+  const body = isDesktopMissing
+    ? `On Telegram Desktop the keyboard button can't pass your account info due to a Telegram-side limitation.<br><br>Use the <b>blue button</b> on the left of the message input in your chat with the bot — it works on every platform.`
+    : `This page needs to be launched from inside Telegram so the bot can verify who you are.<br><br>Open the bot in Telegram and tap the <b>menu button</b> (left of the message input).`;
+
+  setTopbar("StakeMate", "");
+  viewEl.innerHTML = `
+    <div class="hero" style="text-align:center">
+      <div style="font-size:48px; line-height:1; margin-bottom:12px">🔒</div>
+      <h2 style="margin:0 0 12px; font-size:20px; font-weight:700; letter-spacing:-0.01em">${escapeHtml(title)}</h2>
+      <p class="muted" style="font-size:14px; line-height:1.5; margin:0">${body}</p>
+    </div>
+  `;
+}
+
 async function renderRoute() {
   const route = parseRoute();
   document.getElementById("app").dataset.view = route.name;
+
+  // Stop early if we have no way to authenticate. Otherwise every view
+  // would fire its own /api/v1/users/me/* call and get back 401.
+  if (!_hasAuth()) {
+    renderAuthHelp();
+    return;
+  }
+
   try {
     if (route.name === "dashboard") await renderDashboard();
     else if (route.name === "validator") await renderValidator(route.address);
