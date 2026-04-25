@@ -532,19 +532,9 @@ async function renderValidator(address) {
   $.address.classList.remove("addr-mono");
   $.address.innerHTML = copyableAddr(entry.address);
 
-  // Status banner
-  const att = data.attestation;
-  let banner = "";
-  if (data.unstake_requested) {
-    banner = `<div class="banner danger">⚠️ Unstake requested — exit pending</div>`;
-  } else if (att && att.missed_epochs > 0) {
-    banner = `<div class="banner warn">⚠ ${att.missed_epochs} missed attestation epoch${att.missed_epochs === 1 ? "" : "s"} (current ${att.current_epoch}, last attested ${att.last_epoch_attested})</div>`;
-  } else if (att && att.is_attesting_this_epoch) {
-    banner = `<div class="banner success">✓ Attesting this epoch</div>`;
-  } else if (att) {
-    banner = `<div class="banner">Awaiting attestation in epoch ${att.current_epoch}</div>`;
-  }
-  $.statusBanner.innerHTML = banner;
+  // Status banner — same logic delegator detail uses, factored out so the
+  // two views always stay in sync.
+  $.statusBanner.innerHTML = renderValidatorStatusBanner(data);
 
   // Stats grid
   $.primaryStakeLabel.textContent = "Own stake";
@@ -650,7 +640,18 @@ async function renderDelegator(delegatorAddr, stakerAddr) {
     <div style="margin-top:4px">via ${copyableAddr(data.staker_address)}</div>
   `;
 
+  // Surface the staker's status to delegators so they can see at a glance
+  // if the validator they're delegating to is healthy. Fire-and-forget —
+  // the delegator's own data DTO doesn't include the staker's attestation
+  // record, so we hit /validators/{addr} separately. Render the banner
+  // when it lands; on failure we just leave it blank (we don't want to
+  // block the rest of the page on this one extra call).
   $.statusBanner.innerHTML = "";
+  api(`/api/v1/validators/${data.staker_address}`)
+    .then((vinfo) => {
+      $.statusBanner.innerHTML = renderValidatorStatusBanner(vinfo);
+    })
+    .catch(() => { /* staker not found / RPC blip — ignore */ });
 
   // Stats grid: total stake (per primary token) + total unclaimed (STRK).
   const stakedBySym = entryStakedBySymbol(entry);
@@ -716,6 +717,31 @@ async function renderDelegator(delegatorAddr, stakerAddr) {
 // ---------------------------------------------------------------------------
 // "Remove from tracking" — confirms, PUTs the trimmed list, navigates back.
 // ---------------------------------------------------------------------------
+
+function renderValidatorStatusBanner(data) {
+  // Picks the most actionable single line about the validator's health:
+  //   1. Unstake requested  → red, exit pending
+  //   2. Missed epochs > 0  → orange with count
+  //   3. Attested this epoch → green confirmation
+  //   4. Mid-epoch awaiting → neutral
+  // Used by both the validator detail view (own data) and the delegator
+  // detail view (their staker's data fetched via /api/v1/validators).
+  if (!data) return "";
+  const att = data.attestation;
+  if (data.unstake_requested) {
+    return `<div class="banner danger">⚠️ Unstake requested — exit pending</div>`;
+  }
+  if (att && att.missed_epochs > 0) {
+    return `<div class="banner warn">⚠ ${att.missed_epochs} missed attestation epoch${att.missed_epochs === 1 ? "" : "s"} (current ${att.current_epoch}, last attested ${att.last_epoch_attested})</div>`;
+  }
+  if (att && att.is_attesting_this_epoch) {
+    return `<div class="banner success">✓ Attesting this epoch</div>`;
+  }
+  if (att) {
+    return `<div class="banner">Awaiting attestation in epoch ${att.current_epoch}</div>`;
+  }
+  return "";
+}
 
 function renderTotalStakeHero(totalsBySym, prices) {
   // Filter out zero entries up-front so the breakdown line stays clean
