@@ -52,9 +52,14 @@ _ERC20_ABI = [
 _WELL_KNOWN: dict[str, tuple[str, int]] = {
     "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d": ("STRK", 18),
     "0x03fe2b97c1fd336e750087d68b9b867997fd64a2661ff3ca5a7c771641e8e7ac": ("WBTC", 8),
-    "0x04daa17763b286d1e59b97c283c0b8c949994c361e426a28f743c67bdfe9a32f": ("LBTC", 8),
+    # NB: decimals on Starknet wrappers don't always match the wrapper's
+    # token model on its origin chain. LBTC ships with 18 decimals on
+    # Starknet (vs 8 on Ethereum's WBTC-style wrappers) and SolvBTC ships
+    # with 8 (vs 18 elsewhere). User-reported pool amounts were off by
+    # ~10^10 in either direction until we corrected this.
+    "0x04daa17763b286d1e59b97c283c0b8c949994c361e426a28f743c67bdfe9a32f": ("LBTC", 18),
     "0x0593e034dda23eea82d2ba9a30960ed42cf4a01502cc2351dc9b9881f9931a68": ("tBTC", 18),
-    "0x036834a40984312f7f7de8d31e3f6305b325389eaeea5b1c0664b2fb936461a4": ("SolvBTC", 18),
+    "0x036834a40984312f7f7de8d31e3f6305b325389eaeea5b1c0664b2fb936461a4": ("SolvBTC", 8),
 }
 
 

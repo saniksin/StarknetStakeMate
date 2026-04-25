@@ -77,7 +77,10 @@ function fmtAmount(value, symbol) {
   else if (n >= 10_000) formatted = Math.round(n).toLocaleString("en-US");
   else if (n >= 1) formatted = n.toLocaleString("en-US", { maximumFractionDigits: 2 });
   else if (n >= 0.0001) formatted = n.toLocaleString("en-US", { maximumFractionDigits: 6 });
-  else formatted = n.toExponential(2);
+  // Anything smaller is dust — collapse to a single "<0.0001" string
+  // instead of scientific notation. ``1.33e-9 SolvBTC`` was the literal
+  // user-reported display when the on-chain decimals were wrong.
+  else formatted = "<0.0001";
   return symbol ? `${formatted} ${symbol}` : formatted;
 }
 
