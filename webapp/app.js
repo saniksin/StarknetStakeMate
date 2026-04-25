@@ -721,6 +721,19 @@ async function renderDelegator(delegatorAddr, stakerAddr) {
 // "Remove from tracking" — confirms, PUTs the trimmed list, navigates back.
 // ---------------------------------------------------------------------------
 
+function bannerHTML(kind, title, sub) {
+  // Two-line banner: bold one-glance verdict + plain-language explanation
+  // so a delegator who doesn't know what "attestation" means still gets it.
+  return `
+    <div class="banner ${kind}">
+      <div class="banner-body">
+        <div class="banner-title">${title}</div>
+        <div class="banner-sub">${sub}</div>
+      </div>
+    </div>
+  `;
+}
+
 function renderValidatorStatusBanner(data) {
   // Picks the most actionable single line about the validator's health:
   //   1. Unstake requested  → red, exit pending
@@ -732,21 +745,42 @@ function renderValidatorStatusBanner(data) {
   if (!data) return "";
   const att = data.attestation;
   if (data.unstake_requested) {
-    return `<div class="banner danger">⚠️ Unstake requested — exit pending</div>`;
+    return bannerHTML(
+      "danger",
+      "🚫 Validator is exiting",
+      "An unstake has been requested. New rewards will stop and your delegation will be returned after the unbonding period.",
+    );
   }
   if (att && att.missed_epochs > 0) {
-    return `<div class="banner warn">⚠ ${att.missed_epochs} missed attestation epoch${att.missed_epochs === 1 ? "" : "s"} (current ${att.current_epoch}, last attested ${att.last_epoch_attested})</div>`;
+    const n = att.missed_epochs;
+    return bannerHTML(
+      "warn",
+      `⚠ Validator missed ${n} attestation${n === 1 ? "" : "s"}`,
+      `Last confirmed in epoch ${att.last_epoch_attested}, current epoch ${att.current_epoch}. Skipped attestations reduce both the validator's and delegators' rewards.`,
+    );
   }
   if (att && att.is_attesting_this_epoch) {
-    return `<div class="banner success">✓ Attesting this epoch</div>`;
+    return bannerHTML(
+      "success",
+      "✓ Validator healthy",
+      `Already attested for epoch ${att.current_epoch} — your rewards are accruing normally.`,
+    );
   }
   if (att) {
-    return `<div class="banner">Awaiting attestation in epoch ${att.current_epoch}</div>`;
+    return bannerHTML(
+      "muted",
+      "⏳ Waiting for this epoch's attestation",
+      `Validators must attest once per epoch. Epoch ${att.current_epoch} is still in progress — this is normal as long as it finishes before the epoch ends.`,
+    );
   }
   // attestation lookup failed (RPC blip, contract returned no data) —
   // still tell the user we tried, so an empty space doesn't look like
   // we forgot to render anything.
-  return `<div class="banner muted">Validator status unavailable</div>`;
+  return bannerHTML(
+    "muted",
+    "Validator status unavailable",
+    "Couldn't reach the attestation contract just now. Reopen the Mini App in a few seconds.",
+  );
 }
 
 function renderTotalStakeHero(totalsBySym, prices) {

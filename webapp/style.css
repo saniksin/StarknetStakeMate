@@ -344,13 +344,25 @@ main {
   padding: var(--s3) var(--s4);
   font-size: 14px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--s2);
 }
 .banner.success { background: color-mix(in srgb, var(--green) 14%, transparent); color: var(--green); }
 .banner.warn    { background: color-mix(in srgb, var(--orange) 14%, transparent); color: var(--orange); }
 .banner.danger  { background: color-mix(in srgb, var(--red) 14%, transparent); color: var(--red); }
 .banner.muted   { background: color-mix(in srgb, var(--hint) 10%, transparent); color: var(--hint); }
+
+.banner-body { display: flex; flex-direction: column; gap: 2px; }
+.banner-title { font-weight: 600; font-size: 14px; line-height: 1.3; }
+.banner-sub {
+  font-size: 12.5px;
+  line-height: 1.4;
+  font-weight: 400;
+  opacity: 0.85;
+  /* Sub-text uses the regular body color so the long explanation reads
+     comfortably even on the colored banner backgrounds. */
+  color: var(--fg);
+}
 
 .grid-2 {
   display: grid;
