@@ -83,9 +83,9 @@ body {
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   display: grid;
-  grid-template-columns: 44px 1fr 44px;
+  grid-template-columns: 44px 1fr auto;
   align-items: center;
-  padding: env(safe-area-inset-top, 0) var(--s2) 0;
+  padding: env(safe-area-inset-top, 0) var(--s3) 0;
   height: calc(50px + env(safe-area-inset-top, 0));
   border-bottom: 0.5px solid var(--separator);
 }
@@ -115,6 +115,26 @@ body {
 }
 .iconbtn:active { opacity: 0.55; }
 .iconbtn[hidden] { display: none; }
+
+/* Topbar action with both icon + label — used for Settings so the entry
+   point is unmistakable, not "what's that gear thing?". */
+.textbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--secondary-bg);
+  color: var(--link);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.textbtn:active { opacity: 0.65; }
+.textbtn svg { flex-shrink: 0; }
 
 #app[data-view="dashboard"] .back { visibility: hidden; }
 
@@ -155,9 +175,17 @@ main {
 }
 
 .hero-value {
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 700;
   letter-spacing: -0.02em;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hero-sub {
   margin-top: 2px;
   font-variant-numeric: tabular-nums;
 }
@@ -478,6 +506,77 @@ main {
 }
 .primary-btn:active { opacity: 0.85; }
 .primary-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* ---------- Segmented control (settings mode picker) ---------- */
+
+.seg-control {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  background: var(--secondary-bg);
+  border-radius: var(--r-sm);
+  padding: 3px;
+  gap: 0;
+}
+
+.seg-option {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--header-fg);
+  padding: 8px 12px;
+  border-radius: calc(var(--r-sm) - 3px);
+  cursor: pointer;
+  letter-spacing: 0.01em;
+  transition: background 120ms;
+}
+.seg-option[aria-selected="true"] {
+  background: var(--card-bg);
+  color: var(--fg);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+}
+.seg-option:active { opacity: 0.8; }
+
+.threshold-input {
+  margin-top: var(--s4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+/* ---------- Destructive primary button (Remove from tracking) ---------- */
+
+.primary-btn.destructive {
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+  color: var(--red);
+}
+.primary-btn.destructive:active { opacity: 0.7; }
+
+/* ---------- Copyable mono address ---------- */
+
+.addr-copy {
+  cursor: pointer;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  margin: -2px -6px;
+  border-radius: 6px;
+  transition: background 120ms;
+}
+.addr-copy:hover, .addr-copy:active {
+  background: color-mix(in srgb, var(--link) 12%, transparent);
+}
+.addr-copy::after {
+  content: "📋";
+  opacity: 0.45;
+  font-size: 11px;
+  flex-shrink: 0;
+}
 
 /* ---------- Misc ---------- */
 

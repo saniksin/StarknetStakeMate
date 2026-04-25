@@ -199,6 +199,52 @@ function toast(msg) {
 }
 
 // ---------------------------------------------------------------------------
+// Clipboard helpers
+// ---------------------------------------------------------------------------
+
+async function copyText(text) {
+  // navigator.clipboard requires HTTPS — fine in production, fine in
+  // Telegram WebApp (always HTTPS). Fall back to execCommand for the
+  // tiny fraction of contexts that block the modern API.
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const t = document.createElement("textarea");
+      t.value = text;
+      t.style.position = "fixed";
+      t.style.opacity = "0";
+      document.body.appendChild(t);
+      t.select();
+      document.execCommand("copy");
+      t.remove();
+    }
+    toast("Copied");
+    if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+  } catch (err) {
+    toast("Copy failed");
+  }
+}
+
+/** Render a copyable monospace address chip. Returns HTML string. */
+function copyableAddr(addr, { full = false } = {}) {
+  if (!addr) return '<span class="muted">—</span>';
+  const display = full ? addr : `${addr.slice(0, 8)}…${addr.slice(-6)}`;
+  const safe = escapeHtml(addr);
+  return `<span class="addr-copy addr-mono" data-copy="${safe}" title="Tap to copy">${escapeHtml(display)}</span>`;
+}
+
+/** Wire up tap-to-copy for any [data-copy] element inside the view. */
+function bindCopyHandlers() {
+  for (const el of viewEl.querySelectorAll("[data-copy]")) {
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      copyText(el.dataset.copy);
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Routing
 // ---------------------------------------------------------------------------
 
@@ -367,13 +413,26 @@ async function renderDashboard() {
   const stakedUsd = totalUsd(stakedTotal, prices);
   const unclaimedUsd = totalUsd(unclaimedTotal, prices);
 
-  $.totalStakeUsd.textContent = stakedUsd !== null
-    ? fmtUsd(stakedUsd)
-    : (Object.keys(stakedTotal).length ? fmtAmount(stakedTotal["STRK"] || 0, "STRK") : "—");
+  // Hero — STRK as the primary number (it's the chain's native unit; users
+  // tend to reason in "how much STRK do I hold" rather than "how many $").
+  // USD goes underneath as a smaller secondary line. If the portfolio
+  // contains BTC pools, the USD aggregate is also annotated to make it
+  // clear it includes those pools (which the STRK number doesn't).
+  const stakedStrk = stakedTotal["STRK"] || 0;
+  const hasBtcPools = Object.keys(stakedTotal).some((s) => s !== "STRK");
 
-  $.totalUnclaimedUsd.textContent = unclaimedUsd !== null
-    ? fmtUsd(unclaimedUsd)
-    : fmtAmount(unclaimedTotal["STRK"] || 0, "STRK");
+  $.totalStakePrimary.textContent = stakedStrk > 0 || !hasBtcPools
+    ? fmtAmount(stakedStrk, "STRK")
+    : "—";
+  $.totalStakeSecondary.textContent = stakedUsd !== null
+    ? `≈ ${fmtUsd(stakedUsd)}${hasBtcPools ? " · incl. BTC pools" : ""}`
+    : "";
+
+  const unclaimedStrk = unclaimedTotal["STRK"] || 0;
+  $.totalUnclaimedPrimary.textContent = fmtAmount(unclaimedStrk, "STRK");
+  $.totalUnclaimedSecondary.textContent = unclaimedUsd !== null
+    ? `≈ ${fmtUsd(unclaimedUsd)}`
+    : "";
 
   // Entries list
   if (entries.length === 0) {
@@ -467,7 +526,8 @@ async function renderValidator(address) {
 
   $.avatar.textContent = "🛡";
   $.label.textContent = label;
-  $.address.textContent = entry.address;
+  $.address.classList.remove("addr-mono");
+  $.address.innerHTML = copyableAddr(entry.address);
 
   // Status banner
   const att = data.attestation;
@@ -516,7 +576,7 @@ async function renderValidator(address) {
             <div class="item">
               <div class="meta">
                 <strong>${escapeHtml(sym)} pool</strong>
-                <div class="sub addr-mono">${fmtAddr(p.pool_contract)}</div>
+                <div class="sub">${copyableAddr(p.pool_contract)}</div>
               </div>
               <div class="amount">
                 <strong>${fmtAmount(amt, sym)}</strong>
@@ -528,6 +588,13 @@ async function renderValidator(address) {
       </div>
     `;
   }
+
+  attachRemoveButton($.removeBtn, {
+    kind: "validator",
+    label,
+    matcher: (v, _) => (v.address || "").toLowerCase() === lower,
+  });
+  bindCopyHandlers();
 }
 
 // ---------------------------------------------------------------------------
@@ -563,11 +630,11 @@ async function renderDelegator(delegatorAddr, stakerAddr) {
 
   $.avatar.textContent = "🎱";
   $.label.textContent = label;
-  $.address.innerHTML = `
-    <div>delegator <span class="addr-mono">${fmtAddr(data.delegator_address)}</span></div>
-    <div>via <span class="addr-mono">${fmtAddr(data.staker_address)}</span></div>
-  `;
   $.address.classList.remove("addr-mono");
+  $.address.innerHTML = `
+    <div>delegator ${copyableAddr(data.delegator_address)}</div>
+    <div style="margin-top:4px">via ${copyableAddr(data.staker_address)}</div>
+  `;
 
   $.statusBanner.innerHTML = "";
 
@@ -607,7 +674,7 @@ async function renderDelegator(delegatorAddr, stakerAddr) {
             <div class="item">
               <div class="meta">
                 <strong>${escapeHtml(sym)}</strong>
-                <div class="sub addr-mono">${fmtAddr(p.pool_contract)}</div>
+                <div class="sub">${copyableAddr(p.pool_contract)}</div>
               </div>
               <div class="amount">
                 <strong>${fmtAmount(amt, sym)}</strong>
@@ -619,6 +686,55 @@ async function renderDelegator(delegatorAddr, stakerAddr) {
       </div>
     `;
   }
+
+  attachRemoveButton($.removeBtn, {
+    kind: "delegator",
+    label,
+    matcher: (d) =>
+      (d.delegator || "").toLowerCase() === dLower &&
+      (!sLower || (d.staker || "").toLowerCase() === sLower),
+  });
+  bindCopyHandlers();
+}
+
+// ---------------------------------------------------------------------------
+// "Remove from tracking" — confirms, PUTs the trimmed list, navigates back.
+// ---------------------------------------------------------------------------
+
+function attachRemoveButton(btn, { kind, label, matcher }) {
+  if (!btn) return;
+  btn.hidden = false;
+  btn.textContent = `Remove ${kind === "validator" ? "validator" : "delegation"} from tracking`;
+  btn.onclick = async () => {
+    const ok = (tg && tg.showConfirm)
+      ? await new Promise((res) => tg.showConfirm(`Remove “${label}” from tracking?`, res))
+      : window.confirm(`Remove "${label}" from tracking?`);
+    if (!ok) return;
+
+    btn.disabled = true;
+    btn.textContent = "Removing…";
+    try {
+      const current = await api("/api/v1/users/me/tracking");
+      const next = {
+        validators: current.validators || [],
+        delegations: current.delegations || [],
+      };
+      if (kind === "validator") {
+        next.validators = next.validators.filter((v) => !matcher(v));
+      } else {
+        next.delegations = next.delegations.filter((d) => !matcher(d));
+      }
+      await api("/api/v1/users/me/tracking", { method: "PUT", body: next });
+      // Force a fresh fetch on the dashboard.
+      state.entries = null;
+      toast("Removed");
+      navigate("#/");
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = `Remove ${kind === "validator" ? "validator" : "delegation"} from tracking`;
+      toast(err.message);
+    }
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -628,35 +744,65 @@ async function renderDelegator(delegatorAddr, stakerAddr) {
 async function renderSettings() {
   setTopbar("Settings", "Notifications");
   renderTemplate("tpl-settings");
+  const $ = bindings();
 
   const cfg = await api("/api/v1/users/me/notification-config");
   state.notification = cfg;
 
-  const usdInput = document.getElementById("usd-threshold");
-  usdInput.value = cfg.usd_threshold && cfg.usd_threshold > 0 ? cfg.usd_threshold : "";
+  // Pick the active mode from the persisted config. The API still accepts
+  // both shapes (USD aggregate AND per-token), but the UI now exposes a
+  // single-choice toggle so users don't accidentally arm two competing
+  // alerts. Existing users who set both via the bot get USD here (it's
+  // the higher-level / portfolio-wide one); they can switch to STRK if
+  // they prefer.
+  const initialMode =
+    cfg.usd_threshold && cfg.usd_threshold > 0
+      ? "usd"
+      : cfg.token_thresholds && cfg.token_thresholds["STRK"] && cfg.token_thresholds["STRK"] > 0
+        ? "strk"
+        : "off";
+  const initialAmount =
+    initialMode === "usd"
+      ? cfg.usd_threshold
+      : initialMode === "strk"
+        ? cfg.token_thresholds["STRK"]
+        : 0;
 
-  // Discover token list from the user's own entries — only show what's
-  // relevant to them.
-  if (!state.entries) state.entries = await api("/api/v1/users/me/entries");
-  const tokens = new Set(["STRK"]); // STRK is always relevant
-  for (const e of state.entries) {
-    for (const sym of Object.keys(entryStakedBySymbol(e))) tokens.add(sym);
+  let mode = initialMode;
+  const amountInput = document.getElementById("amount-input");
+  const thresholdRow = document.getElementById("threshold-row");
+  const segment = document.getElementById("mode-segment");
+
+  function applyMode(next) {
+    mode = next;
+    for (const opt of segment.querySelectorAll(".seg-option")) {
+      opt.setAttribute("aria-selected", String(opt.dataset.mode === mode));
+    }
+    if (mode === "off") {
+      thresholdRow.hidden = true;
+    } else {
+      thresholdRow.hidden = false;
+      $.amountLabel.textContent = "Threshold";
+      if (mode === "usd") {
+        $.prefix.hidden = false;
+        $.suffix.hidden = true;
+        $.modeHint.textContent = "Sum of unclaimed rewards across all your positions, converted via CoinGecko.";
+        amountInput.placeholder = "0.00";
+      } else {
+        $.prefix.hidden = true;
+        $.suffix.hidden = false;
+        $.suffix.textContent = "STRK";
+        $.modeHint.textContent = "Total unclaimed STRK across your portfolio. Validator pool rewards are always paid in STRK in V2.";
+        amountInput.placeholder = "0";
+      }
+    }
   }
 
-  const tokenContainer = document.getElementById("token-thresholds");
-  tokenContainer.innerHTML = "";
-  for (const sym of tokens) {
-    const current = cfg.token_thresholds?.[sym];
-    const row = document.createElement("div");
-    row.className = "token-row";
-    row.innerHTML = `
-      <div class="sym"><span class="badge">${escapeHtml(sym.slice(0, 1))}</span> ${escapeHtml(sym)}</div>
-      <div class="input-with-suffix">
-        <input type="number" min="0" step="any" data-token="${escapeHtml(sym)}" value="${current && current > 0 ? current : ""}" placeholder="0" />
-        <span class="suffix">${escapeHtml(sym)}</span>
-      </div>
-    `;
-    tokenContainer.appendChild(row);
+  applyMode(initialMode);
+  amountInput.value = initialAmount && initialAmount > 0 ? initialAmount : "";
+
+  for (const opt of segment.querySelectorAll(".seg-option")) {
+    opt.addEventListener("click", () => applyMode(opt.dataset.mode));
   }
 
   const saveBtn = document.getElementById("save-settings");
@@ -665,18 +811,25 @@ async function renderSettings() {
     saveBtn.disabled = true;
     statusEl.textContent = "Saving…";
     try {
-      const usd = Number(usdInput.value || 0);
-      const tokenInputs = tokenContainer.querySelectorAll("input[data-token]");
-      const tokenThresholds = {};
-      for (const inp of tokenInputs) {
-        const v = Number(inp.value || 0);
-        if (v > 0) tokenThresholds[inp.dataset.token] = v;
+      let payload;
+      if (mode === "off") {
+        payload = { usd_threshold: 0, token_thresholds: {} };
+      } else {
+        const v = Number(amountInput.value || 0);
+        if (!(v > 0)) {
+          statusEl.textContent = "Enter a positive amount or pick Off.";
+          saveBtn.disabled = false;
+          return;
+        }
+        payload = mode === "usd"
+          ? { usd_threshold: v, token_thresholds: {} }
+          : { usd_threshold: 0, token_thresholds: { STRK: v } };
       }
-      const payload = { usd_threshold: usd > 0 ? usd : 0, token_thresholds: tokenThresholds };
       await api("/api/v1/users/me/notification-config", { method: "PUT", body: payload });
       state.notification = payload;
       statusEl.textContent = "Saved.";
       toast("Saved");
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
       setTimeout(() => (statusEl.textContent = ""), 2000);
     } catch (err) {
       statusEl.textContent = err.message;

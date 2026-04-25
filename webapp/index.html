@@ -21,10 +21,11 @@
         <strong id="topbar-title">Portfolio</strong>
         <span id="topbar-sub" class="muted small"></span>
       </div>
-      <button class="iconbtn" aria-label="Settings" data-action="settings">
-        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <button class="textbtn" aria-label="Settings" data-action="settings">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
           <path fill="currentColor" d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm9.4 4-.1-.7 2-1.6-2-3.4-2.4 1a8 8 0 0 0-1.2-.7l-.4-2.6h-4l-.4 2.6c-.4.2-.8.4-1.2.7l-2.4-1-2 3.4 2 1.6-.1.7.1.7-2 1.6 2 3.4 2.4-1c.4.3.8.5 1.2.7l.4 2.6h4l.4-2.6c.4-.2.8-.4 1.2-.7l2.4 1 2-3.4-2-1.6.1-.7z"/>
         </svg>
+        <span>Settings</span>
       </button>
     </header>
 
@@ -39,11 +40,13 @@
       <div class="hero-row">
         <div>
           <div class="muted small">Total stake</div>
-          <div class="hero-value" data-bind="totalStakeUsd">—</div>
+          <div class="hero-value" data-bind="totalStakePrimary">—</div>
+          <div class="hero-sub muted small" data-bind="totalStakeSecondary"></div>
         </div>
         <div>
           <div class="muted small">Unclaimed</div>
-          <div class="hero-value" data-bind="totalUnclaimedUsd">—</div>
+          <div class="hero-value" data-bind="totalUnclaimedPrimary">—</div>
+          <div class="hero-sub muted small" data-bind="totalUnclaimedSecondary"></div>
         </div>
       </div>
       <div class="hero-meta">
@@ -92,28 +95,36 @@
 
     <div data-bind="poolsBlock"></div>
     <div data-bind="positionsBlock"></div>
+
+    <button class="primary-btn destructive" data-bind="removeBtn" hidden>
+      Remove from tracking
+    </button>
   </template>
 
   <template id="tpl-settings">
     <div class="hero">
-      <div class="muted small">Notifications fire when any threshold is crossed.</div>
+      <div class="muted small">Get notified when your unclaimed rewards cross the threshold below. Pick one mode — STRK amount or USD value.</div>
     </div>
 
-    <h3 class="section-title">USD aggregate</h3>
+    <h3 class="section-title">Notification mode</h3>
     <div class="card form-card">
-      <label class="row-label">
-        <span>Threshold</span>
-        <div class="input-with-suffix">
-          <span class="prefix">$</span>
-          <input type="number" min="0" step="any" id="usd-threshold" placeholder="0.00" />
-        </div>
-      </label>
-      <p class="muted small">Sum of unclaimed rewards across all your positions, converted via CoinGecko. Set 0 to disable.</p>
-    </div>
+      <div class="seg-control" role="tablist" id="mode-segment">
+        <button type="button" class="seg-option" data-mode="off" role="tab">Off</button>
+        <button type="button" class="seg-option" data-mode="strk" role="tab">STRK</button>
+        <button type="button" class="seg-option" data-mode="usd" role="tab">USD</button>
+      </div>
 
-    <h3 class="section-title">Per-token thresholds</h3>
-    <div class="card form-card" id="token-thresholds">
-      <div class="placeholder">Loading…</div>
+      <div class="threshold-input" id="threshold-row" hidden>
+        <label class="row-label">
+          <span data-bind="amountLabel">Threshold</span>
+          <div class="input-with-suffix">
+            <span class="prefix" data-bind="prefix" hidden>$</span>
+            <input type="number" min="0" step="any" id="amount-input" placeholder="0" />
+            <span class="suffix" data-bind="suffix" hidden>STRK</span>
+          </div>
+        </label>
+        <p class="muted small" data-bind="modeHint">—</p>
+      </div>
     </div>
 
     <button class="primary-btn" id="save-settings">Save</button>
