@@ -47,6 +47,40 @@ async def healthz() -> dict[str, str]:
     """Liveness probe — no RPC or DB hits, just proves the process is up."""
     return {"status": "ok"}
 
+
+@app.on_event("startup")
+async def _warm_contracts() -> None:
+    """Pre-build cached Contract objects.
+
+    starknet-py's ``Contract.from_address`` parses each ABI synchronously and
+    blocks the event loop for ~30s on first call (huge handwritten Cairo
+    interfaces). Without this, the very first Mini App request to /status
+    hangs through the cold-start while Caddy's upstream timeout fires —
+    users see a 30–70s spinner and then a connection drop.
+    """
+    import asyncio
+
+    from utils.logger import logger
+
+    async def _warm() -> None:
+        try:
+            # Off-load the blocking ABI parses; we're inside startup but the
+            # event loop is already running, so pure sync calls would freeze
+            # the whole API for the duration.
+            from services.attestation_service import _attestation_contract
+            from services.staking_service import _staking_contract, warm_pool_abi
+
+            await asyncio.to_thread(_staking_contract)
+            await asyncio.to_thread(_attestation_contract)
+            await asyncio.to_thread(warm_pool_abi)
+            logger.info("API: contract ABIs warmed up")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"API: contract warm-up skipped: {exc}")
+
+    # Fire-and-forget — don't block the readiness check, but do start
+    # warming immediately so the first user request likely lands warm.
+    asyncio.create_task(_warm())
+
 # Mount the Mini App bundle so `uvicorn` alone serves both halves in dev.
 _WEBAPP_DIR = Path(__file__).resolve().parent.parent / "webapp"
 if _WEBAPP_DIR.is_dir():
