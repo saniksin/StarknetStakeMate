@@ -220,5 +220,11 @@
     "duplicate_validator": "⚠️ Ten walidator jest już na Twojej liście śledzenia.",
     "duplicate_delegation": "⚠️ Ta delegacja (delegator + walidator) jest już na Twojej liście śledzenia.",
     "confirm_delete_all_prompt": "⚠️ <b>Usunąć WSZYSTKIE {count} śledzonych adresów?</b>\nTej akcji nie można cofnąć.",
-    "confirm_delete_specific_prompt": "⚠️ <b>Usunąć {label}?</b>\nTej akcji nie można cofnąć."
+    "confirm_delete_specific_prompt": "⚠️ <b>Usunąć {label}?</b>\nTej akcji nie można cofnąć.",
+    "threshold_err_empty": "❌ <b>Puste pole.</b>\nWprowadź symbol i kwotę, np. <code>STRK 100</code>.",
+    "threshold_err_missing_symbol": "❌ <b>Brak symbolu tokena.</b>\nDodaj symbol, np. <code>STRK 100</code> lub <code>100 STRK</code>.",
+    "threshold_err_missing_amount": "❌ <b>Brak kwoty.</b>\nDodaj liczbę, np. <code>STRK 100</code> lub <code>100 STRK</code>.",
+    "threshold_err_unknown_symbol": "❌ <b>Nieznany symbol:</b> <code>{symbol}</code>.\nDozwolone: {allowed}.",
+    "threshold_err_bad_number": "❌ <b>Nieprawidłowa liczba.</b>\nUżyj liczby całkowitej (<code>100</code>) lub dziesiętnej (<code>100.5</code> / <code>100,5</code>).",
+    "threshold_err_too_many": "❌ <b>Za dużo wartości.</b>\nOczekiwany jeden symbol i jedna kwota, np. <code>STRK 100</code>."
 }

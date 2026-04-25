@@ -220,5 +220,11 @@
     "duplicate_validator": "⚠️ Dieser Validator befindet sich bereits in deiner Tracking-Liste.",
     "duplicate_delegation": "⚠️ Diese Delegation (Delegator + Validator) befindet sich bereits in deiner Tracking-Liste.",
     "confirm_delete_all_prompt": "⚠️ <b>ALLE {count} verfolgten Adressen löschen?</b>\nDies kann nicht rückgängig gemacht werden.",
-    "confirm_delete_specific_prompt": "⚠️ <b>{label} löschen?</b>\nDies kann nicht rückgängig gemacht werden."
+    "confirm_delete_specific_prompt": "⚠️ <b>{label} löschen?</b>\nDies kann nicht rückgängig gemacht werden.",
+    "threshold_err_empty": "❌ <b>Leere Eingabe.</b>\nGib ein Symbol und einen Betrag ein, z. B. <code>STRK 100</code>.",
+    "threshold_err_missing_symbol": "❌ <b>Token-Symbol fehlt.</b>\nFüge ein Symbol hinzu, z. B. <code>STRK 100</code> oder <code>100 STRK</code>.",
+    "threshold_err_missing_amount": "❌ <b>Betrag fehlt.</b>\nFüge eine Zahl hinzu, z. B. <code>STRK 100</code> oder <code>100 STRK</code>.",
+    "threshold_err_unknown_symbol": "❌ <b>Unbekanntes Symbol:</b> <code>{symbol}</code>.\nErlaubt: {allowed}.",
+    "threshold_err_bad_number": "❌ <b>Ungültige Zahl.</b>\nVerwende eine Ganzzahl (<code>100</code>) oder Dezimalzahl (<code>100.5</code> / <code>100,5</code>).",
+    "threshold_err_too_many": "❌ <b>Zu viele Werte.</b>\nErwartet werden ein Symbol und ein Betrag, z. B. <code>STRK 100</code>."
 }

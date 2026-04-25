@@ -220,5 +220,11 @@
     "duplicate_validator": "⚠️ 이 검증인은 이미 추적 목록에 있습니다.",
     "duplicate_delegation": "⚠️ 이 위임(위임자 + 검증인)은 이미 추적 목록에 있습니다.",
     "confirm_delete_all_prompt": "⚠️ <b>추적 중인 모든 {count}개 주소를 삭제하시겠습니까?</b>\n이 작업은 되돌릴 수 없습니다.",
-    "confirm_delete_specific_prompt": "⚠️ <b>{label}을(를) 삭제하시겠습니까?</b>\n이 작업은 되돌릴 수 없습니다."
+    "confirm_delete_specific_prompt": "⚠️ <b>{label}을(를) 삭제하시겠습니까?</b>\n이 작업은 되돌릴 수 없습니다.",
+    "threshold_err_empty": "❌ <b>입력이 비어 있습니다.</b>\n심볼과 금액을 입력하세요. 예: <code>STRK 100</code>.",
+    "threshold_err_missing_symbol": "❌ <b>토큰 심볼이 없습니다.</b>\n심볼을 추가하세요. 예: <code>STRK 100</code> 또는 <code>100 STRK</code>.",
+    "threshold_err_missing_amount": "❌ <b>금액이 없습니다.</b>\n숫자를 추가하세요. 예: <code>STRK 100</code> 또는 <code>100 STRK</code>.",
+    "threshold_err_unknown_symbol": "❌ <b>알 수 없는 심볼:</b> <code>{symbol}</code>.\n허용된 심볼: {allowed}.",
+    "threshold_err_bad_number": "❌ <b>잘못된 숫자입니다.</b>\n정수(<code>100</code>) 또는 소수(<code>100.5</code> / <code>100,5</code>)를 사용하세요.",
+    "threshold_err_too_many": "❌ <b>값이 너무 많습니다.</b>\n심볼 하나와 금액 하나만 입력하세요. 예: <code>STRK 100</code>."
 }

@@ -220,5 +220,11 @@
     "duplicate_validator": "⚠️ 该验证人已在您的追踪列表中。",
     "duplicate_delegation": "⚠️ 该委托（委托人 + 验证人）已在您的追踪列表中。",
     "confirm_delete_all_prompt": "⚠️ <b>删除全部 {count} 个追踪地址？</b>\n此操作无法撤销。",
-    "confirm_delete_specific_prompt": "⚠️ <b>删除 {label}？</b>\n此操作无法撤销。"
+    "confirm_delete_specific_prompt": "⚠️ <b>删除 {label}？</b>\n此操作无法撤销。",
+    "threshold_err_empty": "❌ <b>输入为空。</b>\n请输入符号和金额，例如 <code>STRK 100</code>。",
+    "threshold_err_missing_symbol": "❌ <b>缺少代币符号。</b>\n请添加符号，例如 <code>STRK 100</code> 或 <code>100 STRK</code>。",
+    "threshold_err_missing_amount": "❌ <b>缺少金额。</b>\n请添加数字，例如 <code>STRK 100</code> 或 <code>100 STRK</code>。",
+    "threshold_err_unknown_symbol": "❌ <b>未知符号：</b> <code>{symbol}</code>。\n允许：{allowed}。",
+    "threshold_err_bad_number": "❌ <b>数字无效。</b>\n请使用整数（<code>100</code>）或小数（<code>100.5</code> / <code>100,5</code>）。",
+    "threshold_err_too_many": "❌ <b>值过多。</b>\n仅需一个符号和一个金额，例如 <code>STRK 100</code>。"
 }

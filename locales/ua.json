@@ -220,5 +220,11 @@
     "duplicate_validator": "⚠️ Цей валідатор вже є у вашому списку відстеження.",
     "duplicate_delegation": "⚠️ Ця делегація (делегатор + валідатор) вже є у вашому списку відстеження.",
     "confirm_delete_all_prompt": "⚠️ <b>Видалити ВСІ {count} адрес зі списку відстеження?</b>\nЦю дію не можна скасувати.",
-    "confirm_delete_specific_prompt": "⚠️ <b>Видалити {label}?</b>\nЦю дію не можна скасувати."
+    "confirm_delete_specific_prompt": "⚠️ <b>Видалити {label}?</b>\nЦю дію не можна скасувати.",
+    "threshold_err_empty": "❌ <b>Порожній ввід.</b>\nВведіть символ і суму, наприклад <code>STRK 100</code>.",
+    "threshold_err_missing_symbol": "❌ <b>Не вказано символ токена.</b>\nДодайте символ, наприклад <code>STRK 100</code> або <code>100 STRK</code>.",
+    "threshold_err_missing_amount": "❌ <b>Не вказано суму.</b>\nДодайте число, наприклад <code>STRK 100</code> або <code>100 STRK</code>.",
+    "threshold_err_unknown_symbol": "❌ <b>Невідомий символ:</b> <code>{symbol}</code>.\nДопустимо: {allowed}.",
+    "threshold_err_bad_number": "❌ <b>Неправильне число.</b>\nВикористовуйте ціле (<code>100</code>) або дробове (<code>100.5</code> / <code>100,5</code>).",
+    "threshold_err_too_many": "❌ <b>Забагато значень.</b>\nОчікується один символ і одна сума, наприклад <code>STRK 100</code>."
 }

@@ -220,5 +220,11 @@
     "duplicate_validator": "⚠️ Este validador ya está en tu lista de seguimiento.",
     "duplicate_delegation": "⚠️ Esta delegación (delegador + validador) ya está en tu lista de seguimiento.",
     "confirm_delete_all_prompt": "⚠️ <b>¿Eliminar TODAS las {count} direcciones rastreadas?</b>\nEsta acción no se puede deshacer.",
-    "confirm_delete_specific_prompt": "⚠️ <b>¿Eliminar {label}?</b>\nEsta acción no se puede deshacer."
+    "confirm_delete_specific_prompt": "⚠️ <b>¿Eliminar {label}?</b>\nEsta acción no se puede deshacer.",
+    "threshold_err_empty": "❌ <b>Entrada vacía.</b>\nIngresa un símbolo y un monto, por ejemplo <code>STRK 100</code>.",
+    "threshold_err_missing_symbol": "❌ <b>Falta el símbolo del token.</b>\nAgrega un símbolo, por ejemplo <code>STRK 100</code> o <code>100 STRK</code>.",
+    "threshold_err_missing_amount": "❌ <b>Falta el monto.</b>\nAgrega un número, por ejemplo <code>STRK 100</code> o <code>100 STRK</code>.",
+    "threshold_err_unknown_symbol": "❌ <b>Símbolo desconocido:</b> <code>{symbol}</code>.\nPermitidos: {allowed}.",
+    "threshold_err_bad_number": "❌ <b>Número no válido.</b>\nUsa un entero (<code>100</code>) o decimal (<code>100.5</code> / <code>100,5</code>).",
+    "threshold_err_too_many": "❌ <b>Demasiados valores.</b>\nSe espera un solo símbolo y un solo monto, por ejemplo <code>STRK 100</code>."
 }
