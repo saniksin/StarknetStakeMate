@@ -1,15 +1,7 @@
-import os
-
 from aiogram import types
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from aiogram.types import (
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    KeyboardButton,
-    ReplyKeyboardMarkup,
-    WebAppInfo,
-)
+from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 
 from data.languages import translate
 
@@ -47,28 +39,17 @@ def create_main_menu(locale: str) -> ReplyKeyboardMarkup:
     )
 
 
-def _dashboard_inline_kb() -> InlineKeyboardMarkup | None:
-    """Inline button that opens the Mini App.
-
-    Inline ``web_app`` buttons reliably pass ``initData`` to the Mini App
-    on every platform, which ``ReplyKeyboardMarkup`` web_app buttons
-    don't do on Telegram Desktop (Telegram-side bug — the keyboard
-    button opens the URL but omits ``tgWebAppData`` from the fragment).
-    Returns ``None`` when ``WEBAPP_URL`` isn't configured so we don't
-    render a broken control.
-    """
-    url = os.getenv("WEBAPP_URL", "").strip()
-    if not url:
-        return None
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="🖥 Open Dashboard", web_app=WebAppInfo(url=url))],
-        ]
-    )
-
-
 # Хендлер команды /start
 async def send_welcome(message: types.Message, state: FSMContext, user_locale: str, cancel_msg=''):
+    """Send welcome + main reply keyboard.
+
+    Mini App entry point lives outside this handler — it's the BotFather
+    Menu Button (the blue button left of the message input), configured
+    once via ``@BotFather → /mybots → Bot Settings → Menu Button``. Doing
+    it that way keeps the entry permanently visible and avoids the
+    Telegram Desktop bug where reply-keyboard ``web_app`` buttons don't
+    pass ``initData``.
+    """
     welcome_text = translate("start_message", locale=user_locale)
     main_menu_kb = create_main_menu(user_locale)
 
@@ -77,16 +58,4 @@ async def send_welcome(message: types.Message, state: FSMContext, user_locale: s
         reply_markup=main_menu_kb,
         parse_mode="HTML",
     )
-
-    # Mini App entry point — separate message because reply + inline
-    # markups can't coexist on a single message. Skip silently if
-    # WEBAPP_URL isn't set (local dev without HTTPS).
-    dash_kb = _dashboard_inline_kb()
-    if dash_kb is not None:
-        await message.answer(
-            "📊 <b>Dashboard</b> — open the Mini App for a visual overview.",
-            reply_markup=dash_kb,
-            parse_mode="HTML",
-        )
-
     await state.set_state(MainMenuState.main)
