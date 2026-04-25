@@ -218,5 +218,7 @@
     "total_label": "합계",
     "total_rewards_unclaimed": "총 미청구 보상",
     "duplicate_validator": "⚠️ 이 검증인은 이미 추적 목록에 있습니다.",
-    "duplicate_delegation": "⚠️ 이 위임(위임자 + 검증인)은 이미 추적 목록에 있습니다."
+    "duplicate_delegation": "⚠️ 이 위임(위임자 + 검증인)은 이미 추적 목록에 있습니다.",
+    "confirm_delete_all_prompt": "⚠️ <b>추적 중인 모든 {count}개 주소를 삭제하시겠습니까?</b>\n이 작업은 되돌릴 수 없습니다.",
+    "confirm_delete_specific_prompt": "⚠️ <b>{label}을(를) 삭제하시겠습니까?</b>\n이 작업은 되돌릴 수 없습니다."
 }

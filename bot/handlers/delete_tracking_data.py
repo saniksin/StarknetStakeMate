@@ -18,10 +18,27 @@ from utils.logger import logger
 class DeleteInfoState(StatesGroup):
     choose_delete_type = State()
     awaiting_selection = State()
+    confirm_delete_all = State()
+    confirm_delete_specific = State()
 
 
 def _short(addr: str) -> str:
     return f"{addr[:6]}…{addr[-6:]}"
+
+
+def _yes_no_kb(user_locale: str) -> ReplyKeyboardMarkup:
+    """Yes/No reply keyboard used by the delete confirmation steps."""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(text=translate("yes", user_locale)),
+                KeyboardButton(text=translate("no", user_locale)),
+            ],
+            [KeyboardButton(text=translate("cancel", user_locale))],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
 
 
 async def start_delete_info(
@@ -57,16 +74,15 @@ async def process_delete_choice(
                 privious_msg=translate("no_addresses_to_delete", user_locale),
             )
             return
-        user_object.tracking_data = dump_tracking({"validators": [], "delegations": []})
-        async with AsyncSession(db.engine) as session:
-            await session.merge(user_object)
-            await session.commit()
-        await clear_user_cache(user_object.user_id)
-        await finish_operation(
-            message, state, user_locale,
-            privious_msg=translate("all_info_deleted", user_locale),
-            cancel_msg=False,
+        # Confirm before wiping the entire list — easy to mis-tap on the
+        # main delete menu and lose every address you've added.
+        count = total_tracked(doc)
+        await message.reply(
+            translate("confirm_delete_all_prompt", user_locale).format(count=count),
+            reply_markup=_yes_no_kb(user_locale),
+            parse_mode="HTML",
         )
+        await state.set_state(DeleteInfoState.confirm_delete_all)
         return
 
     if text == translate("delete_specific_address", user_locale).lower():
@@ -115,7 +131,8 @@ async def delete_specific_address(
 ) -> None:
     data = await state.get_data()
     picker: dict[str, tuple[str, int]] = data.get("picker", {})
-    pick = picker.get((message.text or "").strip())
+    picked_label = (message.text or "").strip()
+    pick = picker.get(picked_label)
     if not pick:
         await finish_operation(
             message, state, user_locale,
@@ -123,7 +140,60 @@ async def delete_specific_address(
         )
         return
 
-    kind, idx = pick
+    # Park the choice in FSM and ask for confirmation. Acting on a tap is
+    # too easy here because the pickerlist is composed of close-together
+    # validator names — adding a Yes/No step turns "oops" into "still a
+    # mistake but recoverable".
+    await state.update_data(pending_delete=list(pick), pending_label=picked_label)
+    await state.set_state(DeleteInfoState.confirm_delete_specific)
+    await message.reply(
+        translate("confirm_delete_specific_prompt", user_locale).format(label=picked_label),
+        reply_markup=_yes_no_kb(user_locale),
+        parse_mode="HTML",
+    )
+
+
+async def confirm_delete_all(
+    message: types.Message, state: FSMContext, user_locale: str, user_object: Users
+) -> None:
+    text = (message.text or "").strip().lower()
+    if text != translate("yes", user_locale).lower():
+        # No / Cancel / anything else → bail out cleanly without touching
+        # tracking_data.
+        await finish_operation(message, state, user_locale)
+        return
+
+    user_object.tracking_data = dump_tracking({"validators": [], "delegations": []})
+    async with AsyncSession(db.engine) as session:
+        await session.merge(user_object)
+        await session.commit()
+    await clear_user_cache(user_object.user_id)
+    logger.info(f"deleted all tracking entries for {user_object.user_id}")
+    await finish_operation(
+        message, state, user_locale,
+        privious_msg=translate("all_info_deleted", user_locale),
+        cancel_msg=False,
+    )
+
+
+async def confirm_delete_specific(
+    message: types.Message, state: FSMContext, user_locale: str, user_object: Users
+) -> None:
+    text = (message.text or "").strip().lower()
+    if text != translate("yes", user_locale).lower():
+        await finish_operation(message, state, user_locale)
+        return
+
+    data = await state.get_data()
+    pending = data.get("pending_delete")
+    if not pending or len(pending) != 2:
+        await finish_operation(
+            message, state, user_locale,
+            privious_msg=translate("address_not_found", user_locale),
+        )
+        return
+
+    kind, idx = pending[0], int(pending[1])
     doc = await get_user_tracking(user_object.user_id)
     lst_key = "validators" if kind == "validator" else "delegations"
     try:

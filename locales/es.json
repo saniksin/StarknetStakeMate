@@ -218,5 +218,7 @@
     "total_label": "TOTAL",
     "total_rewards_unclaimed": "Recompensas totales (sin reclamar)",
     "duplicate_validator": "⚠️ Este validador ya está en tu lista de seguimiento.",
-    "duplicate_delegation": "⚠️ Esta delegación (delegador + validador) ya está en tu lista de seguimiento."
+    "duplicate_delegation": "⚠️ Esta delegación (delegador + validador) ya está en tu lista de seguimiento.",
+    "confirm_delete_all_prompt": "⚠️ <b>¿Eliminar TODAS las {count} direcciones rastreadas?</b>\nEsta acción no se puede deshacer.",
+    "confirm_delete_specific_prompt": "⚠️ <b>¿Eliminar {label}?</b>\nEsta acción no se puede deshacer."
 }

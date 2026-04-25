@@ -28,6 +28,8 @@ from .contact_admin import (
 from .dashboard import dashboard_command
 from .delete_tracking_data import (
     DeleteInfoState,
+    confirm_delete_all,
+    confirm_delete_specific,
     delete_specific_address,
     process_delete_choice,
     start_delete_info,

@@ -218,5 +218,7 @@
     "total_label": "RAZEM",
     "total_rewards_unclaimed": "Łączne nagrody (nieodebrane)",
     "duplicate_validator": "⚠️ Ten walidator jest już na Twojej liście śledzenia.",
-    "duplicate_delegation": "⚠️ Ta delegacja (delegator + walidator) jest już na Twojej liście śledzenia."
+    "duplicate_delegation": "⚠️ Ta delegacja (delegator + walidator) jest już na Twojej liście śledzenia.",
+    "confirm_delete_all_prompt": "⚠️ <b>Usunąć WSZYSTKIE {count} śledzonych adresów?</b>\nTej akcji nie można cofnąć.",
+    "confirm_delete_specific_prompt": "⚠️ <b>Usunąć {label}?</b>\nTej akcji nie można cofnąć."
 }

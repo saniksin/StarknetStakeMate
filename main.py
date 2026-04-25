@@ -236,6 +236,8 @@ async def register_handlers():
     )
     dp.message.register(handlers.process_delete_choice, handlers.DeleteInfoState.choose_delete_type)
     dp.message.register(handlers.delete_specific_address, handlers.DeleteInfoState.awaiting_selection)
+    dp.message.register(handlers.confirm_delete_all, handlers.DeleteInfoState.confirm_delete_all)
+    dp.message.register(handlers.confirm_delete_specific, handlers.DeleteInfoState.confirm_delete_specific)
 
     # cчитывай информацию валидатора/делегатора
     dp.message.register(handlers.get_tracking_full_info, TextFilter(

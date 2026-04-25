@@ -218,5 +218,7 @@
     "total_label": "GESAMT",
     "total_rewards_unclaimed": "Belohnungen gesamt (nicht beansprucht)",
     "duplicate_validator": "⚠️ Dieser Validator befindet sich bereits in deiner Tracking-Liste.",
-    "duplicate_delegation": "⚠️ Diese Delegation (Delegator + Validator) befindet sich bereits in deiner Tracking-Liste."
+    "duplicate_delegation": "⚠️ Diese Delegation (Delegator + Validator) befindet sich bereits in deiner Tracking-Liste.",
+    "confirm_delete_all_prompt": "⚠️ <b>ALLE {count} verfolgten Adressen löschen?</b>\nDies kann nicht rückgängig gemacht werden.",
+    "confirm_delete_specific_prompt": "⚠️ <b>{label} löschen?</b>\nDies kann nicht rückgängig gemacht werden."
 }

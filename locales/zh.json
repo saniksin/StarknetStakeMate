@@ -218,5 +218,7 @@
     "total_label": "总计",
     "total_rewards_unclaimed": "未领取奖励合计",
     "duplicate_validator": "⚠️ 该验证人已在您的追踪列表中。",
-    "duplicate_delegation": "⚠️ 该委托（委托人 + 验证人）已在您的追踪列表中。"
+    "duplicate_delegation": "⚠️ 该委托（委托人 + 验证人）已在您的追踪列表中。",
+    "confirm_delete_all_prompt": "⚠️ <b>删除全部 {count} 个追踪地址？</b>\n此操作无法撤销。",
+    "confirm_delete_specific_prompt": "⚠️ <b>删除 {label}？</b>\n此操作无法撤销。"
 }

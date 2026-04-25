@@ -224,5 +224,7 @@
     "total_label": "TOTAL",
     "total_rewards_unclaimed": "Total rewards (unclaimed)",
     "duplicate_validator": "⚠️ This validator is already in your tracking list.",
-    "duplicate_delegation": "⚠️ This delegation (delegator + validator) is already in your tracking list."
+    "duplicate_delegation": "⚠️ This delegation (delegator + validator) is already in your tracking list.",
+    "confirm_delete_all_prompt": "⚠️ <b>Delete ALL {count} tracked addresses?</b>\nThis cannot be undone.",
+    "confirm_delete_specific_prompt": "⚠️ <b>Delete {label}?</b>\nThis cannot be undone."
 }
