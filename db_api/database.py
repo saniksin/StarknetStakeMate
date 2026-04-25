@@ -83,6 +83,29 @@ async def update_attestation_state(user_id: int, state: dict) -> None:
         await session.commit()
 
 
+async def clear_request_queue(user_id: int) -> None:
+    """Atomically null out ``request_queue`` for a user.
+
+    The queue worker reads a stale ``Users`` snapshot at the start of
+    ``process_single_request`` and held it through the whole RPC fetch +
+    Telegram render (~10 s). A blanket ``write_to_db(user)`` at the end
+    via ``session.merge()`` rewrote every column from that snapshot,
+    silently undoing any tracking_data / language / threshold edits the
+    user made during the cycle (real bug: user deletes addresses while
+    /get_full_info is in flight, addresses come back).
+
+    A targeted ``UPDATE users SET request_queue = NULL WHERE user_id = ?``
+    keeps the queue dequeue idempotent without touching anything else.
+    """
+    async with AsyncSession(db.engine) as session:
+        await session.execute(
+            update(Users)
+            .where(Users.user_id == user_id)
+            .values(request_queue=None)
+        )
+        await session.commit()
+
+
 async def clear_notifications_if_empty(user_id: int) -> Optional[str]:
     """Wipe notification fields iff the user still has no tracked addresses.
 

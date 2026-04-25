@@ -5,7 +5,7 @@ from typing import List, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db_api.database import db, Users, get_account, write_to_db
+from db_api.database import db, Users, clear_request_queue, get_account
 from data.languages import translate
 from utils.logger import logger
 from utils.cache import clear_user_cache
@@ -47,15 +47,13 @@ async def process_single_request(user: Users):
             logger.info(f"Processing request for user {user.user_id}: {request_data}")
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse request_queue JSON for user {user.user_id}: {e}")
-            user.request_queue = None
-            await write_to_db(user)
+            await clear_request_queue(user.user_id)
             return
 
         command = request_data.get('command')
         if not command:
             logger.error(f"No command found in request_data for user {user.user_id}: {request_data}")
-            user.request_queue = None
-            await write_to_db(user)
+            await clear_request_queue(user.user_id)
             return
 
         # Проверяем наличие адреса для команд, которые его требуют
@@ -84,9 +82,12 @@ async def process_single_request(user: Users):
                 text=translate("error_processing_request", user.user_language)
             )
         finally:
-            # Очищаем запрос из БД только если он был обработан
-            user.request_queue = None
-            await write_to_db(user)
+            # Targeted UPDATE on request_queue only — see clear_request_queue
+            # docstring. ``write_to_db(user)`` here would merge the worker's
+            # by-now-stale snapshot back, undoing user edits made during the
+            # ~10 s RPC + Telegram render window (e.g. delete addresses
+            # while /get_full_info is in flight → addresses come back).
+            await clear_request_queue(user.user_id)
 
     except Exception as e:
         logger.error(f"Critical error processing request for user {user.user_id}: {str(e)}")
@@ -95,8 +96,7 @@ async def process_single_request(user: Users):
                 chat_id=user.user_id,
                 text=translate("error_processing_request", user.user_language)
             )
-            user.request_queue = None
-            await write_to_db(user)
+            await clear_request_queue(user.user_id)
         except:
             pass
 
