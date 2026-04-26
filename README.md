@@ -142,7 +142,6 @@ Key idea: every contract read and every user-visible string originates in `servi
 ├── bot/                   # Telegram UI (aiogram handlers, middlewares)
 ├── data/                  # Config: contracts, bot init, locales, paths
 ├── db_api/                # SQLAlchemy models + DB helpers (SQLite)
-├── docs/superpowers/specs # Design documents
 ├── locales/               # 8 JSON locale bundles (228 keys each)
 ├── parse/                 # Legacy shim — forwards to services.*
 ├── services/              # ✨ new clean domain layer
@@ -192,12 +191,6 @@ Key idea: every contract read and every user-visible string originates in `servi
 | GET | `/api/v1/users/me/entries` | Typed DTO entries (for JS renderers) |
 
 Every `/users/me/*` endpoint accepts either the `X-Telegram-Init-Data` header (Mini App mode) or a `?tg_id=<id>` query parameter (local dashboard mode), controlled by `API_AUTH_MODE`.
-
----
-
-## Design documents
-
-- `docs/superpowers/specs/2026-04-24-starknet-stakemate-refactor-design.md` — the full Staking V2 refactor plan with decomposition into P1–P8 phases.
 
 ---
 

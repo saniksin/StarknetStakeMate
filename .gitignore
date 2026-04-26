@@ -5,3 +5,6 @@ logs/
 .claude/
 *.png
 *.bak
+
+# Internal design / refactor plans — kept locally, not for the public repo.
+docs/superpowers/
