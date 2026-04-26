@@ -34,7 +34,15 @@ async def get_or_create_user(user_id, user_name, user_language, registration_dat
 
     user = await get_account(user_id)
     if user is None:
-        async with AsyncSession(db.engine) as session:
+        # ``expire_on_commit=False`` keeps the freshly-inserted ``user``
+        # usable after the session closes. With the default (``True``),
+        # SQLAlchemy expires every attribute at commit time and the next
+        # access from the middleware (``user.user_language``) tries to
+        # reload from a now-detached session, raising
+        # ``DetachedInstanceError`` — which aiogram swallows silently and
+        # the user has to press /start a second time before the row
+        # already exists and the read path goes through ``get_account``.
+        async with AsyncSession(db.engine, expire_on_commit=False) as session:
             user = Users(
                 user_id=user_id,
                 user_name=user_name,
