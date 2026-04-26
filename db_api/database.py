@@ -47,6 +47,37 @@ async def get_strk_notification_users() -> List[Users]:
 
 async def initialize_db():
     await db.create_tables(Base)
+    # Backfill the missing uniqueness contract on Users.user_id.
+    #
+    # The original schema declared user_id as a plain Integer column with
+    # NO unique constraint. ``get_or_create_user`` then races on /start:
+    # two parallel /start handlers both see ``get_account → None`` and
+    # both ``session.merge`` a fresh row, so a single Telegram user ends
+    # up with multiple ``users`` rows that share the same ``user_id``
+    # but differ on the auto-PK ``id``. Once duplicates exist, every
+    # ``scalar_one_or_none()`` lookup on that user_id raises
+    # ``MultipleResultsFound`` and the whole notification loop crashes.
+    #
+    # We add the UNIQUE INDEX as a one-shot migration. ``IF NOT EXISTS``
+    # keeps it safe to run on every boot. If duplicates are still in the
+    # table, the CREATE will fail — we log and continue (the .first()
+    # fallback in the helpers absorbs it for now); the operator is
+    # expected to dedupe with the SQL in dedupe_users.sql, then a future
+    # boot will succeed in installing the index.
+    from sqlalchemy import text
+
+    async with db.engine.begin() as conn:
+        try:
+            await conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_user_id "
+                "ON users(user_id)"
+            ))
+        except Exception as exc:  # noqa: BLE001
+            from utils.logger import logger
+            logger.warning(
+                f"could not install UNIQUE INDEX on users.user_id "
+                f"(duplicates likely exist — dedupe and restart): {exc}"
+            )
 
 
 async def write_to_db(user: Users):
@@ -69,7 +100,13 @@ async def update_attestation_state(user_id: int, state: dict) -> None:
         result = await session.execute(
             select(Users).where(Users.user_id == user_id)
         )
-        user = result.scalar_one_or_none()
+        # Use ``.first()`` rather than ``scalar_one_or_none()``: the latter
+        # raises ``MultipleResultsFound`` when stale duplicate rows exist
+        # for the same ``user_id``. Such dupes shouldn't be there in the
+        # first place (see UNIQUE INDEX in initialize_db) but if a legacy
+        # DB still has them we'd rather quietly update the most recently
+        # written row than crash the entire notification loop.
+        user = result.scalars().first()
         if user is None:
             return
         cfg = user.get_notification_config()
@@ -95,7 +132,13 @@ async def update_operator_balance_state(user_id: int, state: dict) -> None:
         result = await session.execute(
             select(Users).where(Users.user_id == user_id)
         )
-        user = result.scalar_one_or_none()
+        # Use ``.first()`` rather than ``scalar_one_or_none()``: the latter
+        # raises ``MultipleResultsFound`` when stale duplicate rows exist
+        # for the same ``user_id``. Such dupes shouldn't be there in the
+        # first place (see UNIQUE INDEX in initialize_db) but if a legacy
+        # DB still has them we'd rather quietly update the most recently
+        # written row than crash the entire notification loop.
+        user = result.scalars().first()
         if user is None:
             return
         cfg = user.get_notification_config()
@@ -146,7 +189,13 @@ async def clear_notifications_if_empty(user_id: int) -> Optional[str]:
         result = await session.execute(
             select(Users).where(Users.user_id == user_id)
         )
-        user = result.scalar_one_or_none()
+        # Use ``.first()`` rather than ``scalar_one_or_none()``: the latter
+        # raises ``MultipleResultsFound`` when stale duplicate rows exist
+        # for the same ``user_id``. Such dupes shouldn't be there in the
+        # first place (see UNIQUE INDEX in initialize_db) but if a legacy
+        # DB still has them we'd rather quietly update the most recently
+        # written row than crash the entire notification loop.
+        user = result.scalars().first()
         if user is None:
             return None
         doc = user.get_tracking_data()

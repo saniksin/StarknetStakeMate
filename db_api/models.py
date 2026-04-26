@@ -10,7 +10,12 @@ class Users(Base, AutoRepr):
     __tablename__ = 'users'
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer)
+    # ``unique=True`` is the long-term contract. ``initialize_db`` also
+    # CREATEs the equivalent UNIQUE INDEX on every boot so existing DBs
+    # that were provisioned before this declaration get the constraint
+    # too (SQLAlchemy's ``create_tables`` doesn't migrate columns on
+    # existing tables).
+    user_id = Column(Integer, unique=True, index=True)
     user_name = Column(Text)
     user_language = Column(Text)
     user_registration_data = Column(DateTime)
