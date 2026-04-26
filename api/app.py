@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from api.routers import delegators, status, users, validators
+from api.routers import delegators, locales, status, users, validators
 
 app = FastAPI(
     title="StarknetStakeMate API",
@@ -40,6 +40,7 @@ app.include_router(status.router)
 app.include_router(validators.router)
 app.include_router(delegators.router)
 app.include_router(users.router)
+app.include_router(locales.router)
 
 
 @app.get("/healthz", include_in_schema=False)

@@ -352,6 +352,17 @@ main {
 .banner.danger  { background: color-mix(in srgb, var(--red) 14%, transparent); color: var(--red); }
 .banner.muted   { background: color-mix(in srgb, var(--hint) 10%, transparent); color: var(--hint); }
 
+.lang-picker {
+  width: 100%;
+  padding: var(--s3);
+  border-radius: var(--r-md);
+  border: 1px solid var(--separator);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 15px;
+  appearance: auto;
+}
+
 .op-wallet { display: flex; flex-direction: column; gap: var(--s2); }
 .op-wallet-head {
   display: flex;

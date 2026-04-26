@@ -109,20 +109,20 @@
 
   <template id="tpl-settings">
     <div class="hero">
-      <div class="muted small">Get notified when your unclaimed rewards cross the threshold below. Pick one mode — STRK amount or USD value.</div>
+      <div class="muted small" data-i18n="webapp_settings_hero">Get notified when your unclaimed rewards cross the threshold below. Pick one mode — STRK amount or USD value.</div>
     </div>
 
-    <h3 class="section-title">Notification mode</h3>
+    <h3 class="section-title" data-i18n="webapp_notification_mode_section">Notification mode</h3>
     <div class="card form-card">
       <div class="seg-control" role="tablist" id="mode-segment">
-        <button type="button" class="seg-option" data-mode="off" role="tab">Off</button>
-        <button type="button" class="seg-option" data-mode="strk" role="tab">STRK</button>
-        <button type="button" class="seg-option" data-mode="usd" role="tab">USD</button>
+        <button type="button" class="seg-option" data-mode="off" role="tab" data-i18n="webapp_mode_off">Off</button>
+        <button type="button" class="seg-option" data-mode="strk" role="tab" data-i18n="webapp_mode_strk">STRK</button>
+        <button type="button" class="seg-option" data-mode="usd" role="tab" data-i18n="webapp_mode_usd">USD</button>
       </div>
 
       <div class="threshold-input" id="threshold-row" hidden>
         <label class="row-label">
-          <span data-bind="amountLabel">Threshold</span>
+          <span data-bind="amountLabel" data-i18n="webapp_threshold_label">Threshold</span>
           <div class="input-with-suffix">
             <span class="prefix" data-bind="prefix" hidden>$</span>
             <input type="number" min="0" step="any" id="amount-input" placeholder="0" />
@@ -133,13 +133,13 @@
       </div>
     </div>
 
-    <h3 class="section-title">Operator wallet alert</h3>
+    <h3 class="section-title" data-i18n="webapp_op_balance_section">Operator wallet alert</h3>
     <div class="card form-card">
-      <p class="muted small">
+      <p class="muted small" data-i18n="webapp_op_balance_explainer">
         Get a DM when the operator wallet (the one signing attestations) drops below this STRK balance. Set to 0 to disable.
       </p>
       <label class="row-label">
-        <span>Minimum STRK balance</span>
+        <span data-i18n="webapp_op_balance_min_label">Minimum STRK balance</span>
         <div class="input-with-suffix">
           <input type="number" min="0" step="any" id="op-balance-input" placeholder="0" />
           <span class="suffix">STRK</span>
@@ -147,7 +147,17 @@
       </label>
     </div>
 
-    <button class="primary-btn" id="save-settings">Save</button>
+    <h3 class="section-title" data-i18n="webapp_language_section">Language</h3>
+    <div class="card form-card">
+      <label class="row-label">
+        <span data-i18n="webapp_language_picker_label">Interface language</span>
+        <select id="language-picker" class="lang-picker">
+          <!-- options injected from SUPPORTED_LOCALES -->
+        </select>
+      </label>
+    </div>
+
+    <button class="primary-btn" id="save-settings" data-i18n="webapp_save_btn">Save</button>
     <p class="muted small center" id="settings-status"></p>
   </template>
 

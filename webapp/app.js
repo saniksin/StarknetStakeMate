@@ -24,7 +24,63 @@ const state = {
   entries: null,        // /api/v1/users/me/entries
   notification: null,   // /api/v1/users/me/notification-config
   prices: null,         // CoinGecko-derived USD per symbol (best-effort)
+  profile: null,        // /api/v1/users/me/profile (id, name, language)
+  locale: null,         // loaded /api/v1/locales/{lang} bundle
 };
+
+// ---------------------------------------------------------------------------
+// i18n
+//
+// The Mini App pulls the same JSON bundle the bot uses (`locales/<lang>.json`)
+// from the server on boot, then falls back to the inline default if a key is
+// missing. ``t(key, "fallback", {placeholder: value})`` keeps the call site
+// readable in English even before a key is added to all 8 locales.
+// ---------------------------------------------------------------------------
+
+function t(key, fallback, vars) {
+  const bundle = state.locale || {};
+  let value = bundle[key];
+  if (value === undefined || value === null || value === "") {
+    value = fallback ?? key;
+  }
+  if (vars) {
+    for (const [k, v] of Object.entries(vars)) {
+      value = value.replaceAll(`{${k}}`, String(v));
+    }
+  }
+  return value;
+}
+
+const SUPPORTED_LOCALES = [
+  { code: "en", label: "English" },
+  { code: "ru", label: "Русский" },
+  { code: "ua", label: "Українська" },
+  { code: "de", label: "Deutsch" },
+  { code: "es", label: "Español" },
+  { code: "ko", label: "한국어" },
+  { code: "pl", label: "Polski" },
+  { code: "zh", label: "中文" },
+];
+
+async function loadLocale(lang) {
+  // 404 / network error → keep whatever's already loaded (English fallback).
+  try {
+    const bundle = await api(`/api/v1/locales/${encodeURIComponent(lang)}`);
+    if (bundle && typeof bundle === "object") state.locale = bundle;
+  } catch (err) {
+    console.warn("locale fetch failed", err);
+  }
+}
+
+async function loadProfileAndLocale() {
+  try {
+    state.profile = await api("/api/v1/users/me/profile");
+  } catch (err) {
+    // Local-auth missing tg_id, no user yet, etc. — default to English.
+    state.profile = { language: "en" };
+  }
+  await loadLocale(state.profile.language || "en");
+}
 
 // ---------------------------------------------------------------------------
 // HTTP helpers
@@ -213,16 +269,18 @@ async function copyText(text) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       await navigator.clipboard.writeText(text);
     } else {
-      const t = document.createElement("textarea");
-      t.value = text;
-      t.style.position = "fixed";
-      t.style.opacity = "0";
-      document.body.appendChild(t);
-      t.select();
+      // Renamed from ``t`` to ``ta`` to avoid shadowing the global i18n
+      // helper ``t(key, fallback, vars)``.
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
       document.execCommand("copy");
-      t.remove();
+      ta.remove();
     }
-    toast("Copied");
+    toast(t("webapp_copied_toast", "Copied"));
     if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
   } catch (err) {
     toast("Copy failed");
@@ -296,6 +354,22 @@ function renderTemplate(id) {
   const tpl = document.getElementById(id);
   viewEl.innerHTML = "";
   viewEl.appendChild(tpl.content.cloneNode(true));
+  applyI18n(viewEl);
+}
+
+function applyI18n(root) {
+  // Walk every element with ``data-i18n`` and substitute its text content.
+  // Uses the inline text already in the DOM as the English fallback so a
+  // missing key still renders something sensible.
+  for (const el of root.querySelectorAll("[data-i18n]")) {
+    const key = el.dataset.i18n;
+    el.textContent = t(key, el.textContent || key);
+  }
+  // Same for placeholders on form inputs.
+  for (const el of root.querySelectorAll("[data-i18n-placeholder]")) {
+    const key = el.dataset.i18nPlaceholder;
+    el.placeholder = t(key, el.placeholder || key);
+  }
 }
 
 function bindings() {
@@ -345,6 +419,12 @@ async function renderRoute() {
   if (!_hasAuth()) {
     renderAuthHelp();
     return;
+  }
+
+  // Load the user's profile + matching locale once. Subsequent route
+  // renders reuse ``state.locale`` synchronously via ``t()``.
+  if (state.locale === null) {
+    await loadProfileAndLocale();
   }
 
   try {
@@ -756,39 +836,44 @@ function renderValidatorStatusBanner(data) {
   if (data.unstake_requested) {
     return bannerHTML(
       "danger",
-      "🚫 Validator is exiting",
-      "An unstake has been requested. New rewards will stop and your delegation will be returned after the unbonding period.",
+      t("webapp_status_exiting_t", "🚫 Validator is exiting"),
+      t("webapp_status_exiting_sub",
+        "An unstake has been requested. New rewards will stop and your delegation will be returned after the unbonding period."),
     );
   }
   if (att && att.missed_epochs > 0) {
     const n = att.missed_epochs;
     return bannerHTML(
       "warn",
-      `⚠ Validator missed ${n} attestation${n === 1 ? "" : "s"}`,
-      `Last confirmed in epoch ${att.last_epoch_attested}, current epoch ${att.current_epoch}. Skipped attestations reduce both the validator's and delegators' rewards.`,
+      t("webapp_status_missed_t", `⚠ Validator missed ${n} attestation${n === 1 ? "" : "s"}`, { n }),
+      t("webapp_status_missed_sub",
+        `Last confirmed in epoch ${att.last_epoch_attested}, current epoch ${att.current_epoch}. Skipped attestations reduce both the validator's and delegators' rewards.`,
+        { last: att.last_epoch_attested, epoch: att.current_epoch, n }),
     );
   }
   if (att && att.is_attesting_this_epoch) {
     return bannerHTML(
       "success",
-      "✓ Validator healthy",
-      `Already attested for epoch ${att.current_epoch} — your rewards are accruing normally.`,
+      t("webapp_status_healthy_t", "✓ Validator healthy"),
+      t("webapp_status_healthy_sub",
+        `Already attested for epoch ${att.current_epoch} — your rewards are accruing normally.`,
+        { epoch: att.current_epoch }),
     );
   }
   if (att) {
     return bannerHTML(
       "muted",
-      "⏳ Waiting for this epoch's attestation",
-      `Validators must attest once per epoch. Epoch ${att.current_epoch} is still in progress — this is normal as long as it finishes before the epoch ends.`,
+      t("webapp_status_waiting_t", "⏳ Waiting for this epoch's attestation"),
+      t("webapp_status_waiting_sub",
+        `Validators must attest once per epoch. Epoch ${att.current_epoch} is still in progress — this is normal as long as it finishes before the epoch ends.`,
+        { epoch: att.current_epoch }),
     );
   }
-  // attestation lookup failed (RPC blip, contract returned no data) —
-  // still tell the user we tried, so an empty space doesn't look like
-  // we forgot to render anything.
   return bannerHTML(
     "muted",
-    "Validator status unavailable",
-    "Couldn't reach the attestation contract just now. Reopen the Mini App in a few seconds.",
+    t("webapp_status_unavailable_t", "Validator status unavailable"),
+    t("webapp_status_unavailable_sub",
+      "Couldn't reach the attestation contract just now. Reopen the Mini App in a few seconds."),
   );
 }
 
@@ -815,7 +900,7 @@ function renderTotalStakeHero(totalsBySym, prices) {
 
   return `
     <div class="hero">
-      <div class="muted small">Total stake (own + delegations)</div>
+      <div class="muted small">${escapeHtml(t("webapp_total_stake_caption", "Total stake (own + delegations)"))}</div>
       <div class="hero-value">${escapeHtml(headline)}</div>
       ${sub ? `<div class="hero-sub muted small">${escapeHtml(sub)}</div>` : ""}
     </div>
@@ -842,30 +927,32 @@ function renderOperatorWalletBlock(data, state) {
   let badge = "";
   let cardClass = "card";
   if (balNum !== null && threshold > 0) {
+    const thrStr = fmtAmount(threshold, "STRK");
     if (balNum < threshold) {
-      badge = `<span class="chip danger">⚠ Below ${fmtAmount(threshold, "STRK")}</span>`;
+      badge = `<span class="chip danger">${escapeHtml(t("webapp_below_threshold", `⚠ Below ${thrStr}`, { amount: thrStr }))}</span>`;
       cardClass += " card-warn";
     } else {
-      badge = `<span class="chip success">✓ Above ${fmtAmount(threshold, "STRK")}</span>`;
+      badge = `<span class="chip success">${escapeHtml(t("webapp_above_threshold", `✓ Above ${thrStr}`, { amount: thrStr }))}</span>`;
     }
   }
 
   const balLine = balNum !== null
     ? `${fmtAmount(balNum, "STRK")}${usdBal !== null ? ` · ${fmtUsd(usdBal)}` : ""}`
-    : "Balance unavailable";
+    : t("webapp_balance_unavailable", "Balance unavailable");
 
   return `
     <div class="hero op-wallet ${cardClass.includes('warn') ? 'op-wallet-warn' : ''}">
       <div class="op-wallet-head">
         <div>
-          <div class="muted small">Operator wallet (gas reserve)</div>
+          <div class="muted small">${escapeHtml(t("webapp_operator_wallet_caption", "Operator wallet (gas reserve)"))}</div>
           <div class="addr-mono">${copyableAddr(op)}</div>
         </div>
         ${badge}
       </div>
       <div class="hero-value">${escapeHtml(balLine)}</div>
       <div class="muted small">
-        Validators sign attestations from this wallet. If the STRK balance runs out, attestations get missed silently — set a low-balance alert in Settings to catch it early.
+        ${escapeHtml(t("webapp_operator_wallet_explainer",
+          "Validators sign attestations from this wallet. If the STRK balance runs out, attestations get missed silently — set a low-balance alert in Settings to catch it early."))}
       </div>
     </div>
   `;
@@ -874,11 +961,15 @@ function renderOperatorWalletBlock(data, state) {
 function attachRemoveButton(btn, { kind, label, matcher }) {
   if (!btn) return;
   btn.hidden = false;
-  btn.textContent = `Remove ${kind === "validator" ? "validator" : "delegation"} from tracking`;
+  const removeLabel = kind === "validator"
+    ? t("webapp_remove_validator", "Remove validator from tracking")
+    : t("webapp_remove_delegation", "Remove delegation from tracking");
+  btn.textContent = removeLabel;
   btn.onclick = async () => {
+    const confirmText = `${removeLabel} — “${label}”?`;
     const ok = (tg && tg.showConfirm)
-      ? await new Promise((res) => tg.showConfirm(`Remove “${label}” from tracking?`, res))
-      : window.confirm(`Remove "${label}" from tracking?`);
+      ? await new Promise((res) => tg.showConfirm(confirmText, res))
+      : window.confirm(confirmText);
     if (!ok) return;
 
     btn.disabled = true;
@@ -901,7 +992,7 @@ function attachRemoveButton(btn, { kind, label, matcher }) {
       navigate("#/");
     } catch (err) {
       btn.disabled = false;
-      btn.textContent = `Remove ${kind === "validator" ? "validator" : "delegation"} from tracking`;
+      btn.textContent = removeLabel;
       toast(err.message);
     }
   };
@@ -912,7 +1003,7 @@ function attachRemoveButton(btn, { kind, label, matcher }) {
 // ---------------------------------------------------------------------------
 
 async function renderSettings() {
-  setTopbar("Settings", "Notifications");
+  setTopbar(t("settings", "Settings"), t("webapp_topbar_settings_sub", "Notifications"));
   renderTemplate("tpl-settings");
   const $ = bindings();
 
@@ -952,17 +1043,19 @@ async function renderSettings() {
       thresholdRow.hidden = true;
     } else {
       thresholdRow.hidden = false;
-      $.amountLabel.textContent = "Threshold";
+      $.amountLabel.textContent = t("webapp_threshold_label", "Threshold");
       if (mode === "usd") {
         $.prefix.hidden = false;
         $.suffix.hidden = true;
-        $.modeHint.textContent = "Sum of unclaimed rewards across all your positions, converted via CoinGecko.";
+        $.modeHint.textContent = t("webapp_threshold_hint_usd",
+          "Sum of unclaimed rewards across all your positions, converted via CoinGecko.");
         amountInput.placeholder = "0.00";
       } else {
         $.prefix.hidden = true;
         $.suffix.hidden = false;
         $.suffix.textContent = "STRK";
-        $.modeHint.textContent = "Total unclaimed STRK across your portfolio. Validator pool rewards are always paid in STRK in V2.";
+        $.modeHint.textContent = t("webapp_threshold_hint_strk",
+          "Total unclaimed STRK across your portfolio. Validator pool rewards are always paid in STRK in V2.");
         amountInput.placeholder = "0";
       }
     }
@@ -977,6 +1070,43 @@ async function renderSettings() {
   const opMin = Number(cfg.operator_balance_min_strk || 0);
   if (opBalanceInput) opBalanceInput.value = opMin > 0 ? opMin : "";
 
+  // Language picker — populate options once, preselect current value, then
+  // PUT on change and re-render the settings page in the new locale. We
+  // reload state.profile / state.locale before re-rendering so every other
+  // route also picks up the new language until the page is closed.
+  const langPicker = document.getElementById("language-picker");
+  if (langPicker) {
+    langPicker.innerHTML = "";
+    const currentLang = (state.profile && state.profile.language) || "en";
+    for (const { code, label } of SUPPORTED_LOCALES) {
+      const opt = document.createElement("option");
+      opt.value = code;
+      opt.textContent = label;
+      if (code === currentLang) opt.selected = true;
+      langPicker.appendChild(opt);
+    }
+    langPicker.addEventListener("change", async () => {
+      const next = langPicker.value;
+      langPicker.disabled = true;
+      try {
+        const updated = await api("/api/v1/users/me/language", {
+          method: "PUT",
+          body: { language: next },
+        });
+        state.profile = updated;
+        await loadLocale(next);
+        toast(t("webapp_saved", "Saved."));
+        if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+        // Re-enter the settings view so every label refreshes in the new
+        // locale (instead of re-translating each binding by hand).
+        await renderSettings();
+      } catch (err) {
+        toast(err.message);
+        langPicker.disabled = false;
+      }
+    });
+  }
+
   for (const opt of segment.querySelectorAll(".seg-option")) {
     opt.addEventListener("click", () => applyMode(opt.dataset.mode));
   }
@@ -985,7 +1115,7 @@ async function renderSettings() {
   const statusEl = document.getElementById("settings-status");
   saveBtn.onclick = async () => {
     saveBtn.disabled = true;
-    statusEl.textContent = "Saving…";
+    statusEl.textContent = t("webapp_saving", "Saving…");
     try {
       let payload;
       if (mode === "off") {
@@ -993,7 +1123,8 @@ async function renderSettings() {
       } else {
         const v = Number(amountInput.value || 0);
         if (!(v > 0)) {
-          statusEl.textContent = "Enter a positive amount or pick Off.";
+          statusEl.textContent = t("webapp_save_error_positive",
+            "Enter a positive amount or pick Off.");
           saveBtn.disabled = false;
           return;
         }
@@ -1008,8 +1139,8 @@ async function renderSettings() {
       payload.operator_balance_min_strk = opMinNew > 0 ? opMinNew : 0;
       await api("/api/v1/users/me/notification-config", { method: "PUT", body: payload });
       state.notification = payload;
-      statusEl.textContent = "Saved.";
-      toast("Saved");
+      statusEl.textContent = t("webapp_saved", "Saved.");
+      toast(t("webapp_saved", "Saved"));
       if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
       setTimeout(() => (statusEl.textContent = ""), 2000);
     } catch (err) {

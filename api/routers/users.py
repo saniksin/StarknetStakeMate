@@ -70,6 +70,21 @@ class LabelUpdate(BaseModel):
     label: str = Field(max_length=40)
 
 
+class LanguagePayload(BaseModel):
+    """Single-field payload for PUT /me/language.
+
+    Restricted to the locale prefixes the bot actually ships translations
+    for so we never persist garbage that would just fall back to English.
+    """
+    language: Literal["en", "ru", "ua", "zh", "ko", "es", "de", "pl"]
+
+
+class ProfilePayload(BaseModel):
+    user_id: int
+    user_name: str | None = None
+    language: str = "en"
+
+
 async def _resolve_user_id(
     tg_user: TelegramUser | None = Depends(telegram_user_from_header),
     tg_id: int | None = Query(default=None, description="Explicit Telegram ID (local auth)"),
@@ -222,3 +237,43 @@ async def typed_entries(user_id: int = Depends(_resolve_user_id)) -> list[dict]:
         }
         for e in entries
     ]
+
+
+# ---------------------------------------------------------------------------
+# Profile + language (Mini App i18n)
+# ---------------------------------------------------------------------------
+
+@router.get("/profile", summary="Current user profile (id, name, language)")
+async def get_profile(user_id: int = Depends(_resolve_user_id)) -> ProfilePayload:
+    """Return the user's basic profile.
+
+    Used by the Mini App on boot to pick the locale bundle. New users that
+    haven't hit the bot yet get the default language ``en`` — the Mini App
+    can offer a picker to override it without going to the bot first.
+    """
+    user = await get_account(str(user_id))
+    if user is None:
+        return ProfilePayload(user_id=user_id, language="en")
+    return ProfilePayload(
+        user_id=int(user.user_id),
+        user_name=user.user_name,
+        language=(user.user_language or "en"),
+    )
+
+
+@router.put("/language", summary="Update the user's UI language")
+async def put_language(
+    payload: LanguagePayload, user_id: int = Depends(_resolve_user_id)
+) -> ProfilePayload:
+    """Persist a new UI language. Same column the bot reads, so changing
+    here also flips the bot's replies on the user's next interaction."""
+    user = await get_account(str(user_id))
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="unknown user")
+    user.user_language = payload.language
+    await write_to_db(user)
+    return ProfilePayload(
+        user_id=int(user.user_id),
+        user_name=user.user_name,
+        language=payload.language,
+    )
