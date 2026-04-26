@@ -18,7 +18,7 @@
         </svg>
       </button>
       <div class="title">
-        <strong id="topbar-title">Portfolio</strong>
+        <strong id="topbar-title" data-i18n="webapp_topbar_portfolio">Portfolio</strong>
         <span id="topbar-sub" class="muted small"></span>
       </div>
       <button class="textbtn" aria-label="Settings" data-action="settings">
@@ -27,7 +27,7 @@
                more obviously than a gear in mobile-app conventions. -->
           <path fill="currentColor" d="M3 6h11a3 3 0 0 0 6 0h1a1 1 0 0 0 0-2h-1a3 3 0 0 0-6 0H3a1 1 0 0 0 0 2zm18 5h-7a3 3 0 0 0-6 0H3a1 1 0 0 0 0 2h5a3 3 0 0 0 6 0h7a1 1 0 0 0 0-2zm0 7h-1a3 3 0 0 0-6 0H3a1 1 0 0 0 0 2h11a3 3 0 0 0 6 0h1a1 1 0 0 0 0-2z"/>
         </svg>
-        <span>Settings</span>
+        <span data-i18n="webapp_settings_btn">Settings</span>
       </button>
     </header>
 
@@ -41,12 +41,12 @@
     <div class="hero">
       <div class="hero-row">
         <div>
-          <div class="muted small">Total stake</div>
+          <div class="muted small" data-i18n="webapp_dashboard_total_stake">Total stake</div>
           <div class="hero-value" data-bind="totalStakePrimary">—</div>
           <div class="hero-sub muted small" data-bind="totalStakeSecondary"></div>
         </div>
         <div>
-          <div class="muted small">Unclaimed</div>
+          <div class="muted small" data-i18n="webapp_unclaimed_label">Unclaimed</div>
           <div class="hero-value" data-bind="totalUnclaimedPrimary">—</div>
           <div class="hero-sub muted small" data-bind="totalUnclaimedSecondary"></div>
         </div>
@@ -57,9 +57,9 @@
       </div>
     </div>
 
-    <h3 class="section-title" data-bind="listTitle">Tracked addresses</h3>
+    <h3 class="section-title" data-bind="listTitle" data-i18n="webapp_tracked_addresses">Tracked addresses</h3>
     <div id="entries" class="card-list" data-bind="entries">
-      <div class="placeholder" data-bind="placeholder">Loading…</div>
+      <div class="placeholder" data-bind="placeholder" data-i18n="webapp_loading">Loading…</div>
     </div>
   </template>
 
@@ -80,21 +80,21 @@
 
     <div class="grid-2">
       <div class="stat">
-        <div class="muted small" data-bind="primaryStakeLabel">Stake</div>
+        <div class="muted small" data-bind="primaryStakeLabel" data-i18n="webapp_stake_label">Stake</div>
         <div class="stat-value" data-bind="primaryStake">—</div>
         <div class="muted small" data-bind="primaryStakeUsd"></div>
       </div>
       <div class="stat">
-        <div class="muted small">Unclaimed</div>
+        <div class="muted small" data-i18n="webapp_unclaimed_label">Unclaimed</div>
         <div class="stat-value" data-bind="unclaimed">—</div>
         <div class="muted small" data-bind="unclaimedUsd"></div>
       </div>
       <div class="stat" data-bind="commissionStat">
-        <div class="muted small">Commission</div>
+        <div class="muted small" data-i18n="webapp_commission_label">Commission</div>
         <div class="stat-value" data-bind="commission">—</div>
       </div>
       <div class="stat">
-        <div class="muted small">Epoch</div>
+        <div class="muted small" data-i18n="webapp_epoch_label">Epoch</div>
         <div class="stat-value" data-bind="epoch">—</div>
       </div>
     </div>

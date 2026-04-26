@@ -478,12 +478,19 @@ async function renderDashboard() {
     state.prices !== null ? Promise.resolve(state.prices) : loadPrices().then((p) => (state.prices = p)),
   ]);
 
-  $.epochChip.textContent = `epoch ${status.current_epoch}`;
-  setTopbar("Portfolio", `${status.network} · epoch ${status.current_epoch}`);
+  $.epochChip.textContent = t("webapp_epoch_chip", `epoch ${status.current_epoch}`, { epoch: status.current_epoch });
+  setTopbar(
+    t("webapp_topbar_portfolio", "Portfolio"),
+    `${status.network} · ${t("webapp_epoch_chip", `epoch ${status.current_epoch}`, { epoch: status.current_epoch })}`,
+  );
 
   const validators = entries.filter((e) => e.kind === "validator");
   const delegations = entries.filter((e) => e.kind === "delegator");
-  $.countsChip.textContent = `${validators.length} validator${validators.length === 1 ? "" : "s"} · ${delegations.length} delegation${delegations.length === 1 ? "" : "s"}`;
+  $.countsChip.textContent = t(
+    "webapp_counts_chip",
+    `${validators.length} validators · ${delegations.length} delegations`,
+    { validators: validators.length, delegations: delegations.length },
+  );
 
   // Aggregate stake & unclaimed across the portfolio.
   const stakedTotal = {};
@@ -508,7 +515,7 @@ async function renderDashboard() {
     ? fmtAmount(stakedStrk, "STRK")
     : "—";
   $.totalStakeSecondary.textContent = stakedUsd !== null
-    ? `≈ ${fmtUsd(stakedUsd)}${hasBtcPools ? " · incl. BTC pools" : ""}`
+    ? `≈ ${fmtUsd(stakedUsd)}${hasBtcPools ? " · " + t("webapp_incl_btc_pools", "incl. BTC pools") : ""}`
     : "";
 
   const unclaimedStrk = unclaimedTotal["STRK"] || 0;
@@ -519,7 +526,7 @@ async function renderDashboard() {
 
   // Entries list
   if (entries.length === 0) {
-    $.entries.innerHTML = `<div class="placeholder">No tracked addresses yet.<br>Open the bot and use “Add Info”.</div>`;
+    $.entries.innerHTML = `<div class="placeholder">${escapeHtml(t("webapp_no_tracked_yet", "No tracked addresses yet. Open the bot and use “Add Info”."))}</div>`;
     return;
   }
   $.entries.innerHTML = "";
@@ -586,7 +593,7 @@ function renderEntryCard(entry, container, prices) {
 // ---------------------------------------------------------------------------
 
 async function renderValidator(address) {
-  setTopbar("Validator", fmtAddr(address));
+  setTopbar(t("webapp_topbar_validator", "Validator"), fmtAddr(address));
   renderTemplate("tpl-detail");
   const $ = bindings();
 
@@ -605,7 +612,7 @@ async function renderValidator(address) {
 
   const data = entry.data;
   const label = entry.label || fmtAddr(entry.address);
-  setTopbar("Validator", label);
+  setTopbar(t("webapp_topbar_validator", "Validator"), label);
 
   $.avatar.textContent = "🛡";
   $.label.textContent = label;
@@ -617,7 +624,7 @@ async function renderValidator(address) {
   $.statusBanner.innerHTML = renderValidatorStatusBanner(data);
 
   // Stats grid
-  $.primaryStakeLabel.textContent = "Own stake";
+  $.primaryStakeLabel.textContent = t("webapp_own_stake_label", "Own stake");
   const ownStrk = Number(data.amount_own_strk || 0);
   $.primaryStake.textContent = fmtAmount(ownStrk, "STRK");
   const ownUsd = symbolToUsd("STRK", ownStrk, state.prices);
@@ -655,7 +662,7 @@ async function renderValidator(address) {
   const pools = data.pools || [];
   if (pools.length) {
     $.poolsBlock.innerHTML = `
-      <h3 class="section-title">Pools (${pools.length})</h3>
+      <h3 class="section-title">${escapeHtml(t("webapp_pools_section_title", `Pools (${pools.length})`, { n: pools.length }))}</h3>
       <div class="pools">
         ${pools.map((p) => {
           const sym = p.token_symbol || "STRK";
@@ -691,7 +698,7 @@ async function renderValidator(address) {
 // ---------------------------------------------------------------------------
 
 async function renderDelegator(delegatorAddr, stakerAddr) {
-  setTopbar("Delegation", fmtAddr(delegatorAddr));
+  setTopbar(t("webapp_topbar_delegation", "Delegation"), fmtAddr(delegatorAddr));
   renderTemplate("tpl-detail");
   const $ = bindings();
 
@@ -715,7 +722,7 @@ async function renderDelegator(delegatorAddr, stakerAddr) {
   const data = entry.data;
   const positions = data.positions || [];
   const label = entry.label || fmtAddr(entry.address);
-  setTopbar("Delegation", label);
+  setTopbar(t("webapp_topbar_delegation", "Delegation"), label);
 
   $.avatar.textContent = "🎱";
   $.label.textContent = label;
@@ -751,7 +758,9 @@ async function renderDelegator(delegatorAddr, stakerAddr) {
   const stakedBySym = entryStakedBySymbol(entry);
   const primarySym = Object.keys(stakedBySym)[0] || "STRK";
   const primaryAmt = stakedBySym[primarySym] || 0;
-  $.primaryStakeLabel.textContent = positions.length > 1 ? "Primary stake" : "Stake";
+  $.primaryStakeLabel.textContent = positions.length > 1
+    ? t("webapp_primary_stake_label", "Primary stake")
+    : t("webapp_stake_label", "Stake");
   $.primaryStake.textContent = fmtAmount(primaryAmt, primarySym);
   const primaryUsd = symbolToUsd(primarySym, primaryAmt, state.prices);
   $.primaryStakeUsd.textContent = primaryUsd !== null ? fmtUsd(primaryUsd) : "";
@@ -774,7 +783,7 @@ async function renderDelegator(delegatorAddr, stakerAddr) {
   // Positions block
   if (positions.length) {
     $.positionsBlock.innerHTML = `
-      <h3 class="section-title">Positions (${positions.length})</h3>
+      <h3 class="section-title">${escapeHtml(t("webapp_positions_section_title", `Positions (${positions.length})`, { n: positions.length }))}</h3>
       <div class="positions">
         ${positions.map((p) => {
           const sym = p.token_symbol || "STRK";
@@ -1005,7 +1014,10 @@ function attachRemoveButton(btn, { kind, label, matcher }) {
 // ---------------------------------------------------------------------------
 
 async function renderSettings() {
-  setTopbar(t("settings", "Settings"), t("webapp_topbar_settings_sub", "Notifications"));
+  setTopbar(
+    t("webapp_topbar_settings", "Settings"),
+    t("webapp_topbar_settings_sub", "Notifications"),
+  );
   renderTemplate("tpl-settings");
   const $ = bindings();
 
