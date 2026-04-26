@@ -16,7 +16,10 @@ def create_notification_menu(
     Two independent channels live here as siblings — neither nests inside
     the other:
       - STRK reward thresholds (USD / per-token)
-      - Attestation alerts (per-validator opt-in)
+      - Attestation alerts (per-validator opt-in) — operator wallet
+        low-balance alert lives inside this submenu since it's the same
+        "validator health" channel and only fires for validators the user
+        explicitly opted into.
     """
     attestation_caption = attestation_summary or translate("attestation_toggle", locale)
     return ReplyKeyboardMarkup(

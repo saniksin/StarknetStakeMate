@@ -161,7 +161,11 @@ async def _check_user(
         # ---- Operator wallet STRK balance ------------------------------
         # Threshold of 0 means "alerts disabled" — skip the RPC entirely
         # so we don't burn balance_of calls when the feature isn't used.
-        if balance_min <= 0:
+        # Also gated on the validator being subscribed to attestation
+        # alerts: the operator-balance alert is part of the same
+        # "validator health" channel; we don't want to fire balance
+        # alerts for stakers the user explicitly didn't opt into.
+        if balance_min <= 0 or staker not in subscribed_att:
             continue
         try:
             staker_raw = await fetch_staker_raw(staker)

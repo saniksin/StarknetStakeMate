@@ -402,8 +402,12 @@ def render_validator_card(
 
     # Operator wallet — the address that signs attestation txs. Surfacing
     # its STRK balance here is the early-warning system for "validator ran
-    # out of gas and started missing attestations". We always show the
-    # short address; balance only when the live read succeeded.
+    # out of gas and started missing attestations". The address row holds
+    # the balance; the full address is rendered as its own ``<code>`` line
+    # under the table so a tap-to-copy on Telegram captures the FULL hex
+    # (we used to wrap a truncated form like ``0x07b6…6d50`` in <code>,
+    # which made the user copy the literal "…" character).
+    operator_addr_line = ""
     if info.operational_address and info.operational_address != "0x0":
         bal_str = (
             _amount_with_usd(info.operator_strk_balance, "STRK", prices)
@@ -413,8 +417,11 @@ def render_validator_card(
         rows.append(
             (
                 translate("operator_wallet_label", locale).rstrip(":"),
-                f"{_code(_short(info.operational_address))} · {bal_str}",
+                bal_str,
             )
+        )
+        operator_addr_line = (
+            f"\n    └─ {_code(info.operational_address)}"
         )
 
     table = _table(rows)
@@ -429,7 +436,10 @@ def render_validator_card(
     )
     addr_line = f"\n       {_code(info.staker_address)}"
 
-    return header + attestation + "\n" + table + pools_line + addr_line
+    return (
+        header + attestation + "\n" + table
+        + operator_addr_line + pools_line + addr_line
+    )
 
 
 def _delegator_kind_label(entry: "TrackingEntry", multi: "DelegatorMultiPositions") -> str:

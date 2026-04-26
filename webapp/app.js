@@ -735,9 +735,11 @@ async function renderDelegator(delegatorAddr, stakerAddr) {
   api(`/api/v1/validators/${data.staker_address}`)
     .then((vinfo) => {
       $.statusBanner.innerHTML = renderValidatorStatusBanner(vinfo);
-      // Operator wallet info isn't on the delegator DTO — it lives on the
-      // staker's ValidatorInfo. Render it here once the lookup resolves.
-      $.operatorWalletBlock.innerHTML = renderOperatorWalletBlock(vinfo, state);
+      // Operator wallet block is intentionally NOT rendered on the
+      // delegator detail view: a delegator can't act on their staker's
+      // gas-reserve drainage from inside this card, so the block was
+      // pure noise. The data is still one tap away on the validator
+      // detail card if they actually need it.
       bindCopyHandlers();
     })
     .catch((err) => {
@@ -1065,10 +1067,35 @@ async function renderSettings() {
   amountInput.value = initialAmount && initialAmount > 0 ? initialAmount : "";
 
   // Operator wallet low-balance threshold — independent of the reward
-  // notification mode. 0 means "off".
+  // notification mode. 0 means "off". Gated on having at least one
+  // validator enrolled in attestation alerts: the alert task only fires
+  // for those, so allowing the input here would silently produce no
+  // effect ("I set 100 STRK and never got pinged" surprise).
   const opBalanceInput = document.getElementById("op-balance-input");
   const opMin = Number(cfg.operator_balance_min_strk || 0);
-  if (opBalanceInput) opBalanceInput.value = opMin > 0 ? opMin : "";
+  const attestationSubs = Array.isArray(cfg.attestation_alerts_for)
+    ? cfg.attestation_alerts_for
+    : [];
+  if (opBalanceInput) {
+    opBalanceInput.value = opMin > 0 ? opMin : "";
+    if (attestationSubs.length === 0) {
+      opBalanceInput.disabled = true;
+      opBalanceInput.placeholder = "—";
+      // Drop a hint right under the section header so the user knows why
+      // the input is greyed out instead of just being broken.
+      const section = opBalanceInput.closest(".form-card");
+      if (section && !section.querySelector(".op-balance-locked-hint")) {
+        const hint = document.createElement("p");
+        hint.className = "muted small op-balance-locked-hint";
+        hint.style.color = "var(--orange)";
+        hint.textContent = t(
+          "webapp_op_balance_needs_attestation",
+          "Enable attestation alerts for at least one validator first — the operator-wallet alert is part of the same per-validator subscription set.",
+        );
+        section.appendChild(hint);
+      }
+    }
+  }
 
   // Language picker — populate options once, preselect current value, then
   // PUT on change and re-render the settings page in the new locale. We

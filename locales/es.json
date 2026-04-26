@@ -158,7 +158,7 @@
     "operator_low_balance_alert": "⚠️ <b>{label}</b>: a la wallet del operador le quedan solo <b>{balance:.2f} STRK</b> (umbral: {threshold:.2f}). Recárgala antes del próximo slot — quedarse sin gas provoca atestaciones perdidas en silencio.",
     "operator_balance_recovered": "✅ <b>{label}</b>: wallet del operador recargada — {balance:.2f} STRK (umbral: {threshold:.2f}).",
     "set_operator_balance_threshold": "🔋 Alerta de wallet del operador",
-    "enter_operator_balance_threshold": "Introduce el saldo mínimo de STRK para la wallet del operador. Te enviaremos un DM si baja de esta cantidad. Envía <b>0</b> para desactivar.",
+    "enter_operator_balance_threshold": "Introduce el saldo STRK mínimo de la wallet del operador de cualquier validador que sigas. Recibirás un DM cuando baje — especialmente útil para delegadores que quieran cambiar de validador <i>antes</i> de que se pierdan atestaciones. Envía <b>0</b> para desactivar.",
     "operator_balance_threshold_set": "✅ Alerta del operador configurada: <b>{amount} STRK</b>. Recibirás un DM en cuanto baje de este nivel.",
     "operator_balance_threshold_disabled": "🔕 Alerta del operador desactivada.",
     "show_operator_balance_threshold": "🔋 Alerta del operador: <b>{amount} STRK</b>",
@@ -265,12 +265,14 @@
     "webapp_saved": "Guardado.",
     "webapp_save_error_positive": "Introduce un valor positivo o elige Apagado.",
     "webapp_op_balance_section": "Alerta de wallet del operador",
-    "webapp_op_balance_explainer": "Recibe un DM cuando la wallet del operador (la que firma) baje de este saldo STRK. 0 para desactivar.",
+    "webapp_op_balance_explainer": "Recibe un DM cuando la wallet del operador (la que firma) de cualquiera de tus validadores baje de este saldo STRK. Especialmente útil para delegadores — da tiempo a cambiar de validador antes de que fallen las atestaciones. 0 para desactivar.",
     "webapp_op_balance_min_label": "Saldo mínimo en STRK",
     "webapp_language_section": "Idioma",
     "webapp_language_picker_label": "Idioma de la interfaz",
     "webapp_remove_validator": "Quitar validador del seguimiento",
     "webapp_remove_delegation": "Quitar delegación del seguimiento",
     "webapp_topbar_settings_sub": "Notificaciones",
-    "webapp_copied_toast": "Copiado"
+    "webapp_copied_toast": "Copiado",
+    "operator_balance_no_attestation_subs": "⚠️ Primero activa las alertas de atestación para al menos un validador. La alerta del operador forma parte del mismo conjunto de suscripciones por validador.",
+    "webapp_op_balance_needs_attestation": "Primero activa las alertas de atestación para al menos un validador — la alerta del operador forma parte del mismo conjunto de suscripciones por validador."
 }

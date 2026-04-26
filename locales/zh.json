@@ -158,7 +158,7 @@
     "operator_low_balance_alert": "⚠️ <b>{label}</b>: 操作者钱包仅剩 <b>{balance:.2f} STRK</b>（阈值: {threshold:.2f}）。请在下一个时隙之前充值 — 余额耗尽会导致静默错过证明。",
     "operator_balance_recovered": "✅ <b>{label}</b>: 操作者钱包已充值 — {balance:.2f} STRK（阈值: {threshold:.2f}）。",
     "set_operator_balance_threshold": "🔋 操作者钱包警报",
-    "enter_operator_balance_threshold": "输入操作者钱包的最低 STRK 余额。低于此金额时会收到私信通知。发送 <b>0</b> 以禁用。",
+    "enter_operator_balance_threshold": "输入你跟踪的任意验证者的操作者钱包最低 STRK 余额。低于该值时会收到私信 — 对委托者尤其有用，可以在证明开始失败<i>之前</i>切换验证者。发送 <b>0</b> 以禁用。",
     "operator_balance_threshold_set": "✅ 操作者警报已设置：<b>{amount} STRK</b>。余额低于此值时会立即收到私信。",
     "operator_balance_threshold_disabled": "🔕 操作者警报已禁用。",
     "show_operator_balance_threshold": "🔋 操作者警报：<b>{amount} STRK</b>",
@@ -265,12 +265,14 @@
     "webapp_saved": "已保存。",
     "webapp_save_error_positive": "请输入正数或选择关闭。",
     "webapp_op_balance_section": "操作者钱包警报",
-    "webapp_op_balance_explainer": "操作者钱包（签署用）低于该 STRK 余额时收到私信。0 表示禁用。",
+    "webapp_op_balance_explainer": "当你跟踪的任何验证者的操作者钱包（签署用）低于此 STRK 余额时收到私信。对委托者尤其有用 — 在证明失败前给你时间切换验证者。0 表示禁用。",
     "webapp_op_balance_min_label": "最低 STRK 余额",
     "webapp_language_section": "语言",
     "webapp_language_picker_label": "界面语言",
     "webapp_remove_validator": "从跟踪中移除验证者",
     "webapp_remove_delegation": "从跟踪中移除委托",
     "webapp_topbar_settings_sub": "通知",
-    "webapp_copied_toast": "已复制"
+    "webapp_copied_toast": "已复制",
+    "operator_balance_no_attestation_subs": "⚠️ 请先为至少一个验证者启用证明警报。操作者钱包警报属于同一个 per-validator 订阅集合。",
+    "webapp_op_balance_needs_attestation": "请先为至少一个验证者启用证明警报 — 操作者钱包警报属于同一个 per-validator 订阅集合。"
 }

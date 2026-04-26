@@ -79,7 +79,6 @@ def create_strk_notification_menu(
         keyboard=[
             [KeyboardButton(text=translate("set_usd_threshold", locale))],
             [KeyboardButton(text=translate("set_token_threshold", locale))],
-            [KeyboardButton(text=translate("set_operator_balance_threshold", locale))],
             [KeyboardButton(text=translate("show_strk_reward_notification", locale))],
             [KeyboardButton(text=translate("disable_strk_reward_notification", locale))],
             [KeyboardButton(text=translate("cancel", locale))],
@@ -92,7 +91,14 @@ def _attestation_submenu(
     locale: str, validators: list[dict], enabled: set[str]
 ) -> ReplyKeyboardMarkup:
     """One row per tracked validator with its current ✅/⬜ state, plus
-    bulk-action and back rows."""
+    bulk-action, operator-balance, and back rows.
+
+    The Operator wallet alert is co-located here because it's part of the
+    same "validator health" channel — it only fires for validators that
+    are already opted into attestation alerts (so a user who enabled
+    attestation alerts for ``Staker A`` automatically gets balance alerts
+    for the same staker, no second flow to remember).
+    """
     rows: list[list[KeyboardButton]] = []
     for v in validators:
         addr = (v.get("address") or "").lower()
@@ -103,6 +109,7 @@ def _attestation_submenu(
         KeyboardButton(text=translate("attestation_enable_all", locale)),
         KeyboardButton(text=translate("attestation_disable_all", locale)),
     ])
+    rows.append([KeyboardButton(text=translate("set_operator_balance_threshold", locale))])
     rows.append([KeyboardButton(text=translate("back", locale))])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 
@@ -545,9 +552,19 @@ async def start_set_operator_balance(
 ):
     """Prompt the user for the STRK threshold below which we should DM them.
 
-    Set to 0 to disable. We don't gate this on having tracked validators —
-    the user can pre-arm it before adding their first validator.
+    Set to 0 to disable. Gated on the user having at least one validator
+    enrolled in attestation alerts — without that the threshold would be
+    silently inert (the alert task only checks balances for validators in
+    ``attestation_alerts_for``) and surface as the kind of "I configured
+    something and nothing happens" surprise we want to avoid.
     """
+    cfg = user_object.get_notification_config()
+    if not _attestation_alerts_for(cfg):
+        await message.reply(
+            translate("operator_balance_no_attestation_subs", locale=user_locale),
+            parse_mode="HTML",
+        )
+        return
     await message.reply(
         translate("enter_operator_balance_threshold", locale=user_locale),
         parse_mode="HTML",

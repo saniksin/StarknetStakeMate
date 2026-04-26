@@ -158,7 +158,7 @@
     "operator_low_balance_alert": "⚠️ <b>{label}</b>: 오퍼레이터 지갑에 <b>{balance:.2f} STRK</b>만 남았습니다 (임계값: {threshold:.2f}). 다음 슬롯 전에 충전하세요 — 가스가 떨어지면 attestation을 조용히 놓치게 됩니다.",
     "operator_balance_recovered": "✅ <b>{label}</b>: 오퍼레이터 지갑이 충전되었습니다 — {balance:.2f} STRK (임계값: {threshold:.2f}).",
     "set_operator_balance_threshold": "🔋 오퍼레이터 지갑 알림",
-    "enter_operator_balance_threshold": "오퍼레이터 지갑의 최소 STRK 잔액을 입력하세요. 이 금액 미만으로 떨어지면 DM을 받게 됩니다. 비활성화하려면 <b>0</b>을 보내세요.",
+    "enter_operator_balance_threshold": "트래킹 중인 어느 밸리데이터든 오퍼레이터 지갑의 최소 STRK 잔액을 입력하세요. 미만으로 떨어지면 DM을 받게 됩니다 — attestation이 실패하기 <i>전에</i> 다른 밸리데이터로 옮기고 싶은 위임자에게 가장 유용합니다. 비활성화하려면 <b>0</b>을 보내세요.",
     "operator_balance_threshold_set": "✅ 오퍼레이터 알림 설정 완료: <b>{amount} STRK</b>. 잔액이 이 값 아래로 떨어지면 즉시 DM을 받게 됩니다.",
     "operator_balance_threshold_disabled": "🔕 오퍼레이터 알림이 비활성화되었습니다.",
     "show_operator_balance_threshold": "🔋 오퍼레이터 알림: <b>{amount} STRK</b>",
@@ -265,12 +265,14 @@
     "webapp_saved": "저장됨.",
     "webapp_save_error_positive": "양수를 입력하거나 끔을 선택하세요.",
     "webapp_op_balance_section": "오퍼레이터 지갑 알림",
-    "webapp_op_balance_explainer": "오퍼레이터 지갑(서명용)이 이 STRK 잔액 미만으로 떨어지면 DM을 받습니다. 0이면 비활성화.",
+    "webapp_op_balance_explainer": "트래킹 중인 어느 밸리데이터든 오퍼레이터 지갑(서명용)이 이 STRK 잔액 미만으로 떨어지면 DM을 받습니다. 위임자에게 가장 유용합니다 — attestation이 실패하기 전에 밸리데이터를 바꿀 시간을 줍니다. 0이면 비활성화.",
     "webapp_op_balance_min_label": "최소 STRK 잔액",
     "webapp_language_section": "언어",
     "webapp_language_picker_label": "인터페이스 언어",
     "webapp_remove_validator": "트래킹에서 밸리데이터 제거",
     "webapp_remove_delegation": "트래킹에서 위임 제거",
     "webapp_topbar_settings_sub": "알림",
-    "webapp_copied_toast": "복사됨"
+    "webapp_copied_toast": "복사됨",
+    "operator_balance_no_attestation_subs": "⚠️ 먼저 한 명 이상의 밸리데이터에 대해 attestation 알림을 활성화하세요. 오퍼레이터 지갑 알림은 동일한 per-validator 구독 세트에 속합니다.",
+    "webapp_op_balance_needs_attestation": "먼저 한 명 이상의 밸리데이터에 대해 attestation 알림을 활성화하세요 — 오퍼레이터 지갑 알림은 동일한 per-validator 구독 세트에 속합니다."
 }

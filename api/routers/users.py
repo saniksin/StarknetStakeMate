@@ -62,6 +62,11 @@ class NotificationConfigPayload(BaseModel):
     usd_threshold: float = Field(default=0.0, ge=0)
     token_thresholds: dict[str, float] = Field(default_factory=dict)
     operator_balance_min_strk: float = Field(default=0.0, ge=0)
+    # Read-only on PUT: server stays the source of truth for which validators
+    # the user opted into; we expose it so the Mini App can decide whether
+    # the operator-balance input should be active (only allowed when at
+    # least one validator is enrolled in attestation alerts).
+    attestation_alerts_for: list[str] = Field(default_factory=list)
 
 
 class LabelUpdate(BaseModel):
@@ -204,6 +209,7 @@ async def get_notification_config(
         usd_threshold=cfg.get("usd_threshold", 0.0),
         token_thresholds=cfg.get("token_thresholds", {}),
         operator_balance_min_strk=cfg.get("operator_balance_min_strk", 0.0),
+        attestation_alerts_for=list(cfg.get("attestation_alerts_for") or []),
     )
 
 
@@ -214,7 +220,31 @@ async def put_notification_config(
     user = await get_account(str(user_id))
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="unknown user")
-    user.set_notification_config(payload.model_dump())
+    # Merge with the existing config so the Mini App can update the
+    # threshold-related fields without having to round-trip the
+    # attestation_alerts_for set (which it shouldn't be modifying through
+    # this endpoint — that's a separate per-validator opt-in flow). If
+    # we let the empty default propagate we'd silently disable every
+    # attestation subscription on every Settings save.
+    existing = user.get_notification_config()
+    incoming = payload.model_dump()
+    existing_subs = existing.get("attestation_alerts_for") or []
+    incoming["attestation_alerts_for"] = existing_subs
+    # Server-side guard: refuse to arm the operator-balance alert when
+    # the user has no attestation subscriptions. The alert task only
+    # checks balances for validators inside attestation_alerts_for, so
+    # accepting a positive threshold here would silently produce no
+    # effect and surface as the kind of "I configured something and
+    # nothing happens" surprise we want to avoid.
+    if payload.operator_balance_min_strk > 0 and not existing_subs:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Enable attestation alerts for at least one validator first. "
+                "The operator-wallet alert is part of the same per-validator subscription set."
+            ),
+        )
+    user.set_notification_config(incoming)
     user.claim_reward_msg = 0  # writes consolidate into the JSON config
     await write_to_db(user)
     return payload

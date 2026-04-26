@@ -62,12 +62,24 @@ STRK_TOKEN_ADDRESS = "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4
 
 @lru_cache(maxsize=1)
 def _strk_contract() -> "Contract":
-    """One cached starknet-py Contract for the STRK token (ABI parsed once)."""
+    """One cached starknet-py Contract for the STRK token (ABI parsed once).
+
+    Used only for the symbol/decimals lookups served by ``token_registry``;
+    ``balance_of`` goes through the raw ``client.call_contract`` path below
+    because the minimal hand-rolled ABI doesn't carry enough information
+    for starknet-py to decode a ``u256`` reliably across versions.
+    """
     return Contract(
         address=int(STRK_TOKEN_ADDRESS, 16),
         abi=_ERC20_ABI,
         provider=get_client(),
     )
+
+
+# Selector for ``balance_of(account)`` — Starknet keccak of the function name.
+# Hard-coded so we don't need to import ``get_selector_from_name`` (purely
+# computed once; matches what an RPC call to ``starknet_call`` uses).
+_BALANCE_OF_SELECTOR = 0x35a73cd311a05d46deda634c5ee045db92f811b4e74bca4437fcb5302b7af33
 
 
 async def fetch_strk_balance(account_address: str) -> Decimal:
@@ -78,18 +90,35 @@ async def fetch_strk_balance(account_address: str) -> Decimal:
     silent missed attestations. We re-fetch on every check (no caching)
     because the whole point of the alert is to catch the drain in real
     time. ``Decimal(0)`` on RPC failure — caller decides whether to alert.
+
+    We bypass ``Contract.functions["balance_of"].call(...)`` and assemble
+    the ``u256`` manually from the two returned felts (low/high). The
+    minimal hand-written ERC-20 ABI lacks a struct definition for ``u256``
+    and earlier versions of starknet-py silently returned ``0`` instead of
+    raising on the type mismatch — masking real balances as "wallet empty".
     """
-    contract = _strk_contract()
+    from starknet_py.net.client_models import Call  # local: cheap import
+
+    client = get_client()
+    call = Call(
+        to_addr=int(STRK_TOKEN_ADDRESS, 16),
+        selector=_BALANCE_OF_SELECTOR,
+        calldata=[int(account_address, 16)],
+    )
 
     async def _call() -> int:
-        (raw,) = await contract.functions["balance_of"].call(int(account_address, 16))
-        return int(raw)
+        result = await client.call_contract(call=call, block_hash="latest")
+        # u256 = (low: u128, high: u128), little-endian as a 2-felt tuple.
+        if not result or len(result) < 2:
+            return 0
+        low, high = int(result[0]), int(result[1])
+        return (high << 128) | low
 
     try:
         raw = await with_retry(
             _call, description=f"strk.balance_of({account_address})"
         )
-    except (ClientError, Exception) as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         logger.warning(f"STRK balance fetch failed for {account_address}: {exc}")
         return Decimal(0)
     return Decimal(raw) / Decimal(10**18)

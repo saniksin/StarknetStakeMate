@@ -158,7 +158,7 @@
     "operator_low_balance_alert": "⚠️ <b>{label}</b>: Operator-Wallet hat nur noch <b>{balance:.2f} STRK</b> (Schwelle: {threshold:.2f}). Vor dem nächsten Slot auffüllen — sonst werden Attestierungen lautlos verpasst.",
     "operator_balance_recovered": "✅ <b>{label}</b>: Operator-Wallet aufgeladen — {balance:.2f} STRK (Schwelle: {threshold:.2f}).",
     "set_operator_balance_threshold": "🔋 Operator-Wallet-Alarm",
-    "enter_operator_balance_threshold": "Gib die minimale STRK-Menge im Operator-Wallet ein. Du bekommst eine DM, wenn der Stand darunter fällt. Sende <b>0</b> zum Deaktivieren.",
+    "enter_operator_balance_threshold": "Gib die minimale STRK-Menge im Operator-Wallet eines beliebigen Validators ein, den du verfolgst. Du bekommst eine DM, wenn der Stand darunter fällt — besonders nützlich für Delegatoren, die den Validator wechseln wollen, <i>bevor</i> Attestierungen ausfallen. Sende <b>0</b> zum Deaktivieren.",
     "operator_balance_threshold_set": "✅ Operator-Wallet-Alarm gesetzt: <b>{amount} STRK</b>. Du bekommst eine DM, sobald der Stand darunter fällt.",
     "operator_balance_threshold_disabled": "🔕 Operator-Wallet-Alarm deaktiviert.",
     "show_operator_balance_threshold": "🔋 Operator-Wallet-Alarm: <b>{amount} STRK</b>",
@@ -265,12 +265,14 @@
     "webapp_saved": "Gespeichert.",
     "webapp_save_error_positive": "Positiver Wert nötig oder wähle Aus.",
     "webapp_op_balance_section": "Operator-Wallet-Alarm",
-    "webapp_op_balance_explainer": "Bekomme eine DM, wenn die Operator-Wallet (die signierende Wallet) unter diesen STRK-Stand fällt. 0 deaktiviert.",
+    "webapp_op_balance_explainer": "Bekomme eine DM, wenn die Operator-Wallet (die signierende) eines deiner verfolgten Validatoren unter diesen STRK-Stand fällt. Besonders nützlich für Delegatoren — gibt Zeit, den Validator vor Attestierungs-Ausfällen zu wechseln. 0 deaktiviert.",
     "webapp_op_balance_min_label": "Minimaler STRK-Stand",
     "webapp_language_section": "Sprache",
     "webapp_language_picker_label": "Oberflächensprache",
     "webapp_remove_validator": "Validator aus Tracking entfernen",
     "webapp_remove_delegation": "Delegation aus Tracking entfernen",
     "webapp_topbar_settings_sub": "Benachrichtigungen",
-    "webapp_copied_toast": "Kopiert"
+    "webapp_copied_toast": "Kopiert",
+    "operator_balance_no_attestation_subs": "⚠️ Aktiviere zuerst Attestation-Alerts für mindestens einen Validator. Der Operator-Wallet-Alarm gehört zu derselben Per-Validator-Subscription.",
+    "webapp_op_balance_needs_attestation": "Aktiviere zuerst Attestation-Alerts für mindestens einen Validator — der Operator-Wallet-Alarm gehört zu derselben Per-Validator-Subscription."
 }

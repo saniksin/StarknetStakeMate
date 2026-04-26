@@ -158,7 +158,7 @@
     "operator_low_balance_alert": "⚠️ <b>{label}</b>: w portfelu operatora zostało tylko <b>{balance:.2f} STRK</b> (próg: {threshold:.2f}). Doładuj przed kolejnym slotem — brak gazu powoduje ciche nieobecności na atestacjach.",
     "operator_balance_recovered": "✅ <b>{label}</b>: portfel operatora doładowany — {balance:.2f} STRK (próg: {threshold:.2f}).",
     "set_operator_balance_threshold": "🔋 Alert portfela operatora",
-    "enter_operator_balance_threshold": "Podaj minimalne saldo STRK w portfelu operatora. Wyślę DM, gdy spadnie poniżej. Wyślij <b>0</b>, aby wyłączyć.",
+    "enter_operator_balance_threshold": "Podaj minimalne saldo STRK w portfelu operatora dowolnego śledzonego walidatora. Wyślę DM, gdy spadnie poniżej — najbardziej przydatne dla delegatorów chcących zmienić walidatora <i>zanim</i> zaczną się pomijane atestacje. Wyślij <b>0</b>, aby wyłączyć.",
     "operator_balance_threshold_set": "✅ Alert operatora ustawiony: <b>{amount} STRK</b>. Otrzymasz DM, gdy saldo spadnie poniżej tej wartości.",
     "operator_balance_threshold_disabled": "🔕 Alert operatora wyłączony.",
     "show_operator_balance_threshold": "🔋 Alert operatora: <b>{amount} STRK</b>",
@@ -265,12 +265,14 @@
     "webapp_saved": "Zapisano.",
     "webapp_save_error_positive": "Wpisz wartość dodatnią lub wybierz Wył.",
     "webapp_op_balance_section": "Alert portfela operatora",
-    "webapp_op_balance_explainer": "Otrzymaj DM, gdy portfel operatora (podpisujący atestacje) spadnie poniżej tego salda STRK. 0 wyłącza.",
+    "webapp_op_balance_explainer": "Otrzymaj DM, gdy portfel operatora (podpisujący atestacje) dowolnego śledzonego walidatora spadnie poniżej tego salda STRK. Najbardziej przydatne dla delegatorów — daje czas na zmianę walidatora przed pomijanymi atestacjami. 0 wyłącza.",
     "webapp_op_balance_min_label": "Minimalne saldo STRK",
     "webapp_language_section": "Język",
     "webapp_language_picker_label": "Język interfejsu",
     "webapp_remove_validator": "Usuń walidatora ze śledzenia",
     "webapp_remove_delegation": "Usuń delegację ze śledzenia",
     "webapp_topbar_settings_sub": "Powiadomienia",
-    "webapp_copied_toast": "Skopiowano"
+    "webapp_copied_toast": "Skopiowano",
+    "operator_balance_no_attestation_subs": "⚠️ Najpierw włącz alerty atestacji dla co najmniej jednego walidatora. Alert portfela operatora należy do tego samego zestawu subskrypcji per-validator.",
+    "webapp_op_balance_needs_attestation": "Najpierw włącz alerty atestacji dla co najmniej jednego walidatora — alert portfela operatora należy do tego samego zestawu subskrypcji per-validator."
 }

@@ -158,7 +158,7 @@
     "operator_low_balance_alert": "⚠️ <b>{label}</b>: operator wallet has only <b>{balance:.2f} STRK</b> left (threshold: {threshold:.2f}). Top it up before the next attestation slot — running dry causes silent missed attestations.",
     "operator_balance_recovered": "✅ <b>{label}</b>: operator wallet topped up — {balance:.2f} STRK now (threshold: {threshold:.2f}).",
     "set_operator_balance_threshold": "🔋 Operator wallet alert",
-    "enter_operator_balance_threshold": "Enter the minimum STRK balance for the operator wallet. You'll get a DM when it drops below this amount. Send <b>0</b> to disable.",
+    "enter_operator_balance_threshold": "Enter the minimum STRK balance for the operator wallet of any validator you track. You'll get a DM when it drops below — most useful for delegators who want to switch validators <i>before</i> attestations start failing. Send <b>0</b> to disable.",
     "operator_balance_threshold_set": "✅ Operator wallet alert set: <b>{amount} STRK</b>. You'll be DM'd as soon as it drops below this.",
     "operator_balance_threshold_disabled": "🔕 Operator wallet alert disabled.",
     "show_operator_balance_threshold": "🔋 Operator wallet alert: <b>{amount} STRK</b>",
@@ -265,12 +265,14 @@
     "webapp_saved": "Saved.",
     "webapp_save_error_positive": "Enter a positive amount or pick Off.",
     "webapp_op_balance_section": "Operator wallet alert",
-    "webapp_op_balance_explainer": "Get a DM when the operator wallet (the one signing attestations) drops below this STRK balance. Set to 0 to disable.",
+    "webapp_op_balance_explainer": "Get a DM when the operator wallet (the one signing attestations) of any validator you track drops below this STRK balance. Most useful for delegators — gives you time to switch validators before attestations start failing. Set 0 to disable.",
     "webapp_op_balance_min_label": "Minimum STRK balance",
     "webapp_language_section": "Language",
     "webapp_language_picker_label": "Interface language",
     "webapp_remove_validator": "Remove validator from tracking",
     "webapp_remove_delegation": "Remove delegation from tracking",
     "webapp_topbar_settings_sub": "Notifications",
-    "webapp_copied_toast": "Copied"
+    "webapp_copied_toast": "Copied",
+    "operator_balance_no_attestation_subs": "⚠️ Enable attestation alerts for at least one validator first. The operator-wallet alert is part of the same per-validator subscription set.",
+    "webapp_op_balance_needs_attestation": "Enable attestation alerts for at least one validator first — the operator-wallet alert is part of the same per-validator subscription set."
 }
