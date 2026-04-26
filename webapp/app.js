@@ -80,6 +80,11 @@ async function loadProfileAndLocale() {
     state.profile = { language: "en" };
   }
   await loadLocale(state.profile.language || "en");
+  // Translate the static topbar / header elements that live OUTSIDE the
+  // route templates. ``renderTemplate`` only runs ``applyI18n`` on the
+  // freshly cloned ``viewEl``, so anything in <header> (Settings button,
+  // initial topbar title) would otherwise stay in English.
+  if (typeof applyI18n === "function") applyI18n(document);
 }
 
 // ---------------------------------------------------------------------------
