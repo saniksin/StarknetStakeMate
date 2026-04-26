@@ -157,7 +157,7 @@
     "operator_wallet_label": "操作者钱包",
     "operator_low_balance_alert": "⚠️ <b>{label}</b>: 操作者钱包仅剩 <b>{balance:.2f} STRK</b>（阈值: {threshold:.2f}）。请在下一个时隙之前充值 — 余额耗尽会导致静默错过证明。",
     "operator_balance_recovered": "✅ <b>{label}</b>: 操作者钱包已充值 — {balance:.2f} STRK（阈值: {threshold:.2f}）。",
-    "set_operator_balance_threshold": "🔋 操作者钱包警报",
+    "set_operator_balance_threshold": "🔋 操作者钱包余额警报",
     "enter_operator_balance_threshold": "输入你跟踪的任意验证者的操作者钱包最低 STRK 余额。低于该值时会收到私信 — 对委托者尤其有用，可以在证明开始失败<i>之前</i>切换验证者。发送 <b>0</b> 以禁用。",
     "operator_balance_threshold_set": "✅ 操作者警报已设置：<b>{amount} STRK</b>。余额低于此值时会立即收到私信。",
     "operator_balance_threshold_disabled": "🔕 操作者警报已禁用。",

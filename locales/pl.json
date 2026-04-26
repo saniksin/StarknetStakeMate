@@ -157,7 +157,7 @@
     "operator_wallet_label": "Portfel operatora",
     "operator_low_balance_alert": "⚠️ <b>{label}</b>: w portfelu operatora zostało tylko <b>{balance:.2f} STRK</b> (próg: {threshold:.2f}). Doładuj przed kolejnym slotem — brak gazu powoduje ciche nieobecności na atestacjach.",
     "operator_balance_recovered": "✅ <b>{label}</b>: portfel operatora doładowany — {balance:.2f} STRK (próg: {threshold:.2f}).",
-    "set_operator_balance_threshold": "🔋 Alert portfela operatora",
+    "set_operator_balance_threshold": "🔋 Alert salda portfela operatora",
     "enter_operator_balance_threshold": "Podaj minimalne saldo STRK w portfelu operatora dowolnego śledzonego walidatora. Wyślę DM, gdy spadnie poniżej — najbardziej przydatne dla delegatorów chcących zmienić walidatora <i>zanim</i> zaczną się pomijane atestacje. Wyślij <b>0</b>, aby wyłączyć.",
     "operator_balance_threshold_set": "✅ Alert operatora ustawiony: <b>{amount} STRK</b>. Otrzymasz DM, gdy saldo spadnie poniżej tej wartości.",
     "operator_balance_threshold_disabled": "🔕 Alert operatora wyłączony.",

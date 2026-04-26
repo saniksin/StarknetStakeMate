@@ -157,7 +157,7 @@
     "operator_wallet_label": "Operator wallet",
     "operator_low_balance_alert": "⚠️ <b>{label}</b>: operator wallet has only <b>{balance:.2f} STRK</b> left (threshold: {threshold:.2f}). Top it up before the next attestation slot — running dry causes silent missed attestations.",
     "operator_balance_recovered": "✅ <b>{label}</b>: operator wallet topped up — {balance:.2f} STRK now (threshold: {threshold:.2f}).",
-    "set_operator_balance_threshold": "🔋 Operator wallet alert",
+    "set_operator_balance_threshold": "🔋 Operator wallet balance alert",
     "enter_operator_balance_threshold": "Enter the minimum STRK balance for the operator wallet of any validator you track. You'll get a DM when it drops below — most useful for delegators who want to switch validators <i>before</i> attestations start failing. Send <b>0</b> to disable.",
     "operator_balance_threshold_set": "✅ Operator wallet alert set: <b>{amount} STRK</b>. You'll be DM'd as soon as it drops below this.",
     "operator_balance_threshold_disabled": "🔕 Operator wallet alert disabled.",

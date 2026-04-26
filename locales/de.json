@@ -157,7 +157,7 @@
     "operator_wallet_label": "Operator-Wallet",
     "operator_low_balance_alert": "⚠️ <b>{label}</b>: Operator-Wallet hat nur noch <b>{balance:.2f} STRK</b> (Schwelle: {threshold:.2f}). Vor dem nächsten Slot auffüllen — sonst werden Attestierungen lautlos verpasst.",
     "operator_balance_recovered": "✅ <b>{label}</b>: Operator-Wallet aufgeladen — {balance:.2f} STRK (Schwelle: {threshold:.2f}).",
-    "set_operator_balance_threshold": "🔋 Operator-Wallet-Alarm",
+    "set_operator_balance_threshold": "🔋 Operator-Wallet-Saldo-Alarm",
     "enter_operator_balance_threshold": "Gib die minimale STRK-Menge im Operator-Wallet eines beliebigen Validators ein, den du verfolgst. Du bekommst eine DM, wenn der Stand darunter fällt — besonders nützlich für Delegatoren, die den Validator wechseln wollen, <i>bevor</i> Attestierungen ausfallen. Sende <b>0</b> zum Deaktivieren.",
     "operator_balance_threshold_set": "✅ Operator-Wallet-Alarm gesetzt: <b>{amount} STRK</b>. Du bekommst eine DM, sobald der Stand darunter fällt.",
     "operator_balance_threshold_disabled": "🔕 Operator-Wallet-Alarm deaktiviert.",
