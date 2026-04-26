@@ -288,6 +288,13 @@ async def register_handlers():
     )
     dp.message.register(handlers.set_token_threshold, handlers.RewardClaimState.waiting_for_token)
 
+    # Operator wallet low-balance alert (Mini App + bot share the same field
+    # in notification_config; this lets bot-only users configure it too).
+    dp.message.register(handlers.start_set_operator_balance, TextFilter(
+        text=[translate("set_operator_balance_threshold", locale) for locale in possible_prefixes])
+    )
+    dp.message.register(handlers.set_operator_balance, handlers.RewardClaimState.waiting_for_op_balance)
+
     # Bug 5: attestation alerts. Parent-menu button caption embeds an
     # "X/Y" summary, so we accept the bare prefix or the prefix with any
     # ``: <num>/<num>`` suffix. Catching the prefix as a startswith filter

@@ -29,6 +29,7 @@ class RewardClaimState(StatesGroup):
     waiting_for_threshold = State()         # legacy STRK-only
     waiting_for_usd = State()               # Bug 4: USD aggregate
     waiting_for_token = State()             # Bug 4: per-token "SYM AMOUNT"
+    waiting_for_op_balance = State()        # operator wallet low-balance alert
 
 
 def _short_addr(addr: str) -> str:
@@ -78,6 +79,7 @@ def create_strk_notification_menu(
         keyboard=[
             [KeyboardButton(text=translate("set_usd_threshold", locale))],
             [KeyboardButton(text=translate("set_token_threshold", locale))],
+            [KeyboardButton(text=translate("set_operator_balance_threshold", locale))],
             [KeyboardButton(text=translate("show_strk_reward_notification", locale))],
             [KeyboardButton(text=translate("disable_strk_reward_notification", locale))],
             [KeyboardButton(text=translate("cancel", locale))],
@@ -523,6 +525,70 @@ async def show_claim_treshold_info(
         return
 
     body = translate("show_thresholds_header", user_locale) + "\n" + "\n".join(lines)
+    # Append the operator-wallet line (independent of reward thresholds).
+    op_min = float(cfg.get("operator_balance_min_strk") or 0)
+    if op_min > 0:
+        body += "\n" + translate(
+            "show_operator_balance_threshold", user_locale
+        ).format(amount=op_min)
     await finish_operation(
         message, state, user_locale, privious_msg=body, cancel_msg=False
+    )
+
+
+# ---------------------------------------------------------------------------
+# Operator wallet low-balance threshold
+# ---------------------------------------------------------------------------
+
+async def start_set_operator_balance(
+    message: types.Message, state: FSMContext, user_locale: str, user_object: Users
+):
+    """Prompt the user for the STRK threshold below which we should DM them.
+
+    Set to 0 to disable. We don't gate this on having tracked validators —
+    the user can pre-arm it before adding their first validator.
+    """
+    await message.reply(
+        translate("enter_operator_balance_threshold", locale=user_locale),
+        parse_mode="HTML",
+        reply_markup=_cancel_kb(user_locale),
+    )
+    await state.set_state(RewardClaimState.waiting_for_op_balance)
+
+
+async def set_operator_balance(
+    message: types.Message, state: FSMContext, user_locale: str, user_object: Users
+):
+    if message.text == translate("cancel", locale=user_locale):
+        await finish_operation(message, state, user_locale)
+        return
+    raw = (message.text or "").strip().replace(",", ".")
+    try:
+        amount = float(raw)
+        if amount < 0:
+            raise ValueError
+    except ValueError:
+        await message.reply(
+            translate("invalid_threshold", locale=user_locale), parse_mode="HTML"
+        )
+        return
+
+    cfg = user_object.get_notification_config()
+    cfg["operator_balance_min_strk"] = amount
+    # Disabling clears the per-staker debounce state so the next enable
+    # starts from a clean slate (otherwise an old "below" flag would
+    # suppress the first new alert).
+    if amount <= 0:
+        cfg["_operator_balance_state"] = {}
+    user_object.set_notification_config(cfg)
+    await write_to_db(user_object)
+
+    if amount > 0:
+        msg = translate(
+            "operator_balance_threshold_set", locale=user_locale
+        ).format(amount=amount)
+    else:
+        msg = translate("operator_balance_threshold_disabled", locale=user_locale)
+    await finish_operation(
+        message, state, user_locale, privious_msg=msg, cancel_msg=False,
     )

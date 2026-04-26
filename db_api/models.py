@@ -86,6 +86,11 @@ class Users(Base, AutoRepr):
                 cfg.setdefault("attestation_alerts_for", [])
                 cfg.setdefault("attestation_alerts", False)
                 cfg.setdefault("_attestation_state", {})
+                # Operator low-balance: 0 means "alert disabled". Per-validator
+                # state keeps us from re-alerting every cycle for the same
+                # below-threshold balance.
+                cfg.setdefault("operator_balance_min_strk", 0.0)
+                cfg.setdefault("_operator_balance_state", {})
                 return cfg
             except (TypeError, ValueError):
                 pass
@@ -99,6 +104,8 @@ class Users(Base, AutoRepr):
             "attestation_alerts_for": [],
             "attestation_alerts": False,
             "_attestation_state": {},
+            "operator_balance_min_strk": 0.0,
+            "_operator_balance_state": {},
         }
 
     def set_notification_config(self, cfg: dict) -> None:
@@ -120,6 +127,16 @@ class Users(Base, AutoRepr):
                 str(k): int(v)
                 for k, v in (cfg.get("_attestation_state") or {}).items()
             },
+            "operator_balance_min_strk": float(
+                cfg.get("operator_balance_min_strk") or 0.0
+            ),
+            # Per-staker last-known "below threshold" flag (1) / above (0).
+            # Used by the alert task to debounce so we send one DM per
+            # downward crossing instead of every minute.
+            "_operator_balance_state": {
+                str(k): int(v)
+                for k, v in (cfg.get("_operator_balance_state") or {}).items()
+            },
         }
         # If everything is off and no state is being tracked, store NULL so
         # a future migration to a typed column doesn't have to filter out
@@ -129,6 +146,8 @@ class Users(Base, AutoRepr):
             and not clean["token_thresholds"]
             and not clean["attestation_alerts_for"]
             and not clean["_attestation_state"]
+            and clean["operator_balance_min_strk"] <= 0
+            and not clean["_operator_balance_state"]
         ):
             self.notification_config = None
         else:

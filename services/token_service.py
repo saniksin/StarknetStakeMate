@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+from decimal import Decimal
+from functools import lru_cache
 from typing import Iterable
 
 from loguru import logger
@@ -41,9 +43,56 @@ _ERC20_ABI = [
                 "outputs": [{"type": "core::integer::u8"}],
                 "state_mutability": "view",
             },
+            {
+                "type": "function",
+                "name": "balance_of",
+                "inputs": [{"name": "account", "type": "core::starknet::contract_address::ContractAddress"}],
+                "outputs": [{"type": "core::integer::u256"}],
+                "state_mutability": "view",
+            },
         ],
     }
 ]
+
+
+# Mainnet STRK token. Hard-coded because operator-balance lookups need it
+# constantly and we want to avoid a DB / config detour.
+STRK_TOKEN_ADDRESS = "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d"
+
+
+@lru_cache(maxsize=1)
+def _strk_contract() -> "Contract":
+    """One cached starknet-py Contract for the STRK token (ABI parsed once)."""
+    return Contract(
+        address=int(STRK_TOKEN_ADDRESS, 16),
+        abi=_ERC20_ABI,
+        provider=get_client(),
+    )
+
+
+async def fetch_strk_balance(account_address: str) -> Decimal:
+    """Return ``account``'s on-chain STRK balance, scaled to whole tokens.
+
+    Used for the operator-wallet low-balance alert: validators must keep
+    a small STRK reserve to pay attestation gas, and running dry causes
+    silent missed attestations. We re-fetch on every check (no caching)
+    because the whole point of the alert is to catch the drain in real
+    time. ``Decimal(0)`` on RPC failure — caller decides whether to alert.
+    """
+    contract = _strk_contract()
+
+    async def _call() -> int:
+        (raw,) = await contract.functions["balance_of"].call(int(account_address, 16))
+        return int(raw)
+
+    try:
+        raw = await with_retry(
+            _call, description=f"strk.balance_of({account_address})"
+        )
+    except (ClientError, Exception) as exc:  # noqa: BLE001
+        logger.warning(f"STRK balance fetch failed for {account_address}: {exc}")
+        return Decimal(0)
+    return Decimal(raw) / Decimal(10**18)
 
 
 # Known wrappers on mainnet Starknet — lets us render correct symbols even if

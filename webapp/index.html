@@ -76,6 +76,8 @@
 
     <div data-bind="totalStakeBlock"></div>
 
+    <div data-bind="operatorWalletBlock"></div>
+
     <div class="grid-2">
       <div class="stat">
         <div class="muted small" data-bind="primaryStakeLabel">Stake</div>
@@ -129,6 +131,20 @@
         </label>
         <p class="muted small" data-bind="modeHint">—</p>
       </div>
+    </div>
+
+    <h3 class="section-title">Operator wallet alert</h3>
+    <div class="card form-card">
+      <p class="muted small">
+        Get a DM when the operator wallet (the one signing attestations) drops below this STRK balance. Set to 0 to disable.
+      </p>
+      <label class="row-label">
+        <span>Minimum STRK balance</span>
+        <div class="input-with-suffix">
+          <input type="number" min="0" step="any" id="op-balance-input" placeholder="0" />
+          <span class="suffix">STRK</span>
+        </div>
+      </label>
     </div>
 
     <button class="primary-btn" id="save-settings">Save</button>

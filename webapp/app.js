@@ -566,6 +566,11 @@ async function renderValidator(address) {
   }
   $.totalStakeBlock.innerHTML = renderTotalStakeHero(totals, state.prices);
 
+  // Operator wallet (gas reserve for attestations) — surfaces the live
+  // STRK balance so a validator owner / delegator can spot a drained
+  // operator before missed attestations show up.
+  $.operatorWalletBlock.innerHTML = renderOperatorWalletBlock(data, state);
+
   // Pools breakdown
   const pools = data.pools || [];
   if (pools.length) {
@@ -650,6 +655,10 @@ async function renderDelegator(delegatorAddr, stakerAddr) {
   api(`/api/v1/validators/${data.staker_address}`)
     .then((vinfo) => {
       $.statusBanner.innerHTML = renderValidatorStatusBanner(vinfo);
+      // Operator wallet info isn't on the delegator DTO — it lives on the
+      // staker's ValidatorInfo. Render it here once the lookup resolves.
+      $.operatorWalletBlock.innerHTML = renderOperatorWalletBlock(vinfo, state);
+      bindCopyHandlers();
     })
     .catch((err) => {
       console.warn("validator status lookup failed", err);
@@ -813,6 +822,55 @@ function renderTotalStakeHero(totalsBySym, prices) {
   `;
 }
 
+function renderOperatorWalletBlock(data, state) {
+  // ``data`` is a ValidatorInfo (own card or fetched-via-staker). The
+  // operator wallet is the one signing attestation txs; we surface its
+  // STRK balance because running it dry causes silent missed attestations.
+  // When the user has a low-balance threshold configured and the live
+  // balance is below it, we colour the row warn/danger.
+  if (!data || !data.operational_address || data.operational_address === "0x0") {
+    return "";
+  }
+  const op = data.operational_address;
+  const bal = data.operator_strk_balance;
+  const balNum = bal !== null && bal !== undefined ? Number(bal) : null;
+  const usdBal = balNum !== null
+    ? symbolToUsd("STRK", balNum, state?.prices)
+    : null;
+
+  const threshold = Number(state?.notification?.operator_balance_min_strk || 0);
+  let badge = "";
+  let cardClass = "card";
+  if (balNum !== null && threshold > 0) {
+    if (balNum < threshold) {
+      badge = `<span class="chip danger">⚠ Below ${fmtAmount(threshold, "STRK")}</span>`;
+      cardClass += " card-warn";
+    } else {
+      badge = `<span class="chip success">✓ Above ${fmtAmount(threshold, "STRK")}</span>`;
+    }
+  }
+
+  const balLine = balNum !== null
+    ? `${fmtAmount(balNum, "STRK")}${usdBal !== null ? ` · ${fmtUsd(usdBal)}` : ""}`
+    : "Balance unavailable";
+
+  return `
+    <div class="hero op-wallet ${cardClass.includes('warn') ? 'op-wallet-warn' : ''}">
+      <div class="op-wallet-head">
+        <div>
+          <div class="muted small">Operator wallet (gas reserve)</div>
+          <div class="addr-mono">${copyableAddr(op)}</div>
+        </div>
+        ${badge}
+      </div>
+      <div class="hero-value">${escapeHtml(balLine)}</div>
+      <div class="muted small">
+        Validators sign attestations from this wallet. If the STRK balance runs out, attestations get missed silently — set a low-balance alert in Settings to catch it early.
+      </div>
+    </div>
+  `;
+}
+
 function attachRemoveButton(btn, { kind, label, matcher }) {
   if (!btn) return;
   btn.hidden = false;
@@ -913,6 +971,12 @@ async function renderSettings() {
   applyMode(initialMode);
   amountInput.value = initialAmount && initialAmount > 0 ? initialAmount : "";
 
+  // Operator wallet low-balance threshold — independent of the reward
+  // notification mode. 0 means "off".
+  const opBalanceInput = document.getElementById("op-balance-input");
+  const opMin = Number(cfg.operator_balance_min_strk || 0);
+  if (opBalanceInput) opBalanceInput.value = opMin > 0 ? opMin : "";
+
   for (const opt of segment.querySelectorAll(".seg-option")) {
     opt.addEventListener("click", () => applyMode(opt.dataset.mode));
   }
@@ -937,6 +1001,11 @@ async function renderSettings() {
           ? { usd_threshold: v, token_thresholds: {} }
           : { usd_threshold: 0, token_thresholds: { STRK: v } };
       }
+      // Always include the operator-balance threshold in the payload —
+      // it lives in the same notification_config blob and would be
+      // wiped if we omitted it.
+      const opMinNew = Number(opBalanceInput?.value || 0);
+      payload.operator_balance_min_strk = opMinNew > 0 ? opMinNew : 0;
       await api("/api/v1/users/me/notification-config", { method: "PUT", body: payload });
       state.notification = payload;
       statusEl.textContent = "Saved.";

@@ -53,10 +53,15 @@ class NotificationConfigPayload(BaseModel):
 
     Either / both can be zero or empty to disable that mode. The bot's worker
     fires an alert as soon as *any* configured threshold is crossed.
+
+    Also carries the operator-wallet low-balance threshold (STRK). 0 means
+    "alerts disabled" — the attestation watcher checks every cycle and fires
+    one DM the first time the live balance dips below this number.
     """
 
     usd_threshold: float = Field(default=0.0, ge=0)
     token_thresholds: dict[str, float] = Field(default_factory=dict)
+    operator_balance_min_strk: float = Field(default=0.0, ge=0)
 
 
 class LabelUpdate(BaseModel):
@@ -183,6 +188,7 @@ async def get_notification_config(
     return NotificationConfigPayload(
         usd_threshold=cfg.get("usd_threshold", 0.0),
         token_thresholds=cfg.get("token_thresholds", {}),
+        operator_balance_min_strk=cfg.get("operator_balance_min_strk", 0.0),
     )
 
 

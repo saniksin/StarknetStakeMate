@@ -282,6 +282,76 @@ def _amount_with_usd(
     return f"{base} ≈ {_format_usd(usd)}"
 
 
+def _aggregate_stake_by_symbol(
+    info: ValidatorInfo,
+) -> dict[str, Decimal]:
+    """Sum a validator's stake across own STRK plus every active pool.
+
+    Mirrors the Mini App's "Total stake (own + delegations)" hero so the
+    bot card and the web UI describe the same number. Empty pools are
+    skipped (we don't want a "0 SolvBTC" tail on every validator).
+    """
+    totals: dict[str, Decimal] = {}
+    if info.amount_own_strk and info.amount_own_strk > 0:
+        totals["STRK"] = totals.get("STRK", Decimal(0)) + info.amount_own_strk
+    for p in info.pools:
+        if p.amount_decimal <= 0:
+            continue
+        sym = p.token_symbol or "?"
+        totals[sym] = totals.get(sym, Decimal(0)) + p.amount_decimal
+    return totals
+
+
+def _aggregate_delegator_stake_by_symbol(
+    multi: DelegatorMultiPositions,
+) -> dict[str, Decimal]:
+    """Same shape as :func:`_aggregate_stake_by_symbol` but for delegators.
+
+    The delegator's "total stake" is the sum of their positions across
+    every pool of the staker they delegated to (typically just one, but
+    some delegators put STRK into one pool and WBTC into another under
+    the same staker).
+    """
+    totals: dict[str, Decimal] = {}
+    for p in multi.positions:
+        if p.amount_decimal <= 0:
+            continue
+        sym = p.token_symbol or "STRK"
+        totals[sym] = totals.get(sym, Decimal(0)) + p.amount_decimal
+    return totals
+
+
+def _total_stake_line(
+    info_or_multi,
+    prices: dict[str, Decimal] | None,
+) -> str:
+    """Render the cross-token total-stake line: ``≈ $XXX (3.06M STRK · 0.01 WBTC)``.
+
+    Returns an empty string when there's nothing to show (no positions /
+    no positive amounts). USD aggregate is dropped when no prices are
+    available, leaving just the per-token breakdown.
+    """
+    if isinstance(info_or_multi, ValidatorInfo):
+        totals = _aggregate_stake_by_symbol(info_or_multi)
+    else:
+        totals = _aggregate_delegator_stake_by_symbol(info_or_multi)
+    if not totals:
+        return ""
+
+    breakdown = " · ".join(
+        _format_short_amount(amt, sym) for sym, amt in totals.items()
+    )
+
+    if prices:
+        usd_total = sum(
+            (usd_value(amt, sym, prices) for sym, amt in totals.items()),
+            Decimal(0),
+        )
+        if usd_total > 0:
+            return f"≈ {_format_usd(usd_total)} ({breakdown})"
+    return breakdown
+
+
 def render_validator_card(
     entry: "TrackingEntry",
     locale: str,
@@ -319,6 +389,31 @@ def render_validator_card(
             (
                 translate("unstake_requested", locale).rstrip(":"),
                 _fmt_relative(info.unstake_time_utc),
+            )
+        )
+
+    # Cross-token total stake (own + every active pool, USD-aggregated). The
+    # delegator card has the same hero on the Mini App side; bringing it
+    # here means /get_full_info and /get_validator_info match the visual
+    # weight users see in the web UI.
+    total_line = _total_stake_line(info, prices)
+    if total_line:
+        rows.append((translate("total_stake_label", locale).rstrip(":"), total_line))
+
+    # Operator wallet — the address that signs attestation txs. Surfacing
+    # its STRK balance here is the early-warning system for "validator ran
+    # out of gas and started missing attestations". We always show the
+    # short address; balance only when the live read succeeded.
+    if info.operational_address and info.operational_address != "0x0":
+        bal_str = (
+            _amount_with_usd(info.operator_strk_balance, "STRK", prices)
+            if info.operator_strk_balance is not None
+            else "—"
+        )
+        rows.append(
+            (
+                translate("operator_wallet_label", locale).rstrip(":"),
+                f"{_code(_short(info.operational_address))} · {bal_str}",
             )
         )
 
@@ -405,6 +500,12 @@ def render_delegator_card(
     rows.append(
         (translate("pool_commission", locale).rstrip(":"), _fmt_percent_bps(commission_bps))
     )
+
+    # Total stake for the delegator across every pool of the same staker
+    # (STRK + any BTC wrappers). Same hero as the validator card / Mini App.
+    total_line = _total_stake_line(multi, prices)
+    if total_line:
+        rows.append((translate("total_stake_label", locale).rstrip(":"), total_line))
 
     table = _table(rows)
 

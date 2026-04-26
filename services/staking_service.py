@@ -245,8 +245,10 @@ async def get_validator_info(
     staker_address: str,
     *,
     with_attestation: bool = True,
+    with_operator_balance: bool = True,
 ) -> ValidatorInfo | None:
-    """Aggregate the V2 validator view (info + multi-pool + attestation)."""
+    """Aggregate the V2 validator view (info + multi-pool + attestation +
+    operator wallet STRK balance)."""
     staker_raw, pools_raw, epoch = await asyncio.gather(
         fetch_staker_raw(staker_address),
         fetch_staker_pools_raw(staker_address),
@@ -297,17 +299,37 @@ async def get_validator_info(
     amount_own = int(staker_raw.get("amount_own", 0))
     unclaimed_own = int(staker_raw.get("unclaimed_rewards_own", 0))
 
-    attestation = None
-    if with_attestation:
+    operational_hex = _addr_hex(staker_raw.get("operational_address", 0))
+
+    # Attestation health + operator-wallet STRK balance run in parallel —
+    # both are independent reads on independent contracts. Either failing
+    # is non-fatal; we just leave the field empty.
+    from services.token_service import fetch_strk_balance  # local import: avoids cycle
+
+    async def _att() -> "AttestationStatus | None":
+        if not with_attestation:
+            return None
         try:
-            attestation = await fetch_attestation_status(staker_address, current_epoch=epoch)
+            return await fetch_attestation_status(staker_address, current_epoch=epoch)
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"attestation lookup failed for {staker_address}: {exc}")
+            return None
+
+    async def _bal() -> "Decimal | None":
+        if not with_operator_balance or not operational_hex or operational_hex == "0x0":
+            return None
+        try:
+            return await fetch_strk_balance(operational_hex)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"operator balance lookup failed for {operational_hex}: {exc}")
+            return None
+
+    attestation, operator_balance = await asyncio.gather(_att(), _bal())
 
     return ValidatorInfo(
         staker_address=_addr_hex(staker_address),
         reward_address=_addr_hex(staker_raw.get("reward_address", 0)),
-        operational_address=_addr_hex(staker_raw.get("operational_address", 0)),
+        operational_address=operational_hex,
         amount_own_raw=amount_own,
         amount_own_strk=raw_to_decimal(amount_own, 18),
         unclaimed_rewards_own_raw=unclaimed_own,
@@ -318,6 +340,7 @@ async def get_validator_info(
         pools=pools,
         current_epoch=epoch,
         attestation=attestation,
+        operator_strk_balance=operator_balance,
     )
 
 

@@ -77,6 +77,16 @@ class ValidatorInfo(BaseModel):
     current_epoch: int
     attestation: AttestationStatus | None = None
 
+    operator_strk_balance: Decimal | None = Field(
+        default=None,
+        description=(
+            "STRK balance of the operational wallet (the one signing "
+            "attestation txs). Pulled live from the STRK ERC-20; never "
+            "persisted. Used by the low-balance alert and the validator "
+            "card so the user can see the gas reserve at a glance."
+        ),
+    )
+
     @property
     def unstake_eta(self) -> timedelta | None:
         if self.unstake_time_utc is None:

@@ -83,6 +83,32 @@ async def update_attestation_state(user_id: int, state: dict) -> None:
         await session.commit()
 
 
+async def update_operator_balance_state(user_id: int, state: dict) -> None:
+    """Atomically refresh ``notification_config["_operator_balance_state"]``.
+
+    Same pattern as :func:`update_attestation_state` — a targeted UPDATE on
+    the JSON column so we don't ``merge()`` the rest of the row and clobber
+    concurrent edits (language, tracking_data, etc.) made while the
+    ~minute-long alert cycle was holding a stale Users snapshot.
+    """
+    async with AsyncSession(db.engine) as session:
+        result = await session.execute(
+            select(Users).where(Users.user_id == user_id)
+        )
+        user = result.scalar_one_or_none()
+        if user is None:
+            return
+        cfg = user.get_notification_config()
+        cfg["_operator_balance_state"] = {str(k): int(v) for k, v in state.items()}
+        user.set_notification_config(cfg)
+        await session.execute(
+            update(Users)
+            .where(Users.user_id == user_id)
+            .values(notification_config=user.notification_config)
+        )
+        await session.commit()
+
+
 async def clear_request_queue(user_id: int) -> None:
     """Atomically null out ``request_queue`` for a user.
 
