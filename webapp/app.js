@@ -1139,6 +1139,12 @@ async function renderSettings() {
         });
         state.profile = updated;
         await loadLocale(next);
+        // Re-translate the static header (Settings button, topbar title)
+        // immediately. ``renderSettings`` below only re-applies i18n inside
+        // the freshly-cloned template; without this call the header keeps
+        // the previous locale's text until the user closes and reopens
+        // the Mini App.
+        applyI18n(document);
         toast(t("webapp_saved", "Saved."));
         if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
         // Re-enter the settings view so every label refreshes in the new
