@@ -53,8 +53,13 @@
       </div>
       <div class="hero-meta">
         <span class="chip" data-bind="epochChip">epoch —</span>
-        <span class="chip muted" data-bind="epochTailChip"></span>
         <span class="chip" data-bind="countsChip">— validators · — delegations</span>
+      </div>
+      <div class="epoch-progress" data-bind="epochProgress" hidden>
+        <div class="epoch-progress-bar">
+          <div class="epoch-progress-fill" data-bind="epochProgressFill"></div>
+        </div>
+        <div class="epoch-progress-label muted small" data-bind="epochProgressLabel"></div>
       </div>
     </div>
 

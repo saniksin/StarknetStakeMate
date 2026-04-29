@@ -288,7 +288,7 @@
     "webapp_epoch_label": "Епоха",
     "webapp_epoch_chip": "епоха {epoch}",
     "webapp_counts_chip": "{validators} валідаторів · {delegations} делегацій",
-    "webapp_incl_btc_pools": "вкл. BTC пули",
+    "webapp_incl_btc_pools": "вкл. BTC пули",
     "webapp_pools_section_title": "Пули ({n})",
     "webapp_positions_section_title": "Позиції ({n})",
     "webapp_no_tracked_yet": "Поки немає відстежуваних адрес. Відкрий бота і використай «Add Info».",
@@ -331,5 +331,13 @@
     "webapp_delegations_count_one": "{n} делегація",
     "webapp_delegations_count_few": "{n} делегації",
     "webapp_delegations_count_many": "{n} делегацій",
-    "epoch_tail_short": "→ {next_epoch} через {blocks} (~{minutes})"
+    "epoch_tail_short": "→ {next_epoch} через {blocks} (~{minutes})",
+    "att_label_current_block": "Поточний блок",
+    "att_label_target_block": "Цільовий блок",
+    "att_label_sign_window": "Вікно підпису",
+    "att_label_window_left": "До закриття вікна",
+    "att_label_window_closed": "Статус вікна",
+    "att_label_next_epoch": "Наступна епоха",
+    "epoch_tail_chip": "→ {next_epoch} ~{minutes}",
+    "epoch_progress_label": "{percent}% до епохи {next_epoch}"
 }

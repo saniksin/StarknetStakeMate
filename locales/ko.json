@@ -288,7 +288,7 @@
     "webapp_epoch_label": "에포크",
     "webapp_epoch_chip": "에포크 {epoch}",
     "webapp_counts_chip": "밸리데이터 {validators} · 위임 {delegations}",
-    "webapp_incl_btc_pools": "BTC 풀 포함",
+    "webapp_incl_btc_pools": "BTC 풀 포함",
     "webapp_pools_section_title": "풀 ({n})",
     "webapp_positions_section_title": "포지션 ({n})",
     "webapp_no_tracked_yet": "아직 추적 중인 주소가 없습니다. 봇을 열고 «Add Info»를 사용하세요.",
@@ -313,5 +313,13 @@
     "confirm_delete_all_prompt_other": "⚠️ <b>추적 중인 {count}개 주소를 모두 삭제하시겠습니까?</b>\n이 작업은 되돌릴 수 없습니다.",
     "webapp_validators_count_other": "밸리데이터 {n}",
     "webapp_delegations_count_other": "위임 {n}",
-    "epoch_tail_short": "→ {next_epoch}: {blocks} (~{minutes})"
+    "epoch_tail_short": "→ {next_epoch}: {blocks} (~{minutes})",
+    "att_label_current_block": "현재 블록",
+    "att_label_target_block": "지정 블록",
+    "att_label_sign_window": "서명 창",
+    "att_label_window_left": "창 마감까지",
+    "att_label_window_closed": "창 상태",
+    "att_label_next_epoch": "다음 에포크",
+    "epoch_tail_chip": "→ {next_epoch} ~{minutes}",
+    "epoch_progress_label": "{next_epoch}까지 {percent}%"
 }

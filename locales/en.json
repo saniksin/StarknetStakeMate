@@ -288,7 +288,7 @@
     "webapp_epoch_label": "Epoch",
     "webapp_epoch_chip": "epoch {epoch}",
     "webapp_counts_chip": "{validators} validators · {delegations} delegations",
-    "webapp_incl_btc_pools": "incl. BTC pools",
+    "webapp_incl_btc_pools": "incl. BTC pools",
     "webapp_pools_section_title": "Pools ({n})",
     "webapp_positions_section_title": "Positions ({n})",
     "webapp_no_tracked_yet": "No tracked addresses yet. Open the bot and use “Add Info”.",
@@ -322,5 +322,13 @@
     "webapp_validators_count_other": "{n} validators",
     "webapp_delegations_count_one": "{n} delegation",
     "webapp_delegations_count_other": "{n} delegations",
-    "epoch_tail_short": "→ {next_epoch} in {blocks} (~{minutes})"
+    "epoch_tail_short": "→ {next_epoch} in {blocks} (~{minutes})",
+    "att_label_current_block": "Current block",
+    "att_label_target_block": "Assigned block",
+    "att_label_sign_window": "Sign window",
+    "att_label_window_left": "Until window close",
+    "att_label_window_closed": "Window status",
+    "att_label_next_epoch": "Next epoch",
+    "epoch_tail_chip": "→ {next_epoch} ~{minutes}",
+    "epoch_progress_label": "{percent}% to {next_epoch}"
 }

@@ -288,7 +288,7 @@
     "webapp_epoch_label": "Эпоха",
     "webapp_epoch_chip": "эпоха {epoch}",
     "webapp_counts_chip": "{validators} валидаторов · {delegations} делегаций",
-    "webapp_incl_btc_pools": "вкл. BTC пулы",
+    "webapp_incl_btc_pools": "вкл. BTC пулы",
     "webapp_pools_section_title": "Пулы ({n})",
     "webapp_positions_section_title": "Позиции ({n})",
     "webapp_no_tracked_yet": "Пока нет отслеживаемых адресов. Открой бота и используй «Add Info».",
@@ -331,5 +331,13 @@
     "webapp_delegations_count_one": "{n} делегация",
     "webapp_delegations_count_few": "{n} делегации",
     "webapp_delegations_count_many": "{n} делегаций",
-    "epoch_tail_short": "→ {next_epoch} через {blocks} (~{minutes})"
+    "epoch_tail_short": "→ {next_epoch} через {blocks} (~{minutes})",
+    "att_label_current_block": "Текущий блок",
+    "att_label_target_block": "Целевой блок",
+    "att_label_sign_window": "Окно подписи",
+    "att_label_window_left": "До закрытия окна",
+    "att_label_window_closed": "Статус окна",
+    "att_label_next_epoch": "Следующая эпоха",
+    "epoch_tail_chip": "→ {next_epoch} ~{minutes}",
+    "epoch_progress_label": "{percent}% до эпохи {next_epoch}"
 }

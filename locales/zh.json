@@ -288,7 +288,7 @@
     "webapp_epoch_label": "时段",
     "webapp_epoch_chip": "时段 {epoch}",
     "webapp_counts_chip": "{validators} 个验证者 · {delegations} 个委托",
-    "webapp_incl_btc_pools": "含 BTC 池",
+    "webapp_incl_btc_pools": "含 BTC 池",
     "webapp_pools_section_title": "池 ({n})",
     "webapp_positions_section_title": "仓位 ({n})",
     "webapp_no_tracked_yet": "暂无跟踪的地址。打开机器人并使用「Add Info」。",
@@ -313,5 +313,13 @@
     "confirm_delete_all_prompt_other": "⚠️ <b>删除全部 {count} 个追踪地址？</b>\n此操作无法撤销。",
     "webapp_validators_count_other": "{n} 个验证者",
     "webapp_delegations_count_other": "{n} 个委托",
-    "epoch_tail_short": "→ {next_epoch}: {blocks} (~{minutes})"
+    "epoch_tail_short": "→ {next_epoch}: {blocks} (~{minutes})",
+    "att_label_current_block": "当前区块",
+    "att_label_target_block": "指定区块",
+    "att_label_sign_window": "签名窗口",
+    "att_label_window_left": "距窗口关闭",
+    "att_label_window_closed": "窗口状态",
+    "att_label_next_epoch": "下一纪元",
+    "epoch_tail_chip": "→ {next_epoch} ~{minutes}",
+    "epoch_progress_label": "至纪元 {next_epoch} {percent}%"
 }

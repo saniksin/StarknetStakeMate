@@ -502,17 +502,28 @@ async function renderDashboard() {
     `${status.network} · ${t("webapp_epoch_chip", `epoch ${status.current_epoch}`, { epoch: status.current_epoch })}`,
   );
 
-  // Epoch-tail chip — short-form "→ next_epoch in N blocks (~M min)"
-  // sits next to the epoch chip in the hero so the user knows when
-  // the next boundary ticks without drilling into a validator.
-  const tailChip = $.epochTailChip;
-  if (tailChip) {
-    const tailText = renderEpochTailShort(status.epoch_timeline);
-    if (tailText) {
-      tailChip.textContent = tailText;
-      tailChip.style.display = "";
+  // Epoch progress bar — slim, full-width strip under the chip row.
+  // Replaces the old ``epochTailChip`` which packed "→ 9596 через 954
+  // блока (~41 мин)" into a single chip and overflowed on narrow
+  // phones. The bar shows where the chain stands inside the current
+  // epoch (left → start, right → next-epoch boundary) plus a short
+  // "31% to 9596" label that doesn't depend on plural noun forms.
+  const progress = $.epochProgress;
+  if (progress) {
+    const tl = status.epoch_timeline;
+    const pct = epochProgressPercent(tl);
+    if (pct != null && tl) {
+      progress.hidden = false;
+      const minutes = Math.max(0, Math.floor((tl.seconds_left_in_epoch || 0) / 60));
+      const minutesStr = tN("att_minutes", minutes, currentLang());
+      $.epochProgressFill.style.width = `${pct}%`;
+      $.epochProgressLabel.textContent = t(
+        "epoch_progress_label",
+        `${pct}% to ${tl.next_epoch}`,
+        { percent: pct, next_epoch: tl.next_epoch, minutes: minutesStr },
+      ) + ` · ~${minutesStr}`;
     } else {
-      tailChip.style.display = "none";
+      progress.hidden = true;
     }
   }
 
@@ -554,9 +565,17 @@ async function renderDashboard() {
   $.totalStakePrimary.textContent = stakedStrk > 0 || !hasBtcPools
     ? fmtAmount(stakedStrk, "STRK")
     : "—";
-  $.totalStakeSecondary.textContent = stakedUsd !== null
-    ? `≈ ${fmtUsd(stakedUsd)}${hasBtcPools ? " · " + t("webapp_incl_btc_pools", "incl. BTC pools") : ""}`
-    : "";
+  // ``innerHTML`` (not textContent) so we can wrap the "incl. BTC pools"
+  // suffix in a ``.nowrap`` span. Without it the phrase used to wrap
+  // mid-word ("вкл./BTC/пулы" on three lines) at narrow widths.
+  if (stakedUsd !== null) {
+    const inclTag = hasBtcPools
+      ? ` · <span class="nowrap">${escapeHtml(t("webapp_incl_btc_pools", "incl. BTC pools"))}</span>`
+      : "";
+    $.totalStakeSecondary.innerHTML = `≈ ${escapeHtml(fmtUsd(stakedUsd))}${inclTag}`;
+  } else {
+    $.totalStakeSecondary.textContent = "";
+  }
 
   const unclaimedStrk = unclaimedTotal["STRK"] || 0;
   $.totalUnclaimedPrimary.textContent = fmtAmount(unclaimedStrk, "STRK");
@@ -998,6 +1017,129 @@ function fmtBlock(n) {
   return String(Math.trunc(n)).replace(/\B(?=(\d{3})+(?!\d))/g, "_");
 }
 
+// Hero-chip short form. Lives next to the epoch chip on the dashboard.
+// Even tighter than ``renderEpochTailShort`` — ``→ 9596 ~41 мин`` — to
+// fit on narrow phones without wrapping.
+function renderEpochTailChip(timeline) {
+  if (!timeline || timeline.blocks_left_in_epoch == null
+      || timeline.blocks_left_in_epoch < 0) {
+    return "";
+  }
+  const lang = currentLang();
+  const minutes = Math.max(0, Math.floor((timeline.seconds_left_in_epoch || 0) / 60));
+  const minutesStr = tN("att_minutes", minutes, lang);
+  return t(
+    "epoch_tail_chip",
+    `→ ${timeline.next_epoch} ~${minutesStr}`,
+    {
+      next_epoch: timeline.next_epoch,
+      minutes: minutesStr,
+    }
+  );
+}
+
+function epochProgressPercent(timeline) {
+  // Position inside the current epoch as a 0-100 integer. Used by the
+  // hero progress bar so the user can see how much of the epoch is
+  // already gone without doing the math themselves.
+  if (!timeline || !timeline.epoch_length_blocks
+      || timeline.blocks_left_in_epoch == null) {
+    return null;
+  }
+  const total = timeline.epoch_length_blocks;
+  const left = Math.max(0, timeline.blocks_left_in_epoch);
+  const pct = Math.min(100, Math.max(0, Math.round(((total - left) / total) * 100)));
+  return pct;
+}
+
+// Grid-layout body for the waiting-state banner. The detail-view used
+// to flatten ``current/target/window/left/next`` into one ``·``-joined
+// line which forced the user to parse 6 numbers visually with no
+// landmarks. This breaks them into label/value rows so each piece has
+// its own column-aligned slot — readable like a key/value table.
+function renderAttestationDetails(att, timeline) {
+  const lang = currentLang();
+  const rows = [];
+
+  if (att.current_block != null) {
+    rows.push([
+      t("att_label_current_block", "Current block"),
+      `<code>${fmtBlock(att.current_block)}</code>`,
+    ]);
+  }
+  if (att.target_block != null) {
+    rows.push([
+      t("att_label_target_block", "Assigned block"),
+      `<code>${fmtBlock(att.target_block)}</code>`,
+    ]);
+  }
+  if (att.target_block != null && att.attestation_window_blocks != null) {
+    const winClose = att.target_block + att.attestation_window_blocks;
+    rows.push([
+      t("att_label_sign_window", "Sign window"),
+      `<code>${fmtBlock(att.target_block)} → ${fmtBlock(winClose)}</code>`,
+    ]);
+    if (att.current_block != null) {
+      const blocksLeft = winClose - att.current_block;
+      if (blocksLeft < 0) {
+        rows.push([
+          t("att_label_window_closed", "Window status"),
+          escapeHtml(t("att_window_closed", "Window closed in this epoch")),
+        ]);
+      } else {
+        // Approx Starknet block time (~2.6s real, target 2-3s). The ~
+        // already telegraphs imprecision — no need to caveat further.
+        const APPROX_BLOCK_SEC = 2.6;
+        const seconds = Math.max(0, Math.floor(blocksLeft * APPROX_BLOCK_SEC));
+        const blocksStr = tN("att_blocks", blocksLeft, lang);
+        const timeStr = seconds < 60
+          ? tN("att_seconds", seconds, lang)
+          : tN("att_minutes", Math.floor(seconds / 60), lang);
+        rows.push([
+          t("att_label_window_left", "Until window close"),
+          `${escapeHtml(blocksStr)} <span class="muted">(~${escapeHtml(timeStr)})</span>`,
+        ]);
+      }
+    }
+  }
+  if (timeline && timeline.next_epoch != null
+      && timeline.blocks_left_in_epoch != null
+      && timeline.blocks_left_in_epoch >= 0) {
+    const minutes = Math.max(0, Math.floor((timeline.seconds_left_in_epoch || 0) / 60));
+    const blocksStr = tN("att_blocks", timeline.blocks_left_in_epoch, lang);
+    const minutesStr = tN("att_minutes", minutes, lang);
+    rows.push([
+      `${t("att_label_next_epoch", "Next epoch")} ${timeline.next_epoch}`,
+      `${escapeHtml(blocksStr)} <span class="muted">(~${escapeHtml(minutesStr)})</span>`,
+    ]);
+  }
+
+  if (rows.length === 0) return "";
+  const body = rows
+    .map(([label, value]) => `
+      <div class="att-grid-row">
+        <span class="att-grid-label">${escapeHtml(label)}</span>
+        <span class="att-grid-value">${value}</span>
+      </div>
+    `)
+    .join("");
+  return `<div class="att-details-grid">${body}</div>`;
+}
+
+function bannerWithGrid(kind, title, gridHtml) {
+  // Variant of ``bannerWithTail`` for the waiting-state banner that
+  // already folds the epoch tail into the grid (last row). No standalone
+  // tail div — keeps the banner compact and doesn't repeat data.
+  return `
+    <div class="banner ${kind}">
+      <div class="banner-body">
+        <div class="banner-title">${title}</div>
+        ${gridHtml}
+      </div>
+    </div>
+  `;
+}
+
 function bannerWithTail(kind, title, sub, tail) {
   const tailHtml = tail
     ? `<div class="banner-sub muted small">${escapeHtml(tail)}</div>`
@@ -1058,39 +1200,26 @@ function renderValidatorStatusBanner(data) {
     );
   }
   if (att) {
-    // Waiting state — try the rich block-level subtitle if the contract
-    // gave us target / window / current_block; otherwise fall back to
-    // the legacy single-line waiting message.
-    let sub;
+    // Waiting state — when we have block-level data, switch to the
+    // grid layout (label/value rows) so the user can scan the six
+    // numbers (current/assigned/window/left/next epoch) by column
+    // instead of parsing them out of a ``·``-joined string.
     if (att.target_block != null && att.attestation_window_blocks != null
         && att.current_block != null) {
-      const winClose = att.target_block + att.attestation_window_blocks;
-      const blocksLeft = winClose - att.current_block;
-      const blocksLeftStr = tN("att_blocks", Math.max(0, blocksLeft), lang);
-      const APPROX_BLOCK_SEC = 2.6;
-      const secondsLeft = Math.max(0, Math.floor(blocksLeft * APPROX_BLOCK_SEC));
-      const secondsStr = secondsLeft < 60
-        ? tN("att_seconds", secondsLeft, lang)
-        : tN("att_minutes", Math.floor(secondsLeft / 60), lang);
-      sub = t(
-        "webapp_status_waiting_sub_blocks",
-        `Block ${fmtBlock(att.current_block)} · assigned ${fmtBlock(att.target_block)} · window ${fmtBlock(att.target_block)}→${fmtBlock(winClose)} · ${blocksLeftStr} left (~${secondsStr})`,
-        {
-          current_block: fmtBlock(att.current_block),
-          target_block: fmtBlock(att.target_block),
-          window_open: fmtBlock(att.target_block),
-          window_close: fmtBlock(winClose),
-          blocks_left: blocksLeftStr,
-          seconds_left: secondsStr,
-        }
-      );
-    } else {
-      sub = t(
-        "webapp_status_waiting_sub",
-        `Validators must attest once per epoch. Epoch ${att.current_epoch} is still in progress — this is normal as long as it finishes before the epoch ends.`,
-        { epoch: att.current_epoch }
+      const grid = renderAttestationDetails(att, timeline);
+      return bannerWithGrid(
+        "muted",
+        t("webapp_status_waiting_t", "⏳ Waiting for this epoch's attestation"),
+        grid,
       );
     }
+    // No block-level extras — degrade to the legacy single-line sub
+    // and append the epoch tail underneath via ``bannerWithTail``.
+    const sub = t(
+      "webapp_status_waiting_sub",
+      `Validators must attest once per epoch. Epoch ${att.current_epoch} is still in progress — this is normal as long as it finishes before the epoch ends.`,
+      { epoch: att.current_epoch }
+    );
     return bannerWithTail(
       "muted",
       t("webapp_status_waiting_t", "⏳ Waiting for this epoch's attestation"),

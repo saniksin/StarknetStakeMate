@@ -201,6 +201,48 @@ main {
   align-items: center;
 }
 
+/* ---------- Epoch progress bar (hero) ----------
+   Slim full-width strip under the chip row showing how far the chain
+   has progressed inside the current epoch. Replaces a third chip that
+   used to pack "→ 9596 через 954 блока (~41 мин)" — too long for the
+   compact chip slot. The bar is decorative without text inside; the
+   short label below ("31% to 9596 · ~41 мин") carries the meaning. */
+.epoch-progress {
+  margin-top: var(--s3);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.epoch-progress-bar {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--separator);
+  overflow: hidden;
+}
+.epoch-progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--link);
+  border-radius: 2px;
+  transition: width 240ms ease-out;
+}
+.epoch-progress-label {
+  font-variant-numeric: tabular-nums;
+  /* Match the font-size of other ``.muted .small`` lines exactly so
+     it sits at the same visual rhythm as the hero secondary lines. */
+  font-size: 12px;
+}
+
+/* ---------- Hero secondary line ("incl. BTC pools" wrap fix) ----------
+   The text "вкл. BTC пулы" / "incl. BTC pools" was wrapping in 3 separate
+   words on narrow screens because each space was a regular break point.
+   ``hero-secondary-tag`` keeps that phrase as a single inline unit so
+   it either fits on one line or wraps as a unit, never mid-phrase. */
+.hero-sub .nowrap {
+  white-space: nowrap;
+}
+
 /* ---------- Chips & section labels ---------- */
 
 .chip {
@@ -386,19 +428,22 @@ main {
   gap: var(--s3);
 }
 .op-wallet-warn {
+  /* Softened the border alpha (35% → 28%) after field testing — the
+     full-saturation orange border read as more urgent than warranted
+     for a "balance below threshold" state that's typically still many
+     epochs away from running dry. */
   background: color-mix(in srgb, var(--orange) 8%, var(--card-bg));
-  border: 1px solid color-mix(in srgb, var(--orange) 35%, transparent);
+  border: 1px solid color-mix(in srgb, var(--orange) 28%, transparent);
 }
 .op-wallet-ok {
   /* Subtle green tint when the live balance is comfortably above the
-     user's configured threshold. We deliberately use a softer mix than
-     ``op-wallet-warn`` (5% vs 8% alpha) — a healthy state shouldn't
-     compete with the warning color for attention, just reassure. */
+     user's configured threshold. Softer than ``op-wallet-warn`` —
+     healthy state should reassure, not compete for attention. */
   background: color-mix(in srgb, var(--green) 5%, var(--card-bg));
-  border: 1px solid color-mix(in srgb, var(--green) 25%, transparent);
+  border: 1px solid color-mix(in srgb, var(--green) 20%, transparent);
 }
 
-.banner-body { display: flex; flex-direction: column; gap: 2px; }
+.banner-body { display: flex; flex-direction: column; gap: 6px; }
 .banner-title { font-weight: 600; font-size: 14px; line-height: 1.3; }
 .banner-sub {
   font-size: 12.5px;
@@ -409,6 +454,56 @@ main {
      comfortably even on the colored banner backgrounds. */
   color: var(--fg);
 }
+
+/* ---------- Attestation details grid (waiting state) ----------
+   Replaces the legacy "·"-joined single line with a label/value
+   layout. Two columns: label (muted, left-aligned) → value
+   (regular weight, right-aligned, monospaced numerics where useful).
+   Each row is its own ``att-grid-row`` so the labels stack cleanly
+   when the value column wraps on narrow phones (CJK / pl with longer
+   nouns) instead of breaking the column alignment globally. */
+.att-details-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.att-grid-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--s3);
+  /* Subtle separator between rows in dark mode so the eye lands on
+     each pair distinctly. Done via inset shadow rather than border to
+     avoid an extra pixel of padding messing with the gap math. */
+  padding-bottom: 2px;
+}
+.att-grid-row + .att-grid-row {
+  border-top: 0.5px solid color-mix(in srgb, var(--separator) 60%, transparent);
+  padding-top: 4px;
+}
+.att-grid-label {
+  color: var(--hint);
+  flex: 0 0 auto;
+}
+.att-grid-value {
+  color: var(--fg);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  /* Wrap long compound values (window: ``9_290_623 → 9_290_683``)
+     onto a second line on narrow screens instead of overflowing. */
+  min-width: 0;
+  word-break: break-word;
+}
+.att-grid-value code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: inherit;
+  background: transparent;
+  padding: 0;
+}
+.att-grid-value .muted { color: var(--hint); }
 
 .grid-2 {
   display: grid;
