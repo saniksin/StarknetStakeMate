@@ -193,7 +193,12 @@ main {
 .hero-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--s2);
+  /* Use ``row-gap`` slightly larger than ``column-gap`` so wrapped chips
+     on narrow screens don't crowd vertically. Without this the second
+     row of chips visually merges with the row above. */
+  gap: var(--s2) var(--s2);
+  row-gap: 6px;
+  align-items: center;
 }
 
 /* ---------- Chips & section labels ---------- */
@@ -213,6 +218,10 @@ main {
 .chip.success { background: color-mix(in srgb, var(--green) 18%, transparent); color: var(--green); }
 .chip.warn    { background: color-mix(in srgb, var(--orange) 18%, transparent); color: var(--orange); }
 .chip.danger  { background: color-mix(in srgb, var(--red) 18%, transparent); color: var(--red); }
+/* ``muted`` is the dimmed variant used for non-actionable info chips
+   (epoch tail next to the epoch number). Lighter tint than the regular
+   chip so two adjacent chips read as primary/secondary, not equal. */
+.chip.muted   { background: transparent; color: var(--hint); padding: 4px 6px; }
 
 .section-title {
   margin: var(--s5) 0 var(--s2);
@@ -256,7 +265,13 @@ main {
   height: 0.5px;
   background: var(--separator);
 }
+.card-list .row-card { transition: background 100ms ease-out; }
 .card-list .row-card:active { background: color-mix(in srgb, var(--secondary-bg) 60%, transparent); }
+@media (hover: hover) {
+  /* Desktop browsers (admin / dev). On touch ``hover`` matches and
+     leaves a sticky highlight, so we gate this behind a media query. */
+  .card-list .row-card:hover { background: color-mix(in srgb, var(--secondary-bg) 30%, transparent); }
+}
 
 .row-card .icon {
   width: 36px;
@@ -373,6 +388,14 @@ main {
 .op-wallet-warn {
   background: color-mix(in srgb, var(--orange) 8%, var(--card-bg));
   border: 1px solid color-mix(in srgb, var(--orange) 35%, transparent);
+}
+.op-wallet-ok {
+  /* Subtle green tint when the live balance is comfortably above the
+     user's configured threshold. We deliberately use a softer mix than
+     ``op-wallet-warn`` (5% vs 8% alpha) — a healthy state shouldn't
+     compete with the warning color for attention, just reassure. */
+  background: color-mix(in srgb, var(--green) 5%, var(--card-bg));
+  border: 1px solid color-mix(in srgb, var(--green) 25%, transparent);
 }
 
 .banner-body { display: flex; flex-direction: column; gap: 2px; }

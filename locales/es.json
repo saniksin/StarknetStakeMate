@@ -154,8 +154,8 @@
     "commission": "Comisión",
     "total_stake_label": "Stake total",
     "operator_wallet_label": "Wallet del operador",
-    "operator_low_balance_alert": "⚠️ <b>{label}</b>: la cartera operadora tiene solo <b>{balance:.2f} STRK</b> (umbral: {threshold:.2f}). Época <b>{epoch}</b> recién comenzó — recárgala antes de que termine, o el validador empezará a fallar atestaciones en silencio.",
-    "operator_balance_recovered": "✅ <b>{label}</b>: cartera operadora recargada — <b>{balance:.2f} STRK</b> (umbral: {threshold:.2f}). Época {epoch}.",
+    "operator_low_balance_alert": "⚠️ <b>{label}</b>: el saldo del operador <b>{balance:.2f} STRK</b> está por debajo del umbral de {threshold:.2f} (época {epoch}). Cuando el saldo se agote, el validador empezará a omitir atestaciones.",
+    "operator_balance_recovered": "✅ <b>{label}</b>: el saldo del operador <b>{balance:.2f} STRK</b> vuelve a estar por encima del umbral de {threshold:.2f} (época {epoch}).",
     "set_operator_balance_threshold": "🔋 Alerta de saldo de wallet del operador",
     "enter_operator_balance_threshold": "Introduce el saldo STRK mínimo de la wallet del operador de cualquier validador rastreado <i>con alertas de atestación activadas</i>. Recibirás un DM cuando baje. Envía <b>0</b> para desactivar.",
     "operator_balance_threshold_set": "✅ Alerta del operador configurada: <b>{amount} STRK</b>. Recibirás un DM en cuanto baje de este nivel.",
@@ -317,5 +317,10 @@
     "webapp_status_missed_t_one": "⚠ El validador omitió {n} atestación",
     "webapp_status_missed_t_other": "⚠ El validador omitió {n} atestaciones",
     "confirm_delete_all_prompt_one": "⚠️ <b>¿Eliminar la {count} dirección rastreada?</b>\nEsta acción no se puede deshacer.",
-    "confirm_delete_all_prompt_other": "⚠️ <b>¿Eliminar TODAS las {count} direcciones rastreadas?</b>\nEsta acción no se puede deshacer."
+    "confirm_delete_all_prompt_other": "⚠️ <b>¿Eliminar TODAS las {count} direcciones rastreadas?</b>\nEsta acción no se puede deshacer.",
+    "webapp_validators_count_one": "{n} validador",
+    "webapp_validators_count_other": "{n} validadores",
+    "webapp_delegations_count_one": "{n} delegación",
+    "webapp_delegations_count_other": "{n} delegaciones",
+    "epoch_tail_short": "→ {next_epoch} en {blocks} (~{minutes})"
 }

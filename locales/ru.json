@@ -154,8 +154,8 @@
     "commission": "Комиссия",
     "total_stake_label": "Общий стейк",
     "operator_wallet_label": "Кошелёк оператора",
-    "operator_low_balance_alert": "⚠️ <b>{label}</b>: на кошельке оператора осталось <b>{balance:.2f} STRK</b> (порог: {threshold:.2f}). Эпоха <b>{epoch}</b> только началась — пополни до её окончания, иначе валидатор начнёт молча пропускать аттестации.",
-    "operator_balance_recovered": "✅ <b>{label}</b>: кошелёк оператора пополнен — <b>{balance:.2f} STRK</b> (порог: {threshold:.2f}). Эпоха {epoch}.",
+    "operator_low_balance_alert": "⚠️ <b>{label}</b>: баланс оператора <b>{balance:.2f} STRK</b> ниже порога {threshold:.2f} (эпоха {epoch}). Когда баланс закончится, валидатор начнёт пропускать аттестации.",
+    "operator_balance_recovered": "✅ <b>{label}</b>: баланс оператора <b>{balance:.2f} STRK</b> снова выше порога {threshold:.2f} (эпоха {epoch}).",
     "set_operator_balance_threshold": "🔋 Алерт по балансу оператора",
     "enter_operator_balance_threshold": "Введи минимальный STRK-баланс кошелька оператора любого отслеживаемого валидатора <i>с включёнными attestation alerts</i>. Я пришлю DM, когда баланс упадёт ниже. Отправь <b>0</b>, чтобы отключить.",
     "operator_balance_threshold_set": "✅ Алерт оператора установлен: <b>{amount} STRK</b>. Получишь DM как только баланс упадёт ниже.",
@@ -324,5 +324,12 @@
     "webapp_status_missed_t_many": "⚠ Валидатор пропустил {n} аттестаций",
     "confirm_delete_all_prompt_one": "⚠️ <b>Удалить {count} отслеживаемый адрес?</b>\nЭто действие нельзя отменить.",
     "confirm_delete_all_prompt_few": "⚠️ <b>Удалить ВСЕ {count} отслеживаемых адреса?</b>\nЭто действие нельзя отменить.",
-    "confirm_delete_all_prompt_many": "⚠️ <b>Удалить ВСЕ {count} отслеживаемых адресов?</b>\nЭто действие нельзя отменить."
+    "confirm_delete_all_prompt_many": "⚠️ <b>Удалить ВСЕ {count} отслеживаемых адресов?</b>\nЭто действие нельзя отменить.",
+    "webapp_validators_count_one": "{n} валидатор",
+    "webapp_validators_count_few": "{n} валидатора",
+    "webapp_validators_count_many": "{n} валидаторов",
+    "webapp_delegations_count_one": "{n} делегация",
+    "webapp_delegations_count_few": "{n} делегации",
+    "webapp_delegations_count_many": "{n} делегаций",
+    "epoch_tail_short": "→ {next_epoch} через {blocks} (~{minutes})"
 }

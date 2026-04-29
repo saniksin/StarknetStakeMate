@@ -154,8 +154,8 @@
     "commission": "수수료",
     "total_stake_label": "총 스테이크",
     "operator_wallet_label": "오퍼레이터 지갑",
-    "operator_low_balance_alert": "⚠️ <b>{label}</b>: 운영 지갑에 <b>{balance:.2f} STRK</b>만 남음 (임계값: {threshold:.2f}). 에포크 <b>{epoch}</b> 시작됨 — 끝나기 전에 충전하세요. 그러지 않으면 어테스테이션이 조용히 실패합니다.",
-    "operator_balance_recovered": "✅ <b>{label}</b>: 운영 지갑 충전 완료 — <b>{balance:.2f} STRK</b> (임계값: {threshold:.2f}). 에포크 {epoch}.",
+    "operator_low_balance_alert": "⚠️ <b>{label}</b>: 운영 지갑 잔고 <b>{balance:.2f} STRK</b>가 임계값 {threshold:.2f} 미만입니다 (에포크 {epoch}). 잔고가 소진되면 어테스테이션이 누락되기 시작합니다.",
+    "operator_balance_recovered": "✅ <b>{label}</b>: 운영 지갑 잔고 <b>{balance:.2f} STRK</b>가 다시 임계값 {threshold:.2f} 이상입니다 (에포크 {epoch}).",
     "set_operator_balance_threshold": "🔋 오퍼레이터 지갑 잔액 알림",
     "enter_operator_balance_threshold": "<i>attestation 알림이 활성화된</i> 트래킹 중인 어느 밸리데이터든 오퍼레이터 지갑의 최소 STRK 잔액을 입력하세요. 미만으로 떨어지면 DM을 받게 됩니다. 비활성화하려면 <b>0</b>을 보내세요.",
     "operator_balance_threshold_set": "✅ 오퍼레이터 알림 설정 완료: <b>{amount} STRK</b>. 잔액이 이 값 아래로 떨어지면 즉시 DM을 받게 됩니다.",
@@ -310,5 +310,8 @@
     "attestation_missed_other": "마지막 어테스테이션 이후 {count}개 에포크 누락",
     "attestation_alert_missed_other": "⚠️ <b>{label}</b>\n에포크 누락 — 총 누락: <b>{count}</b>개 에포크 (현재 에포크: {epoch}).",
     "webapp_status_missed_t_other": "⚠ 밸리데이터가 어테스테이션 {n}회 누락",
-    "confirm_delete_all_prompt_other": "⚠️ <b>추적 중인 {count}개 주소를 모두 삭제하시겠습니까?</b>\n이 작업은 되돌릴 수 없습니다."
+    "confirm_delete_all_prompt_other": "⚠️ <b>추적 중인 {count}개 주소를 모두 삭제하시겠습니까?</b>\n이 작업은 되돌릴 수 없습니다.",
+    "webapp_validators_count_other": "밸리데이터 {n}",
+    "webapp_delegations_count_other": "위임 {n}",
+    "epoch_tail_short": "→ {next_epoch}: {blocks} (~{minutes})"
 }

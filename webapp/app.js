@@ -244,6 +244,19 @@ async function loadPrices() {
   }
 }
 
+async function loadNotificationConfig() {
+  // Pulled from the validator detail view as well as Settings so the
+  // operator-wallet badge has the threshold ready on first render. We
+  // swallow errors and return ``{}`` so a transient API blip degrades
+  // to "no badge" instead of breaking the whole page.
+  try {
+    return await api("/api/v1/users/me/notification-config");
+  } catch (err) {
+    console.warn("notification-config fetch failed", err);
+    return {};
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Toast
 // ---------------------------------------------------------------------------
@@ -489,13 +502,35 @@ async function renderDashboard() {
     `${status.network} · ${t("webapp_epoch_chip", `epoch ${status.current_epoch}`, { epoch: status.current_epoch })}`,
   );
 
+  // Epoch-tail chip — short-form "→ next_epoch in N blocks (~M min)"
+  // sits next to the epoch chip in the hero so the user knows when
+  // the next boundary ticks without drilling into a validator.
+  const tailChip = $.epochTailChip;
+  if (tailChip) {
+    const tailText = renderEpochTailShort(status.epoch_timeline);
+    if (tailText) {
+      tailChip.textContent = tailText;
+      tailChip.style.display = "";
+    } else {
+      tailChip.style.display = "none";
+    }
+  }
+
   const validators = entries.filter((e) => e.kind === "validator");
   const delegations = entries.filter((e) => e.kind === "delegator");
-  $.countsChip.textContent = t(
-    "webapp_counts_chip",
-    `${validators.length} validators · ${delegations.length} delegations`,
-    { validators: validators.length, delegations: delegations.length },
+  // Plural-aware count chip — split into per-noun keys so ru/ua/pl get
+  // the right case ("3 валидатора" not "3 валидаторов"). The "·"
+  // separator stays in JS so the locale templates only carry the
+  // pluralized noun.
+  const validatorsTxt = tN(
+    "webapp_validators_count", validators.length, currentLang(),
+    `${validators.length} validators`,
   );
+  const delegationsTxt = tN(
+    "webapp_delegations_count", delegations.length, currentLang(),
+    `${delegations.length} delegations`,
+  );
+  $.countsChip.textContent = `${validatorsTxt} · ${delegationsTxt}`;
 
   // Aggregate stake & unclaimed across the portfolio.
   const stakedTotal = {};
@@ -604,6 +639,12 @@ async function renderValidator(address) {
 
   if (!state.entries) state.entries = await api("/api/v1/users/me/entries");
   if (state.prices === null) state.prices = await loadPrices();
+  // ``state.notification`` was only loaded inside renderSettings(), so
+  // the operator-wallet badge race-condition'd: first render saw
+  // threshold=0 → no badge → after the user opened Settings and came
+  // back, it suddenly appeared. Pre-load lazily here so the very first
+  // render already has the threshold.
+  if (state.notification === null) state.notification = await loadNotificationConfig();
 
   const lower = String(address).toLowerCase();
   const entry = state.entries.find(
@@ -709,6 +750,9 @@ async function renderDelegator(delegatorAddr, stakerAddr) {
 
   if (!state.entries) state.entries = await api("/api/v1/users/me/entries");
   if (state.prices === null) state.prices = await loadPrices();
+  // Same race fix as in renderValidator — preload the threshold so the
+  // delegator-side staker banner picks it up on first render.
+  if (state.notification === null) state.notification = await loadNotificationConfig();
 
   const dLower = String(delegatorAddr).toLowerCase();
   const sLower = String(stakerAddr || "").toLowerCase();
@@ -867,6 +911,14 @@ function pluralCategory(n, locale) {
   }
 }
 
+function currentLang() {
+  // The active locale is the one stored on the user profile (set via
+  // /api/v1/users/me/profile and rotated by the language picker). The
+  // legacy ``state.lang`` field never existed; reading it returned
+  // ``undefined`` which cascaded into the English fallback.
+  return (state && state.profile && state.profile.language) || "en";
+}
+
 function tN(keyBase, count, locale, fallback, extraVars) {
   // Same lookup contract as services/i18n_plural.py::t_n: try
   // {key}_{category} → {key}_other → {key} → fallback. We rely on
@@ -894,13 +946,44 @@ function renderEpochTail(timeline) {
       || timeline.blocks_left_in_epoch < 0) {
     return "";
   }
-  const lang = (state && state.lang) || "en";
+  // ``state.lang`` was a typo — the active language lives in
+  // ``state.profile.language`` (see loadProfileAndLocale). Reading the
+  // wrong field made every locale silently fall through to ``"en"``,
+  // which then asked for ``att_blocks_other`` — but ru/ua/pl don't
+  // ship that suffix (they have ``_one/_few/_many``), so tN landed in
+  // the final ``String(count)`` branch and the Mini App printed
+  // ``"875 (~37)"`` without any noun.
+  const lang = currentLang();
   const blocks = tN("att_blocks", timeline.blocks_left_in_epoch, lang);
   const minutes = Math.max(0, Math.floor((timeline.seconds_left_in_epoch || 0) / 60));
   const minutesStr = tN("att_minutes", minutes, lang);
   return t(
     "epoch_tail_blocks",
     `Next epoch (${timeline.next_epoch}) in ${blocks} (~${minutesStr})`,
+    {
+      next_epoch: timeline.next_epoch,
+      blocks: blocks,
+      minutes: minutesStr,
+    }
+  );
+}
+
+function renderEpochTailShort(timeline) {
+  // Compact form for the hero chip — same data as ``renderEpochTail``
+  // but using the ``epoch_tail_short`` template that drops the leading
+  // "Next epoch (...)" label. Designed to fit in a small chip on
+  // mobile (≤ ~32 chars).
+  if (!timeline || timeline.blocks_left_in_epoch == null
+      || timeline.blocks_left_in_epoch < 0) {
+    return "";
+  }
+  const lang = currentLang();
+  const blocks = tN("att_blocks", timeline.blocks_left_in_epoch, lang);
+  const minutes = Math.max(0, Math.floor((timeline.seconds_left_in_epoch || 0) / 60));
+  const minutesStr = tN("att_minutes", minutes, lang);
+  return t(
+    "epoch_tail_short",
+    `→ ${timeline.next_epoch} in ${blocks} (~${minutesStr})`,
     {
       next_epoch: timeline.next_epoch,
       blocks: blocks,
@@ -939,7 +1022,7 @@ function renderValidatorStatusBanner(data) {
   const att = data.attestation;
   const timeline = data.epoch_timeline;
   const tail = renderEpochTail(timeline);
-  const lang = (state && state.lang) || "en";
+  const lang = currentLang();
 
   if (data.unstake_requested) {
     return bannerWithTail(
@@ -1072,14 +1155,19 @@ function renderOperatorWalletBlock(data, state) {
 
   const threshold = Number(state?.notification?.operator_balance_min_strk || 0);
   let badge = "";
-  let cardClass = "card";
+  // ``stateClass`` drives the card border/tint. Three buckets:
+  //   below  → "op-wallet-warn" (orange)
+  //   above  → "op-wallet-ok"   (subtle green; symmetric reassurance)
+  //   unset/no-data → no class  (neutral card)
+  let stateClass = "";
   if (balNum !== null && threshold > 0) {
     const thrStr = fmtAmount(threshold, "STRK");
     if (balNum < threshold) {
       badge = `<span class="chip danger">${escapeHtml(t("webapp_below_threshold", `⚠ Below ${thrStr}`, { amount: thrStr }))}</span>`;
-      cardClass += " card-warn";
+      stateClass = "op-wallet-warn";
     } else {
       badge = `<span class="chip success">${escapeHtml(t("webapp_above_threshold", `✓ Above ${thrStr}`, { amount: thrStr }))}</span>`;
+      stateClass = "op-wallet-ok";
     }
   }
 
@@ -1088,7 +1176,7 @@ function renderOperatorWalletBlock(data, state) {
     : t("webapp_balance_unavailable", "Balance unavailable");
 
   return `
-    <div class="hero op-wallet ${cardClass.includes('warn') ? 'op-wallet-warn' : ''}">
+    <div class="hero op-wallet ${stateClass}">
       <div class="op-wallet-head">
         <div>
           <div class="muted small">${escapeHtml(t("webapp_operator_wallet_caption", "Operator wallet (gas reserve)"))}</div>

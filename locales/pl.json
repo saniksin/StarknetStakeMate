@@ -154,8 +154,8 @@
     "commission": "Prowizja",
     "total_stake_label": "Łączny stake",
     "operator_wallet_label": "Portfel operatora",
-    "operator_low_balance_alert": "⚠️ <b>{label}</b>: portfel operatora ma tylko <b>{balance:.2f} STRK</b> (próg: {threshold:.2f}). Epoka <b>{epoch}</b> właśnie się zaczęła — uzupełnij przed jej końcem, inaczej walidator zacznie po cichu pomijać atestacje.",
-    "operator_balance_recovered": "✅ <b>{label}</b>: portfel operatora doładowany — <b>{balance:.2f} STRK</b> (próg: {threshold:.2f}). Epoka {epoch}.",
+    "operator_low_balance_alert": "⚠️ <b>{label}</b>: saldo operatora <b>{balance:.2f} STRK</b> jest poniżej progu {threshold:.2f} (epoka {epoch}). Gdy saldo się wyczerpie, walidator zacznie pomijać atestacje.",
+    "operator_balance_recovered": "✅ <b>{label}</b>: saldo operatora <b>{balance:.2f} STRK</b> znów jest powyżej progu {threshold:.2f} (epoka {epoch}).",
     "set_operator_balance_threshold": "🔋 Alert salda portfela operatora",
     "enter_operator_balance_threshold": "Podaj minimalne saldo STRK w portfelu operatora dowolnego śledzonego walidatora <i>z włączonymi alertami atestacji</i>. Wyślę DM, gdy saldo spadnie poniżej. Wyślij <b>0</b>, aby wyłączyć.",
     "operator_balance_threshold_set": "✅ Alert operatora ustawiony: <b>{amount} STRK</b>. Otrzymasz DM, gdy saldo spadnie poniżej tej wartości.",
@@ -324,5 +324,12 @@
     "webapp_status_missed_t_many": "⚠ Walidator pominął {n} atestacji",
     "confirm_delete_all_prompt_one": "⚠️ <b>Usunąć {count} śledzony adres?</b>\nTej akcji nie można cofnąć.",
     "confirm_delete_all_prompt_few": "⚠️ <b>Usunąć WSZYSTKIE {count} śledzone adresy?</b>\nTej akcji nie można cofnąć.",
-    "confirm_delete_all_prompt_many": "⚠️ <b>Usunąć WSZYSTKIE {count} śledzonych adresów?</b>\nTej akcji nie można cofnąć."
+    "confirm_delete_all_prompt_many": "⚠️ <b>Usunąć WSZYSTKIE {count} śledzonych adresów?</b>\nTej akcji nie można cofnąć.",
+    "webapp_validators_count_one": "{n} walidator",
+    "webapp_validators_count_few": "{n} walidatory",
+    "webapp_validators_count_many": "{n} walidatorów",
+    "webapp_delegations_count_one": "{n} delegacja",
+    "webapp_delegations_count_few": "{n} delegacje",
+    "webapp_delegations_count_many": "{n} delegacji",
+    "epoch_tail_short": "→ {next_epoch} za {blocks} (~{minutes})"
 }

@@ -553,3 +553,98 @@ def test_render_attestation_uses_plural_for_missed_count() -> None:
     out_en = render_attestation(att, "en")
     assert "3 epochs" in out_en
     assert "epoch(s)" not in out_en
+
+
+# ---------------------------------------------------------------------------
+# Hero-chip plural keys for the dashboard (validators / delegations counts).
+# These mirror the same JS-side ``tN(...)`` calls in ``renderDashboard``.
+# Freezing the Python contract here keeps the JS side honest — both
+# renderers consume the same locale bundle, so a regression in one
+# surfaces here.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "n, expected_phrase",
+    [
+        (1, "1 валидатор"),     # one
+        (2, "2 валидатора"),    # few
+        (3, "3 валидатора"),    # few — was the bug ("3 валидаторов" sounds wrong)
+        (5, "5 валидаторов"),   # many
+        (11, "11 валидаторов"), # many
+        (21, "21 валидатор"),   # one
+    ],
+)
+def test_validators_count_plural_ru(n: int, expected_phrase: str) -> None:
+    """Hero chip uses the right ru noun case for validators count."""
+    assert t_n("webapp_validators_count", n, "ru") == expected_phrase
+
+
+@pytest.mark.parametrize(
+    "n, expected_phrase",
+    [
+        (1, "1 делегация"),
+        (2, "2 делегации"),
+        (5, "5 делегаций"),
+    ],
+)
+def test_delegations_count_plural_ru(n: int, expected_phrase: str) -> None:
+    """Same as above for delegations."""
+    assert t_n("webapp_delegations_count", n, "ru") == expected_phrase
+
+
+def test_validators_count_plural_pl() -> None:
+    """Polish plural rules differ from Russian — freeze the boundary."""
+    assert t_n("webapp_validators_count", 1, "pl") == "1 walidator"
+    assert t_n("webapp_validators_count", 3, "pl") == "3 walidatory"
+    assert t_n("webapp_validators_count", 5, "pl") == "5 walidatorów"
+    assert t_n("webapp_validators_count", 21, "pl") == "21 walidatorów"
+
+
+def test_validators_count_plural_en() -> None:
+    """English: 1 → singular, everything else → plural."""
+    assert t_n("webapp_validators_count", 1, "en") == "1 validator"
+    assert t_n("webapp_validators_count", 0, "en") == "0 validators"
+    assert t_n("webapp_validators_count", 5, "en") == "5 validators"
+
+
+def test_epoch_tail_short_renders_plural_units_ru() -> None:
+    """Reproduce the field-reported bug where ru hero showed
+    ``→ 9593 через 875 (~37)`` instead of ``→ 9593 через 875 блоков (~37 мин)``."""
+    from data.languages import translate
+    blocks = t_n("att_blocks", 875, "ru")
+    minutes = t_n("att_minutes", 37, "ru")
+    out = translate(
+        "epoch_tail_short", "ru",
+        next_epoch=9593, blocks=blocks, minutes=minutes,
+    )
+    assert "875 блоков" in out
+    assert "37 мин" in out
+    assert "9593" in out
+    # Make sure no plain bare numbers leaked through (the regression
+    # signature was "→ 9593 через 875 (~37)" with no nouns).
+    assert " 875 (" not in out
+
+
+def test_operator_low_balance_alert_neutral_tone() -> None:
+    """The 2026-04 rewrite dropped alarmist phrasing in every locale."""
+    from data.languages import translate
+    msg_ru = translate(
+        "operator_low_balance_alert", "ru",
+        label="Karnot", balance=41.19, threshold=50.0, epoch=9592,
+    )
+    # New tone — fact-stated, no "топ up urgently".
+    assert "ниже порога" in msg_ru
+    assert "пропускать аттестации" in msg_ru
+    # Old alarmist phrasing — gone.
+    assert "пополни до её окончания" not in msg_ru
+    assert "только началась" not in msg_ru
+    assert "молча пропускать" not in msg_ru
+
+    msg_en = translate(
+        "operator_low_balance_alert", "en",
+        label="Karnot", balance=41.19, threshold=50.0, epoch=9592,
+    )
+    assert "below the threshold" in msg_en
+    assert "just started" not in msg_en.lower()
+    assert "top it up" not in msg_en.lower()

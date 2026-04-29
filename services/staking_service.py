@@ -301,7 +301,13 @@ async def fetch_active_tokens() -> list[str]:
 
 
 async def fetch_system_info() -> StakingSystemInfo:
-    """Return protocol-wide parameters (min stake, exit window, epoch, tokens)."""
+    """Return protocol-wide parameters (min stake, exit window, epoch, tokens).
+
+    Also folds in the EpochInfo + chain head so the Mini App hero can
+    render "next epoch in N blocks (~M min)" without a per-validator
+    RPC. The two extra reads piggy-back on the same parallel gather, so
+    the cost stays one round-trip.
+    """
     addrs = get_network_addresses()
     contract = _staking_contract()
 
@@ -309,10 +315,18 @@ async def fetch_system_info() -> StakingSystemInfo:
         (res,) = await contract.functions["contract_parameters_v1"].call()
         return res
 
-    params, epoch, active_tokens = await asyncio.gather(
+    params, epoch, active_tokens, epoch_info, current_block = await asyncio.gather(
         with_retry(_params, description="contract_parameters_v1"),
         fetch_current_epoch(),
         fetch_active_tokens(),
+        fetch_epoch_info(),
+        fetch_current_block_number(),
+    )
+
+    timeline = _compute_epoch_timeline(
+        current_epoch=epoch,
+        current_block=current_block,
+        epoch_info=epoch_info,
     )
 
     min_stake = int(params.get("min_stake", 0))
@@ -326,6 +340,7 @@ async def fetch_system_info() -> StakingSystemInfo:
         exit_wait_window_seconds=_unwrap_seconds(params.get("exit_wait_window")),
         current_epoch=epoch,
         active_token_addresses=active_tokens,
+        epoch_timeline=timeline,
     )
 
 

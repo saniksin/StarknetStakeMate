@@ -154,8 +154,8 @@
     "commission": "Commission",
     "total_stake_label": "Total stake",
     "operator_wallet_label": "Operator wallet",
-    "operator_low_balance_alert": "⚠️ <b>{label}</b>: operator wallet has only <b>{balance:.2f} STRK</b> left (threshold: {threshold:.2f}). Epoch <b>{epoch}</b> just started — top it up before it ends, otherwise the validator will silently miss attestations.",
-    "operator_balance_recovered": "✅ <b>{label}</b>: operator wallet topped up — <b>{balance:.2f} STRK</b> (threshold: {threshold:.2f}). Epoch {epoch}.",
+    "operator_low_balance_alert": "⚠️ <b>{label}</b>: operator balance <b>{balance:.2f} STRK</b> is below the threshold of {threshold:.2f} (epoch {epoch}). When the balance runs out, the validator will start missing attestations.",
+    "operator_balance_recovered": "✅ <b>{label}</b>: operator balance <b>{balance:.2f} STRK</b> is back above the threshold of {threshold:.2f} (epoch {epoch}).",
     "set_operator_balance_threshold": "🔋 Operator wallet balance alert",
     "enter_operator_balance_threshold": "Enter the minimum STRK balance for the operator wallet of any validator you track <i>with attestation alerts enabled</i>. You'll get a DM when the balance drops below this value. Send <b>0</b> to disable.",
     "operator_balance_threshold_set": "✅ Operator wallet alert set: <b>{amount} STRK</b>. You'll be DM'd as soon as it drops below this.",
@@ -317,5 +317,10 @@
     "webapp_status_missed_t_one": "⚠ Validator missed {n} attestation",
     "webapp_status_missed_t_other": "⚠ Validator missed {n} attestations",
     "confirm_delete_all_prompt_one": "⚠️ <b>Delete the {count} tracked address?</b>\nThis cannot be undone.",
-    "confirm_delete_all_prompt_other": "⚠️ <b>Delete ALL {count} tracked addresses?</b>\nThis cannot be undone."
+    "confirm_delete_all_prompt_other": "⚠️ <b>Delete ALL {count} tracked addresses?</b>\nThis cannot be undone.",
+    "webapp_validators_count_one": "{n} validator",
+    "webapp_validators_count_other": "{n} validators",
+    "webapp_delegations_count_one": "{n} delegation",
+    "webapp_delegations_count_other": "{n} delegations",
+    "epoch_tail_short": "→ {next_epoch} in {blocks} (~{minutes})"
 }

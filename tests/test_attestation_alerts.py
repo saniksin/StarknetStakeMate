@@ -100,6 +100,12 @@ async def test_low_balance_first_epoch_fires_alert() -> None:
     assert "3.42 STRK" in msg
     assert "9590" in msg  # epoch in alert text
     assert bal == {STAKER: True}
+    # Tone regression — the old alarmist phrasing is gone. We freeze the
+    # absence of the worst offenders so a future copy edit doesn't
+    # accidentally re-introduce them.
+    assert "top it up" not in msg.lower()
+    assert "just started" not in msg.lower()
+    assert "silently" not in msg.lower()
 
 
 @pytest.mark.asyncio

@@ -154,8 +154,8 @@
     "commission": "佣金",
     "total_stake_label": "总质押",
     "operator_wallet_label": "操作者钱包",
-    "operator_low_balance_alert": "⚠️ <b>{label}</b>: 运营钱包仅剩 <b>{balance:.2f} STRK</b>(阈值: {threshold:.2f})。纪元 <b>{epoch}</b> 已开始 — 在结束前充值,否则验证者将悄然错过证明。",
-    "operator_balance_recovered": "✅ <b>{label}</b>: 运营钱包已充值 — <b>{balance:.2f} STRK</b>(阈值: {threshold:.2f})。纪元 {epoch}。",
+    "operator_low_balance_alert": "⚠️ <b>{label}</b>: 运营钱包余额 <b>{balance:.2f} STRK</b> 低于阈值 {threshold:.2f} (纪元 {epoch})。余额耗尽后,验证者将开始错过证明。",
+    "operator_balance_recovered": "✅ <b>{label}</b>: 运营钱包余额 <b>{balance:.2f} STRK</b> 已恢复到阈值 {threshold:.2f} 之上 (纪元 {epoch})。",
     "set_operator_balance_threshold": "🔋 操作者钱包余额警报",
     "enter_operator_balance_threshold": "输入<i>已启用证明警报</i>的任意跟踪验证者的操作者钱包最低 STRK 余额。低于该值时会收到私信。发送 <b>0</b> 以禁用。",
     "operator_balance_threshold_set": "✅ 操作者警报已设置：<b>{amount} STRK</b>。余额低于此值时会立即收到私信。",
@@ -310,5 +310,8 @@
     "attestation_missed_other": "自上次证明以来错过 {count} 个纪元",
     "attestation_alert_missed_other": "⚠️ <b>{label}</b>\n错过纪元 — 共计错过：<b>{count}</b> 个纪元（当前纪元：{epoch}）。",
     "webapp_status_missed_t_other": "⚠ 验证者错过了 {n} 次证明",
-    "confirm_delete_all_prompt_other": "⚠️ <b>删除全部 {count} 个追踪地址？</b>\n此操作无法撤销。"
+    "confirm_delete_all_prompt_other": "⚠️ <b>删除全部 {count} 个追踪地址？</b>\n此操作无法撤销。",
+    "webapp_validators_count_other": "{n} 个验证者",
+    "webapp_delegations_count_other": "{n} 个委托",
+    "epoch_tail_short": "→ {next_epoch}: {blocks} (~{minutes})"
 }

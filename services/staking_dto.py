@@ -282,6 +282,15 @@ class StakingSystemInfo(BaseModel):
     current_epoch: int
     active_token_addresses: list[str]
 
+    # Position of the chain inside the current epoch — surfaced on the
+    # Mini App hero so the user sees a "next epoch in N blocks (~M min)"
+    # tail next to the epoch chip without burning a per-validator RPC.
+    # ``None`` when the EpochInfo / chain head fetch failed.
+    epoch_timeline: "EpochTimeline | None" = Field(
+        default=None,
+        description="Chain head position relative to the current epoch.",
+    )
+
 
 def raw_to_decimal(raw: int, decimals: int) -> Decimal:
     """Convert a u128 wei-style amount to Decimal with the token's scale."""
