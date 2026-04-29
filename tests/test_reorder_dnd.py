@@ -92,8 +92,20 @@ class FakeNode {
   }
   dispatch(type, ev) {
     for (const { fn } of (this._listeners[type] ?? [])) {
-      fn({ type, target: this, preventDefault() {}, stopPropagation() {}, ...ev });
+      const target = ev && ev.target ? ev.target : this;
+      const synthetic = { type, target, preventDefault() {}, stopPropagation() {}, ...ev };
+      // Re-set target after spread so explicit ``target`` in ev wins.
+      if (ev && ev.target) synthetic.target = ev.target;
+      fn(synthetic);
     }
+  }
+  contains(other) {
+    // Minimal: same-node OR direct child. Good enough for the wrapper's
+    // ``handle.contains(ev.target)`` guard since the harness only ever
+    // dispatches with ``target = card`` or ``target = handle``.
+    if (other === this) return true;
+    if (other && other.parentElement === this) return true;
+    return false;
   }
   setPointerCapture(_id) { this._captured = _id; }
   releasePointerCapture(id) {
@@ -143,18 +155,28 @@ globalThis.state = state;
 globalThis.t = (k, fb) => fb ?? k;
 globalThis.toast = () => {};
 
-// ----- Extract _wireDragHandle from app.js --------------------------------
+// ----- Extract _wireDragHandle + _wireBodyDrag from app.js ---------------
 const src = fs.readFileSync('./webapp/app.js', 'utf-8');
-const startIdx = src.indexOf('function _wireDragHandle(');
-let depth = 0, i = src.indexOf('{', startIdx), endIdx = -1;
-for (; i < src.length; i++) {
-  const ch = src[i];
-  if (ch === '{') depth++;
-  else if (ch === '}') { depth--; if (depth === 0) { endIdx = i + 1; break; } }
+
+function extractFn(name) {
+  const startIdx = src.indexOf('function ' + name + '(');
+  if (startIdx < 0) throw new Error(name + ' not found in app.js');
+  let depth = 0, i = src.indexOf('{', startIdx), endIdx = -1;
+  for (; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') { depth--; if (depth === 0) { endIdx = i + 1; break; } }
+  }
+  if (endIdx < 0) throw new Error('failed to extract ' + name + ' body');
+  return src.slice(startIdx, endIdx);
 }
-if (endIdx < 0) throw new Error('failed to extract _wireDragHandle body');
-const fnSrc = src.slice(startIdx, endIdx);
-const _wireDragHandle = eval('(' + fnSrc + ')');
+
+// Threshold constant — extract its numeric literal for the body-drag tests.
+const thresholdMatch = src.match(/_BODY_DRAG_THRESHOLD_PX\s*=\s*(\d+)/);
+const _BODY_DRAG_THRESHOLD_PX = thresholdMatch ? Number(thresholdMatch[1]) : 8;
+
+const _wireDragHandle = eval('(' + extractFn('_wireDragHandle') + ')');
+const _wireBodyDrag = eval('(' + extractFn('_wireBodyDrag') + ')');
 
 // ----- Build a card + handle pair and run the test ------------------------
 function makeCard() {
@@ -407,3 +429,137 @@ def test_window_listeners_detached_after_cleanup():
     res = _run(body)
     assert res["duringDrag"] >= 1, "should bind window pointerup during drag"
     assert res["afterCleanup"] == 0, "must detach window listeners after cleanup"
+
+
+# ---------------------------------------------------------------------------
+# Body-drag with 8px threshold (added 2026-04-29).
+#
+# The user reported wanting to drag rows by tapping anywhere, not just on
+# the ⠿ handle. The trade-off is that we must NOT activate a drag for a
+# normal scroll gesture or a tap — we use an 8px vertical threshold,
+# matching iOS / Notion / Linear conventions.
+# ---------------------------------------------------------------------------
+
+
+def test_body_tap_below_threshold_does_not_drag():
+    """Tap on the card body, finger barely moves (Δy < 8). The drag must
+    NOT activate — pointer capture stays unset, no .dragging class."""
+    body = """
+    const { card, handle } = makeCard();
+    _wireDragHandle(card, handle);
+    _wireBodyDrag(card, handle);
+
+    card.dispatch('pointerdown', { pointerId: 1, clientY: 100, button: 0, target: card });
+    card.dispatch('pointermove', { pointerId: 1, clientY: 105, target: card });
+    card.dispatch('pointermove', { pointerId: 1, clientY: 103, target: card });
+    card.dispatch('pointerup',   { pointerId: 1, clientY: 103, target: card });
+
+    out({
+      isDragging: card._isDraggingForReorder ? card._isDraggingForReorder() : true,
+      hasDraggingClass: card.classList.contains('dragging'),
+      cardCaptured: card._captured ?? null,
+      handleCaptured: handle._captured ?? null,
+      transform: card.style.transform,
+    });
+    """
+    res = _run(body)
+    assert res["isDragging"] is False, "drag must not activate below threshold"
+    assert res["hasDraggingClass"] is False
+    assert res["cardCaptured"] is None
+    assert res["handleCaptured"] is None
+    assert res["transform"] == ""
+
+
+def test_body_drag_above_threshold_activates_drag():
+    """Tap on the card body, finger moves >8px. Drag activates: capture
+    on card, .dragging class on, transform set on subsequent moves."""
+    body = """
+    const { card, handle } = makeCard();
+    _wireDragHandle(card, handle);
+    _wireBodyDrag(card, handle);
+
+    card.dispatch('pointerdown', { pointerId: 2, clientY: 100, button: 0, target: card });
+    // Cross the threshold (default 8 → use 12 to be safe across CI noise).
+    card.dispatch('pointermove', { pointerId: 2, clientY: 112, target: card });
+    // Once promoted, additional moves go through the drag flow's
+    // window-level dispatcher (which the test harness routes via
+    // ``win.dispatch('pointermove', ...)`` here).
+    win.dispatch('pointermove', { pointerId: 2, clientY: 130 });
+
+    out({
+      isDragging: card._isDraggingForReorder ? card._isDraggingForReorder() : false,
+      hasDraggingClass: card.classList.contains('dragging'),
+      cardCaptured: card._captured ?? null,
+      handleCaptured: handle._captured ?? null,
+      // Body-drag captures on the CARD, not the handle.
+      transformPresent: card.style.transform.startsWith('translateY'),
+      thresholdPx: _BODY_DRAG_THRESHOLD_PX,
+    });
+    """
+    res = _run(body)
+    assert res["isDragging"] is True, "drag must activate above threshold"
+    assert res["hasDraggingClass"] is True
+    assert res["cardCaptured"] == 2, "body-drag captures on card, not handle"
+    assert res["handleCaptured"] is None
+    assert res["transformPresent"] is True
+    assert res["thresholdPx"] == 8
+
+
+def test_handle_drag_starts_immediately_no_threshold():
+    """Tap directly on the handle. Drag MUST start immediately on
+    pointerdown — no Δy threshold for the explicit-grab path. Capture
+    lands on the handle (not the card) so vertical scroll on the rest
+    of the row keeps working when the user drops back into normal mode."""
+    body = """
+    const { card, handle } = makeCard();
+    _wireDragHandle(card, handle);
+    _wireBodyDrag(card, handle);
+
+    // Single pointerdown event on the handle, no move yet.
+    handle.dispatch('pointerdown', { pointerId: 3, clientY: 100, button: 0, target: handle });
+
+    out({
+      isDragging: card._isDraggingForReorder ? card._isDraggingForReorder() : false,
+      hasDraggingClass: card.classList.contains('dragging'),
+      handleCaptured: handle._captured ?? null,
+      cardCaptured: card._captured ?? null,
+    });
+    """
+    res = _run(body)
+    assert res["isDragging"] is True, "handle-drag must start without threshold"
+    assert res["hasDraggingClass"] is True
+    assert res["handleCaptured"] == 3, "handle-drag captures on handle"
+    assert res["cardCaptured"] is None
+
+
+def test_body_drag_skipped_when_pointerdown_originates_on_handle():
+    """A pointerdown that originates on the handle goes ONLY through the
+    handle path — the body-drag wrapper must not also enqueue a pending
+    threshold gate (which would cause double-promotion on the next
+    pointermove past 8px)."""
+    body = """
+    const { card, handle } = makeCard();
+    _wireDragHandle(card, handle);
+    _wireBodyDrag(card, handle);
+
+    // Bubble simulation: dispatch on card with target=handle.
+    card.dispatch('pointerdown', { pointerId: 4, clientY: 100, button: 0, target: handle });
+    // Cross threshold.
+    card.dispatch('pointermove', { pointerId: 4, clientY: 120, target: card });
+
+    // Capture should still be on handle (set by the handle's own
+    // pointerdown listener — not by us). The body-drag wrapper must
+    // have noticed target===handle and bailed.
+    out({
+      cardCaptured: card._captured ?? null,
+    });
+    """
+    res = _run(body)
+    # The body-drag wrapper bails on target===handle, so it never
+    # promotes — and since the handle's listener was bound to ``handle``
+    # (not ``card``), no drag starts here. The important assertion is
+    # simply that the body wrapper didn't ALSO call setPointerCapture
+    # on card. That would produce double-capture.
+    assert res["cardCaptured"] is None, (
+        "body-drag must skip when pointerdown originates on handle"
+    )

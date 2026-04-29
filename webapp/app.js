@@ -707,10 +707,19 @@ function renderEntryCard(entry, container, prices) {
     else navigate(`#/d/${entry.data?.delegator_address || entry.address}/${entry.data?.staker_address || ""}`);
   });
 
-  // Pointer-event sortable hookup. Lives on the handle, not the body,
-  // so vertical scroll on the rest of the card still works on touch.
+  // Pointer-event sortable hookup. Two paths:
+  //   1. Handle (⠿): drag starts immediately on pointerdown — explicit
+  //      grab, no ambiguity with scroll.
+  //   2. Body: drag starts after the finger has moved >8px vertically
+  //      from the down point. Below that threshold the gesture stays
+  //      a normal scroll (``touch-action: pan-y`` on the card in
+  //      reorder mode). Standard mobile pattern; matches iOS / Notion.
   const handle = card.querySelector(".drag-handle");
   if (handle) _wireDragHandle(card, handle);
+  // Body-drag delegates into the same drag flow set up above via
+  // ``card._startReorderDrag``. Wire it after _wireDragHandle so the
+  // accessor functions are present.
+  _wireBodyDrag(card, handle);
 
   container.appendChild(card);
 }
@@ -852,13 +861,25 @@ function _applyReorderVisuals(on) {
 function _wireDragHandle(card, handle) {
   let dragging = false;
   let pointerId = null;
+  // Element that owns ``setPointerCapture`` for the active drag. The
+  // handle path sets it to ``handle``; the body-threshold path sets it
+  // to ``card``. Stored so ``cleanup()`` knows where to call
+  // ``releasePointerCapture``. Capturing on the right element matters
+  // on iOS — capturing on a 28px handle while the finger lives over
+  // the card body makes pointer events leak to the wrong target.
+  let captureEl = null;
   let startY = 0;
   let cardCenterStart = 0;
   let translateY = 0;
   // Bound terminal listeners attached to ``window`` for the duration of
-  // the drag — see ``onDown`` for the rationale. Stored at the
+  // the drag — see ``startDrag`` for the rationale. Stored at the
   // closure level so ``cleanup()`` can detach them symmetrically.
   let windowListenersBound = false;
+  // ``touch-action`` swap: while the card is in reorder mode the CSS
+  // sets ``pan-y`` so a tap-and-scroll still works. Once the threshold
+  // is crossed and we activate a drag, we flip the inline style to
+  // ``none`` to claim the rest of the gesture; ``cleanup`` restores it.
+  let savedTouchAction = "";
 
   // Idempotent cleanup. Safe to call from any terminal pointer event
   // (pointerup / pointercancel / lostpointercapture / touchend /
@@ -868,18 +889,20 @@ function _wireDragHandle(card, handle) {
   const cleanup = () => {
     if (!dragging && !windowListenersBound) return;
     dragging = false;
-    if (pointerId !== null) {
+    if (captureEl && pointerId !== null) {
       // ``releasePointerCapture`` throws ``InvalidPointerId`` if the
       // browser already lost capture on its own (which is exactly the
       // path that left the card stuck). Swallow it.
-      try { handle.releasePointerCapture(pointerId); } catch (_) {}
+      try { captureEl.releasePointerCapture(pointerId); } catch (_) {}
     }
+    captureEl = null;
     pointerId = null;
     // Reset visual state. ``transform`` is the load-bearing one — if
     // it's left set the card visually stays "lifted" at its drag
     // offset even though the DOM is in the right place.
     card.style.transform = "";
     card.style.zIndex = "";
+    card.style.touchAction = savedTouchAction;
     card.classList.remove("dragging");
     if (windowListenersBound) {
       window.removeEventListener("pointerup", onUpWin, true);
@@ -891,28 +914,33 @@ function _wireDragHandle(card, handle) {
     }
   };
 
-  const onDown = (ev) => {
-    if (!state.reorderMode) return;
-    // Only the primary button / first touch — multi-finger zoom mid-drag
-    // would otherwise dump us into a half-drag state we can't recover.
-    if (ev.button !== undefined && ev.button !== 0) return;
-    // Guard against re-entry: if a previous drag never cleaned up
-    // (shouldn't happen now, but defence-in-depth) flush state first.
+  /**
+   * Promote a pending pointerdown into an active drag. Called from
+   * two places:
+   *   1. ``handle.pointerdown`` — immediate (no threshold) so the
+   *      classic "press the ⠿ then drag" flow still works.
+   *   2. ``card.pointermove`` after the body has moved >8px from the
+   *      starting Y — promotes a near-tap into a drag.
+   *
+   * ``downEv`` carries the ORIGINAL pointerdown coordinates (so the
+   * card doesn't visually jump by the threshold offset when the
+   * body path activates). ``capture`` is the element that should
+   * own ``setPointerCapture`` — handle for the handle path, card
+   * for the body path.
+   */
+  const startDrag = (downEv, capture) => {
     if (dragging) cleanup();
-    ev.preventDefault();
-    pointerId = ev.pointerId;
-    // ``setPointerCapture`` redirects subsequent move/up events to
-    // ``handle`` even if the finger drifts off the element. iOS Safari
-    // quietly drops capture when the captured element's parent chain
-    // mutates (which our DOM swap does), so we ALSO bind the same
-    // handlers on ``window`` as a safety net — whichever fires first
-    // wins, and ``cleanup()`` is idempotent.
-    try { handle.setPointerCapture(pointerId); } catch (_) {}
+    pointerId = downEv.pointerId;
+    captureEl = capture;
+    try { capture.setPointerCapture(pointerId); } catch (_) {}
     dragging = true;
-    startY = ev.clientY;
+    startY = downEv.clientY;
     const rect = card.getBoundingClientRect();
     cardCenterStart = rect.top + rect.height / 2;
     translateY = 0;
+    savedTouchAction = card.style.touchAction || "";
+    // Claim the rest of the gesture from the browser's scroll handler.
+    card.style.touchAction = "none";
     card.classList.add("dragging");
     if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("medium");
 
@@ -928,6 +956,17 @@ function _wireDragHandle(card, handle) {
     window.addEventListener("touchend", onUpWin, true);
     window.addEventListener("touchcancel", onUpWin, true);
     windowListenersBound = true;
+  };
+
+  const onDown = (ev) => {
+    if (!state.reorderMode) return;
+    // Only the primary button / first touch — multi-finger zoom mid-drag
+    // would otherwise dump us into a half-drag state we can't recover.
+    if (ev.button !== undefined && ev.button !== 0) return;
+    ev.preventDefault();
+    // Handle path: drag starts immediately (no threshold). The user
+    // explicitly grabbed the ⠿, no ambiguity with scroll.
+    startDrag(ev, handle);
   };
 
   const onMove = (ev) => {
@@ -1031,9 +1070,103 @@ function _wireDragHandle(card, handle) {
   // finger drifts off the 16px handle, which is constant on touch);
   // we rely on capture + window fallbacks instead.
 
+  // Body-drag path: the same lostpointercapture hook needs to fire when
+  // the card itself owns capture (body-threshold path). Without this
+  // the body-drag would never auto-clean up after a DOM mutation
+  // — same root cause that produced the stuck-card bug we already
+  // fixed for the handle path.
+  card.addEventListener("lostpointercapture", onLostCapture);
+
   // Expose the cleanup so the higher-level reorder controller can
   // force-flush a stuck drag when the user taps Done / Cancel mid-gesture.
   card._reorderCleanup = cleanup;
+  // Expose the drag-promoter so the body-threshold wrapper (set up by
+  // ``_wireBodyDrag``) can hand off into the same drag flow without
+  // duplicating onDown's bookkeeping.
+  card._startReorderDrag = startDrag;
+  // Closure-state probes used by ``_wireBodyDrag`` to read ``dragging``
+  // / ``pointerId`` without violating the encapsulation. Keeping these
+  // accessors instead of bare fields means the wrapper can't smuggle
+  // writes back in.
+  card._isDraggingForReorder = () => dragging;
+  card._activeReorderPointerId = () => pointerId;
+}
+
+/**
+ * Wire body-area drag with an 8px threshold.
+ *
+ * Without this, only the ⠿ handle on the left edge can start a drag.
+ * Most users instinctively grab the card itself, so we also listen on
+ * ``card`` and promote a pointerdown into a drag once the finger has
+ * moved >8px vertically. The threshold lets the user still scroll the
+ * page (touch-action: pan-y on the row in reorder mode) — a slow
+ * scroll never crosses the threshold and the gesture stays a scroll.
+ *
+ * The actual drag flow (capture, transform tracking, sibling swap,
+ * cleanup) is reused from ``_wireDragHandle`` via ``card._startReorderDrag``;
+ * this function is just a gate.
+ */
+const _BODY_DRAG_THRESHOLD_PX = 8;
+
+function _wireBodyDrag(card, handle) {
+  let pendingPointerId = null;
+  let pendingStartY = 0;
+  let pendingDownEv = null;
+
+  // Only listen in reorder mode AND only on pointerdowns that don't
+  // originate inside an interactive element (button/link). The card
+  // currently has no nested ``<a>`` or non-handle ``<button>``, but
+  // we keep the guard so a future "open in explorer" link inside the
+  // sub-line can't accidentally suppress the drag-start on its tap.
+  card.addEventListener("pointerdown", (ev) => {
+    if (!state.reorderMode) return;
+    if (ev.button !== undefined && ev.button !== 0) return;
+    // Don't start the body-watch if the user grabbed the handle
+    // directly — that path bypasses the threshold and is already wired.
+    if (ev.target && handle && (ev.target === handle || handle.contains(ev.target))) return;
+    // Skip nested interactive descendants so they keep their tap.
+    if (ev.target && typeof ev.target.closest === "function") {
+      if (ev.target.closest("button:not(.row-card), a, [data-copy]")) return;
+    }
+    pendingPointerId = ev.pointerId;
+    pendingStartY = ev.clientY;
+    pendingDownEv = ev;
+  });
+
+  // Watch pointermoves on the card. Once Δy exceeds the threshold,
+  // promote into a drag using the ORIGINAL down-event coordinates so
+  // the card visually starts where the finger started — no jump.
+  card.addEventListener("pointermove", (ev) => {
+    if (pendingPointerId === null) return;
+    if (ev.pointerId !== pendingPointerId) return;
+    // Already promoted — let the regular drag path handle the move.
+    if (card._isDraggingForReorder && card._isDraggingForReorder()) return;
+    const dy = Math.abs(ev.clientY - pendingStartY);
+    if (dy < _BODY_DRAG_THRESHOLD_PX) return;
+    // Threshold crossed → promote. ``startDrag`` records the original
+    // pointerdown's clientY as ``startY`` so the running ``translateY``
+    // computation in onMove yields ``ev.clientY - originalStartY`` —
+    // matches the user's actual finger travel from the tap start.
+    if (typeof card._startReorderDrag === "function") {
+      card._startReorderDrag(pendingDownEv, card);
+    }
+    // After promotion the next pointermove handled by the drag flow's
+    // ``onMoveWin`` will paint translateY using the original startY.
+    pendingPointerId = null;
+    pendingDownEv = null;
+  });
+
+  // If the user taps and releases without crossing the threshold,
+  // discard the pending state so the next gesture starts clean.
+  const clearPending = (ev) => {
+    if (pendingPointerId !== null && (ev.pointerId === undefined || ev.pointerId === pendingPointerId)) {
+      pendingPointerId = null;
+      pendingDownEv = null;
+    }
+  };
+  card.addEventListener("pointerup", clearPending);
+  card.addEventListener("pointercancel", clearPending);
+  card.addEventListener("lostpointercapture", clearPending);
 }
 
 // ---------------------------------------------------------------------------

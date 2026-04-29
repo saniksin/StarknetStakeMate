@@ -327,7 +327,7 @@ main {
 }
 .row-card .icon.delegator { background: color-mix(in srgb, var(--orange) 18%, transparent); }
 
-.row-card .body { min-width: 0; }
+.row-card .body { min-width: 0; overflow: hidden; }
 .row-card .body .label {
   font-weight: 600;
   font-size: 16px;
@@ -342,7 +342,25 @@ main {
   margin-top: 2px;
   color: var(--hint);
   font-size: 13px;
+  /* In reorder mode the row gains a 28px handle column on the left
+     and the body has less room. Without ellipsis on the .sub line the
+     address span used to wrap onto a third line under the chip
+     ("0x0475a1..." then "a524" on its own line). The flex container
+     here needs ``min-width: 0`` for its children to shrink, and each
+     child gets ``min-width: 0`` + truncation rules below. */
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
 }
+/* Plain-text spans inside .sub (the address) — let them ellipsis when
+   the row is narrow. The chips (``.chip``) have explicit widths
+   already and don't shrink. */
+.row-card .body .sub > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.row-card .body .sub > .chip { flex-shrink: 0; }
 
 .row-card .right {
   text-align: right;
@@ -916,14 +934,24 @@ main {
    flag through every nested component. */
 #app.reorder-mode .row-card {
   cursor: grab;
-  /* Add a 5th column at the LEFT for the drag handle. The original
-     ``36px 1fr auto 12px`` is preserved verbatim after the new column,
-     so icon / body / right / chevron stay in their canonical cells —
-     same widths as outside reorder mode. */
-  grid-template-columns: 28px 36px 1fr auto 12px;
+  /* Reorder mode: drop the right-side chevron (the row no longer
+     navigates to detail in this mode — see the click guard in
+     renderEntryCard) and use the freed 12px + gap to give the body
+     more room. Grid is now 4 cols: handle | icon | body | right. */
+  grid-template-columns: 28px 36px 1fr auto;
+  /* Tighter gap recovers another ~4px between columns — important on
+     narrow phones where the body and value column were colliding
+     after the icon column was added. */
+  gap: var(--s2);
   background: color-mix(in srgb, var(--secondary-bg) 60%, transparent);
+  /* The whole row is draggable in reorder mode (with an 8px touch
+     threshold so vertical scroll still works on mobile). The browser
+     would otherwise eat the first 8px of every move as a scroll
+     gesture; ``pan-y`` lets it scroll until our JS upgrades to a
+     drag and flips ``touch-action: none`` dynamically. */
+  touch-action: pan-y;
 }
-#app.reorder-mode .row-card .chevron { opacity: 0.25; }
+#app.reorder-mode .row-card .chevron { display: none; }
 #app.reorder-mode .drag-handle {
   display: inline-flex;
 }
