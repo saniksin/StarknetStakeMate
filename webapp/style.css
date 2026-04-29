@@ -585,6 +585,11 @@ main {
   justify-content: space-between;
   gap: var(--s4);
 }
+/* ``display: flex`` outranks the user-agent ``[hidden] { display: none }``
+   rule on selector specificity, so we have to spell it out. Bites us
+   when the add-form toggles between validator (one input) and
+   delegator (two inputs) — the second row needs to actually disappear. */
+.row-label[hidden] { display: none; }
 
 .input-with-suffix {
   display: inline-flex;
@@ -781,3 +786,103 @@ main {
   z-index: 100;
 }
 .toast.show { opacity: 1; }
+
+/* ---------- Section header with inline CTA (dashboard "+ Add") ---------- */
+/* The dashboard list title sits in a flex row so we can park a tiny
+   secondary text-button on the right edge. We deliberately avoid a FAB
+   (floating action button) — the iOS-style aesthetic of the rest of the
+   app uses inline section actions, and a FAB would float over the
+   bottom safe-area where it could collide with the OS gesture bar. */
+.section-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+.section-row .section-title { margin-right: 0; }
+.section-cta {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 0 var(--s2);
+  margin: var(--s5) 0 var(--s2);
+  cursor: pointer;
+  transition: opacity 100ms ease-out;
+}
+.section-cta:active { opacity: 0.55; }
+
+/* Inline form error — sits inside ``.form-card`` under the input it
+   refers to. Uses a softer red than ``.banner.danger`` because we want
+   it to read as a field-level hint rather than a top-level alert. */
+.form-error {
+  margin: var(--s2) 0 0;
+  padding: var(--s2);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+  border-radius: var(--r-sm);
+}
+.form-error[hidden] { display: none; }
+.form-error .small { font-size: 11px; opacity: 0.85; display: block; margin-top: 2px; }
+
+/* Add-form hero — slightly tighter than the dashboard hero because it
+   doesn't carry numeric data, just a single-line intro paragraph. */
+.hero-form-title {
+  margin: 0 0 var(--s2);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* Add-form text inputs — full-width pill, neutral grey background to
+   match the existing ``.input-with-suffix`` look without the suffix
+   chrome. The address fields are long (66 hex chars), so we let them
+   fill the whole row and shrink the font slightly for the mono variant
+   on focus. */
+.row-label input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  background: var(--secondary-bg);
+  border: 0;
+  border-radius: var(--r-sm);
+  padding: var(--s2) var(--s3);
+  font: inherit;
+  font-size: 14px;
+  color: var(--fg);
+  outline: 0;
+}
+.row-label input[type="text"]::placeholder { color: var(--hint); }
+.row-label input[type="text"]:focus {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+/* In the address rows, switch to a monospace face so the user can spot
+   typos in the hex string. Restricted to the form-card scope so the
+   USD-threshold input keeps its tabular-nums treatment. */
+.row-label > input#address-input,
+.row-label > input#delegator-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+/* Stack the label above the input on the address rows — the address
+   needs the full row width to be readable; squeezing it next to the
+   label produced the ``0x0123… `` ellipsis the user complained
+   about before. */
+/* Scoped via :has() to rows that contain a bare text-typed input — i.e.
+   only the add-form rows. The settings rows wrap their input in
+   ``.input-with-suffix``, so this selector skips them and they keep
+   their original side-by-side layout. */
+.row-label:has(> input[type="text"]) {
+  flex-wrap: wrap;
+  row-gap: var(--s2);
+}
+.row-label:has(> input[type="text"]) > span {
+  flex: 0 0 100%;
+  font-size: 13px;
+  color: var(--header-fg);
+}

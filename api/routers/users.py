@@ -13,9 +13,12 @@ from pydantic import BaseModel, Field
 
 from api.auth import TelegramUser, telegram_user_from_header
 from data.contracts import get_network_addresses
-from db_api.database import get_account, write_to_db
+from db_api.database import add_tracking_entry, get_account, write_to_db
 from services.tracking_service import (
+    AddTrackingError,
     TrackingEntry,
+    add_delegator_to_tracking,
+    add_validator_to_tracking,
     dump_tracking,
     fetch_tracking_entries,
     load_tracking,
@@ -133,6 +136,109 @@ async def put_tracking(
     await write_to_db(user)
     await clear_user_cache(user_id)
     return payload
+
+
+def _add_error_to_http(exc: AddTrackingError) -> HTTPException:
+    """Map a service-layer add-error code to the right HTTP status.
+
+    Codes are documented on :class:`AddTrackingError`. The Mini App reads
+    both ``status_code`` and the ``code`` field in the JSON body, so it
+    can show a localized message without parsing the free-form ``detail``.
+    """
+    code = exc.code
+    if code == "invalid_address":
+        status_code = status.HTTP_400_BAD_REQUEST
+    elif code in ("limit_reached", "duplicate"):
+        status_code = status.HTTP_409_CONFLICT
+    elif code in ("not_a_staker", "not_a_delegator"):
+        status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    else:
+        status_code = status.HTTP_400_BAD_REQUEST
+    return HTTPException(
+        status_code=status_code,
+        detail={"code": code, "message": exc.detail or code},
+    )
+
+
+@router.post(
+    "/tracking/validators",
+    status_code=status.HTTP_201_CREATED,
+    summary="Add a validator to the user's tracking list",
+)
+async def post_validator(
+    payload: ValidatorPayload, user_id: int = Depends(_resolve_user_id)
+) -> ValidatorPayload:
+    """Append a validator entry. Validates format + on-chain presence,
+    enforces the 10-entry cap, rejects duplicates (case-insensitive on
+    address). All checks happen both at the service layer (fail-fast,
+    pre-DB) and re-checked atomically inside the DB transaction so two
+    concurrent Mini-App tabs can't both win the last slot.
+    """
+    user = await get_account(str(user_id))
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="unknown user")
+
+    # Pre-flight at the service layer: format + on-chain + capacity +
+    # duplicate against the current snapshot. Cheaper than going to the
+    # DB just to bounce on a malformed address.
+    doc = load_tracking(user.tracking_data)
+    try:
+        _, entry = await add_validator_to_tracking(
+            doc, address=payload.address, label=payload.label
+        )
+    except AddTrackingError as exc:
+        raise _add_error_to_http(exc) from exc
+
+    # Atomic DB write — re-validates capacity + duplicate inside the
+    # transaction so we don't lose a race against another tab.
+    try:
+        await add_tracking_entry(user_id, kind="validator", payload=entry)
+    except AddTrackingError as exc:
+        raise _add_error_to_http(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    await clear_user_cache(user_id)
+    return ValidatorPayload(**entry)
+
+
+@router.post(
+    "/tracking/delegations",
+    status_code=status.HTTP_201_CREATED,
+    summary="Add a delegation to the user's tracking list",
+)
+async def post_delegation(
+    payload: DelegationPayload, user_id: int = Depends(_resolve_user_id)
+) -> DelegationPayload:
+    """Append a delegation entry. Validates both addresses, requires the
+    delegator to actually have a position in at least one of the staker's
+    pools, dedupes on the ``(delegator, staker)`` pair (pools are
+    auto-discovered downstream).
+    """
+    user = await get_account(str(user_id))
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="unknown user")
+
+    doc = load_tracking(user.tracking_data)
+    try:
+        _, entry = await add_delegator_to_tracking(
+            doc,
+            delegator=payload.delegator,
+            staker=payload.staker,
+            label=payload.label,
+        )
+    except AddTrackingError as exc:
+        raise _add_error_to_http(exc) from exc
+
+    try:
+        await add_tracking_entry(user_id, kind="delegator", payload=entry)
+    except AddTrackingError as exc:
+        raise _add_error_to_http(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    await clear_user_cache(user_id)
+    return DelegationPayload(**entry)
 
 
 @router.patch("/tracking/label", summary="Rename a single tracked entry")

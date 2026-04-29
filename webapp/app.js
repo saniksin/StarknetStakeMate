@@ -334,6 +334,7 @@ function parseRoute() {
   if (parts[0] === "v" && parts[1]) return { name: "validator", address: parts[1] };
   if (parts[0] === "d" && parts[2]) return { name: "delegator", delegator: parts[1], staker: parts[2] };
   if (parts[0] === "settings") return { name: "settings" };
+  if (parts[0] === "add") return { name: "add" };
   return { name: "dashboard" };
 }
 
@@ -450,6 +451,7 @@ async function renderRoute() {
     else if (route.name === "validator") await renderValidator(route.address);
     else if (route.name === "delegator") await renderDelegator(route.delegator, route.staker);
     else if (route.name === "settings") await renderSettings();
+    else if (route.name === "add") await renderAdd();
   } catch (err) {
     // Render the diagnostic block alongside the error so the user can
     // tell whether the failure is "Telegram never sent initData" vs
@@ -583,9 +585,16 @@ async function renderDashboard() {
     ? `≈ ${fmtUsd(unclaimedUsd)}`
     : "";
 
+  // Wire the "+ Add" CTA in the section row above the list. The button
+  // lives inside the dashboard template (not the topbar) because mobile
+  // patterns put primary content actions inline with their section so
+  // they're discoverable but don't crowd the global header.
+  const addBtn = viewEl.querySelector("[data-action='add']");
+  if (addBtn) addBtn.addEventListener("click", () => navigate("#/add"));
+
   // Entries list
   if (entries.length === 0) {
-    $.entries.innerHTML = `<div class="placeholder">${escapeHtml(t("webapp_no_tracked_yet", "No tracked addresses yet. Open the bot and use “Add Info”."))}</div>`;
+    $.entries.innerHTML = `<div class="placeholder">${escapeHtml(t("webapp_no_tracked_yet", "No tracked addresses yet. Tap “+ Add” above or open the bot."))}</div>`;
     return;
   }
   $.entries.innerHTML = "";
@@ -1547,6 +1556,162 @@ async function renderSettings() {
       saveBtn.disabled = false;
     }
   };
+}
+
+// ---------------------------------------------------------------------------
+// Add validator / delegator view
+// ---------------------------------------------------------------------------
+
+// Map every error code the API can return to a localized message. The
+// codes ride inside the JSON detail (``{code, message}``) so we don't
+// have to parse the free-form ``message`` string. Falls back to
+// ``webapp_add_error_unknown`` when the backend invents a new code.
+function _addErrorKeyForCode(role, code) {
+  if (code === "invalid_address") return "webapp_add_error_invalid_address";
+  if (code === "duplicate") {
+    return role === "validator"
+      ? "webapp_add_error_duplicate_validator"
+      : "webapp_add_error_duplicate_delegator";
+  }
+  if (code === "limit_reached") return "webapp_add_error_limit_reached";
+  if (code === "not_a_staker") return "webapp_add_error_not_a_staker";
+  if (code === "not_a_delegator") return "webapp_add_error_not_a_delegator";
+  return "webapp_add_error_unknown";
+}
+
+// The API returns errors as ``HTTPException(detail={code, message})``,
+// which our ``api()`` helper has already serialized into ``err.message``
+// (the textual response body). Pull the JSON back out so we can map by
+// code; if parsing fails we still get a sensible ``unknown`` fallback.
+function _parseAddError(err) {
+  try {
+    const body = JSON.parse(err.message.replace(/^\d+\s*/, ""));
+    if (body && typeof body === "object" && body.detail) {
+      if (typeof body.detail === "string") return { code: "unknown", message: body.detail };
+      if (typeof body.detail === "object") return body.detail;
+    }
+  } catch (_) {
+    // fall through
+  }
+  return { code: "unknown", message: String(err.message || "") };
+}
+
+async function renderAdd() {
+  setTopbar(
+    t("webapp_topbar_add", "Add"),
+    t("webapp_topbar_add_sub", "New tracking entry"),
+  );
+  renderTemplate("tpl-add");
+  const $ = bindings();
+
+  let role = "validator";
+
+  const segment = document.getElementById("add-role-segment");
+  const addressInput = document.getElementById("address-input");
+  const delegatorInput = document.getElementById("delegator-input");
+  const labelInput = document.getElementById("label-input");
+  const errorEl = document.getElementById("add-error");
+  const statusEl = document.getElementById("add-status");
+  const submitBtn = document.getElementById("add-submit");
+
+  function applyRole(next) {
+    role = next;
+    for (const opt of segment.querySelectorAll(".seg-option")) {
+      opt.setAttribute("aria-selected", String(opt.dataset.role === role));
+    }
+    // Hide the error every time the user toggles role — the previous
+    // message would refer to the wrong field after a switch.
+    errorEl.hidden = true;
+    errorEl.textContent = "";
+
+    if (role === "validator") {
+      $.delegatorRow.hidden = true;
+      $.addressLabel.textContent = t("webapp_add_validator_label", "Validator (staker) address");
+      $.roleHint.textContent = t(
+        "webapp_add_role_hint_validator",
+        "Track a staker. We'll pull pool info, attestations, and rewards automatically.",
+      );
+    } else {
+      $.delegatorRow.hidden = false;
+      $.addressLabel.textContent = t("webapp_add_staker_label", "Validator (staker) address");
+      $.roleHint.textContent = t(
+        "webapp_add_role_hint_delegator",
+        "Track your delegation in someone else's pool. Both addresses are required — we'll find the matching pools.",
+      );
+    }
+  }
+
+  applyRole("validator");
+  for (const opt of segment.querySelectorAll(".seg-option")) {
+    opt.addEventListener("click", () => applyRole(opt.dataset.role));
+  }
+
+  function showError(messageKey, extraMessage) {
+    // ``extraMessage`` lets us surface the backend's free-form detail for
+    // the ``unknown`` bucket — the localized key carries the user-facing
+    // sentence, the backend message lives in a smaller code-style line.
+    errorEl.hidden = false;
+    let html = escapeHtml(t(messageKey, ""));
+    if (!html) html = escapeHtml(extraMessage || messageKey);
+    if (extraMessage && messageKey === "webapp_add_error_unknown") {
+      html += `<br><span class="addr-mono small">${escapeHtml(extraMessage)}</span>`;
+    }
+    errorEl.innerHTML = html;
+    if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("error");
+  }
+
+  submitBtn.addEventListener("click", async () => {
+    errorEl.hidden = true;
+    errorEl.textContent = "";
+    statusEl.textContent = t("webapp_add_submitting", "Submitting…");
+    submitBtn.disabled = true;
+
+    const address = (addressInput.value || "").trim();
+    const delegator = (delegatorInput.value || "").trim();
+    const label = (labelInput.value || "").trim();
+
+    // Cheap client-side guard — the server validates the same things,
+    // but failing fast saves a round-trip on obvious typos.
+    if (!address) {
+      showError("webapp_add_error_invalid_address");
+      statusEl.textContent = "";
+      submitBtn.disabled = false;
+      return;
+    }
+    if (role === "delegator" && !delegator) {
+      showError("webapp_add_error_invalid_address");
+      statusEl.textContent = "";
+      submitBtn.disabled = false;
+      return;
+    }
+
+    try {
+      if (role === "validator") {
+        await api("/api/v1/users/me/tracking/validators", {
+          method: "POST",
+          body: { address, label },
+        });
+      } else {
+        await api("/api/v1/users/me/tracking/delegations", {
+          method: "POST",
+          body: { delegator, staker: address, label },
+        });
+      }
+      // Invalidate cached entries so the dashboard refetches the fresh
+      // doc. ``state.notification`` doesn't change here; leave it cached.
+      state.entries = null;
+      statusEl.textContent = t("webapp_add_success", "Added.");
+      toast(t("webapp_add_success", "Added."));
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+      navigate("#/");
+    } catch (err) {
+      const detail = _parseAddError(err);
+      const key = _addErrorKeyForCode(role, detail.code);
+      showError(key, detail.message);
+      statusEl.textContent = "";
+      submitBtn.disabled = false;
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------

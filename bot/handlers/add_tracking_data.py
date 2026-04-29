@@ -12,19 +12,22 @@ from aiogram import types
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.handlers.clear_state import finish_operation
 from data.contracts import Contracts
 from data.languages import translate
-from db_api.database import Users, db, get_user_tracking
+from db_api.database import Users, add_tracking_entry, get_user_tracking
 from services.staking_service import get_delegator_positions, get_validator_info
-from services.tracking_service import dump_tracking, total_tracked
+from services.tracking_service import (
+    MAX_TRACKED_ENTRIES,
+    AddTrackingError,
+    total_tracked,
+)
 from utils.cache import clear_user_cache
 from utils.check_valid_addresses import is_valid_starknet_address
 from utils.logger import logger
 
-_MAX_TRACKED = 10  # picker keyboards stay readable up to ~10 rows on mobile
+_MAX_TRACKED = MAX_TRACKED_ENTRIES  # picker keyboards stay readable up to ~10 rows on mobile
 
 
 class AddInfoState(StatesGroup):
@@ -282,60 +285,52 @@ async def process_confirmation(
     text = (message.text or "").lower()
 
     if text == translate("save", user_locale).lower():
-        doc = await get_user_tracking(user_object.user_id)
-
+        # Centralised atomic write — re-reads the row inside one session,
+        # re-validates capacity + duplicate inside the transaction, then
+        # emits a single targeted ``UPDATE tracking_data`` so a concurrent
+        # Mini-App tab can't lose this write to a snapshot+merge race.
         if data.get("add_validator"):
-            new_addr = (data["validator_address"] or "").lower()
-            existing = doc.setdefault("validators", [])
-            # Reject duplicates — same staker added twice from the bot UI
-            # produced two identical cards in the tracking list. Compare
-            # case-insensitively because Starknet hex addresses round-trip
-            # in either case.
-            if any((v.get("address") or "").lower() == new_addr for v in existing):
-                await state.clear()
-                await finish_operation(
-                    message, state, user_locale,
-                    privious_msg=translate("duplicate_validator", user_locale),
-                    cancel_msg=False,
-                )
-                return
-            existing.append({
+            kind = "validator"
+            payload = {
                 "address": data["validator_address"],
                 "label": data.get("label", ""),
-            })
+            }
+            duplicate_key = "duplicate_validator"
             msg_key = "validator_info_saved"
         else:
-            new_delegator = (data["delegetor_address"] or "").lower()
-            new_staker = (data["staker_address"] or "").lower()
-            existing = doc.setdefault("delegations", [])
-            # The natural identity of a delegation is the (delegator, staker)
-            # pair — pools are auto-discovered, so adding the same pair
-            # twice yields the same card.
-            duplicate = any(
-                (d.get("delegator") or "").lower() == new_delegator
-                and (d.get("staker") or "").lower() == new_staker
-                for d in existing
-            )
-            if duplicate:
-                await state.clear()
-                await finish_operation(
-                    message, state, user_locale,
-                    privious_msg=translate("duplicate_delegation", user_locale),
-                    cancel_msg=False,
-                )
-                return
-            existing.append({
+            kind = "delegator"
+            payload = {
                 "delegator": data["delegetor_address"],
                 "staker": data["staker_address"],
                 "label": data.get("label", ""),
-            })
+            }
+            duplicate_key = "duplicate_delegation"
             msg_key = "delegate_info_saved"
 
-        user_object.tracking_data = dump_tracking(doc)
-
-        async with AsyncSession(db.engine) as session:
-            await session.merge(user_object)
-            await session.commit()
+        try:
+            await add_tracking_entry(
+                int(user_object.user_id), kind=kind, payload=payload
+            )
+        except AddTrackingError as exc:
+            await state.clear()
+            if exc.code == "duplicate":
+                err_key = duplicate_key
+            elif exc.code == "limit_reached":
+                err_key = "info_limit_reached"
+            else:
+                err_key = duplicate_key
+            await finish_operation(
+                message, state, user_locale,
+                privious_msg=translate(err_key, user_locale),
+                cancel_msg=False,
+            )
+            return
+        except ValueError:
+            # User row vanished between the FSM start and the save — let
+            # the user retry from /start. Rare, treat as a generic cancel.
+            await state.clear()
+            await finish_operation(message, state, user_locale)
+            return
 
         logger.info(f"added tracking entry for {user_object.user_id}")
         await clear_user_cache(user_object.user_id)

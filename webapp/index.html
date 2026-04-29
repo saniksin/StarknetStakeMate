@@ -63,10 +63,56 @@
       </div>
     </div>
 
-    <h3 class="section-title" data-bind="listTitle" data-i18n="webapp_tracked_addresses">Tracked addresses</h3>
+    <div class="section-row">
+      <h3 class="section-title" data-bind="listTitle" data-i18n="webapp_tracked_addresses">Tracked addresses</h3>
+      <button class="section-cta" type="button" data-action="add" data-i18n="webapp_add_button">+ Add</button>
+    </div>
     <div id="entries" class="card-list" data-bind="entries">
       <div class="placeholder" data-bind="placeholder" data-i18n="webapp_loading">Loading…</div>
     </div>
+  </template>
+
+  <template id="tpl-add">
+    <div class="hero">
+      <h2 class="hero-form-title" data-i18n="webapp_add_form_title">Add to tracking</h2>
+      <p class="muted small" data-i18n="webapp_add_form_hint">
+        Pick a role, paste the address, and (optionally) give it a label so it's easy to spot in the list.
+      </p>
+    </div>
+
+    <h3 class="section-title" data-i18n="webapp_add_role_section">Role</h3>
+    <div class="card form-card">
+      <div class="seg-control" role="tablist" id="add-role-segment">
+        <button type="button" class="seg-option" data-role="validator" role="tab" data-i18n="webapp_add_role_validator">Validator</button>
+        <button type="button" class="seg-option" data-role="delegator" role="tab" data-i18n="webapp_add_role_delegator">Delegator</button>
+      </div>
+      <p class="muted small" data-bind="roleHint">—</p>
+    </div>
+
+    <h3 class="section-title" data-bind="addressesTitle" data-i18n="webapp_add_addresses_section">Addresses</h3>
+    <div class="card form-card">
+      <label class="row-label" data-bind="delegatorRow" hidden>
+        <span data-i18n="webapp_add_delegator_label">Your delegator address</span>
+        <input type="text" id="delegator-input" autocomplete="off" spellcheck="false" placeholder="0x..." />
+      </label>
+      <label class="row-label">
+        <span data-bind="addressLabel" data-i18n="webapp_add_validator_label">Validator (staker) address</span>
+        <input type="text" id="address-input" autocomplete="off" spellcheck="false" placeholder="0x..." />
+      </label>
+      <p class="form-error" id="add-error" hidden></p>
+    </div>
+
+    <h3 class="section-title" data-i18n="webapp_add_label_section">Label (optional)</h3>
+    <div class="card form-card">
+      <label class="row-label">
+        <span data-i18n="webapp_add_label_label">Display name</span>
+        <input type="text" id="label-input" maxlength="40" autocomplete="off" placeholder="" />
+      </label>
+      <p class="muted small" data-i18n="webapp_add_label_hint">Up to 40 characters. Stays local to your account.</p>
+    </div>
+
+    <button class="primary-btn" id="add-submit" data-i18n="webapp_add_submit_btn">Add to tracking</button>
+    <p class="muted small center" id="add-status"></p>
   </template>
 
   <template id="tpl-detail">

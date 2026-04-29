@@ -164,6 +164,91 @@ async def update_operator_balance_was_below(
 update_operator_balance_state = update_operator_balance_was_below
 
 
+async def add_tracking_entry(
+    user_id: int,
+    *,
+    kind: str,
+    payload: dict,
+) -> dict:
+    """Atomically append a new entry to ``users.tracking_data``.
+
+    Re-reads the row inside the session so two simultaneous tabs of the
+    Mini App can't lose each other's writes the way ``snapshot + merge``
+    would. ``payload`` is the entry dict (``{address, label}`` for
+    validators or ``{delegator, staker, label}`` for delegations) —
+    validation must already have happened upstream in
+    :mod:`services.tracking_service`. Returns the resulting full doc so
+    the caller can return it to the client.
+
+    Raises :class:`ValueError` when the user row doesn't exist, mirroring
+    the existing ``404 unknown user`` shape used by API endpoints.
+    """
+    from services.tracking_service import (
+        AddTrackingError,
+        MAX_TRACKED_ENTRIES,
+        _normalize,
+        dump_tracking,
+        load_tracking,
+    )
+
+    if kind not in ("validator", "delegator"):
+        raise ValueError(f"unknown kind: {kind!r}")
+
+    list_key = "validators" if kind == "validator" else "delegations"
+
+    async with AsyncSession(db.engine) as session:
+        result = await session.execute(
+            select(Users).where(Users.user_id == user_id)
+        )
+        user = result.scalars().first()
+        if user is None:
+            raise ValueError(f"user {user_id} not found")
+
+        doc = _normalize(load_tracking(user.tracking_data))
+
+        # Re-validate inside the transaction. Capacity + duplicate
+        # checks live here too because the snapshot the service layer
+        # validated against may be stale by the time we get the row
+        # lock — another concurrent tab could have used the last slot.
+        total = len(doc["validators"]) + len(doc["delegations"])
+        if total >= MAX_TRACKED_ENTRIES:
+            raise AddTrackingError(
+                "limit_reached",
+                f"max {MAX_TRACKED_ENTRIES} tracked entries per user",
+            )
+        if kind == "validator":
+            new_addr = (payload.get("address") or "").lower()
+            if any(
+                (v.get("address") or "").lower() == new_addr
+                for v in doc["validators"]
+            ):
+                raise AddTrackingError(
+                    "duplicate", "validator already in your tracking list"
+                )
+        else:
+            new_del = (payload.get("delegator") or "").lower()
+            new_sta = (payload.get("staker") or "").lower()
+            if any(
+                (d.get("delegator") or "").lower() == new_del
+                and (d.get("staker") or "").lower() == new_sta
+                for d in doc["delegations"]
+            ):
+                raise AddTrackingError(
+                    "duplicate", "delegation already in your tracking list"
+                )
+
+        doc[list_key].append(payload)
+        new_json = dump_tracking(doc)
+
+        await session.execute(
+            update(Users)
+            .where(Users.user_id == user_id)
+            .values(tracking_data=new_json)
+        )
+        await session.commit()
+        return doc
+
+
 async def clear_request_queue(user_id: int) -> None:
     """Atomically null out ``request_queue`` for a user.
 

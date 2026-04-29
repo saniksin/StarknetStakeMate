@@ -408,3 +408,164 @@ def render_dashboard_summary(entries: list[TrackingEntry], locale: str) -> str:
                 bits.append(f"{_fmt_amount(pos.amount_decimal, sym)}")
             lines.append(f"🎱 <b>{name}</b> — " + " · ".join(bits))
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Add-flow service layer
+#
+# Used by both the bot's FSM (``bot/handlers/add_tracking_data.py``) and the
+# Mini App's POST endpoints. Centralizing here means a single source of truth
+# for ordering — format → capacity → on-chain → duplicate — so the bot and
+# the API can never disagree about what's a valid input.
+#
+# Validation does NOT touch the DB — it returns the new entry dict and lets
+# the caller persist it however they want (the bot does ``session.merge``,
+# the API does an atomic in-session re-read+UPDATE).
+# ---------------------------------------------------------------------------
+
+
+# Capacity cap shared across both entry types. Keeps the picker keyboards
+# in the bot readable, and the Mini App list scrollable without burning
+# RPC budget on hundreds of staker-info reads per dashboard load.
+MAX_TRACKED_ENTRIES = 10
+
+
+class AddTrackingError(Exception):
+    """Raised by ``add_*_to_tracking`` when validation rejects an input.
+
+    The ``code`` field is a stable identifier the caller can map to a
+    locale key (Mini App) or a translate-key (bot) without parsing the
+    free-form ``detail`` message. Codes:
+
+      - ``invalid_address``   — failed Starknet hex regex
+      - ``limit_reached``     — user already has MAX_TRACKED_ENTRIES rows
+      - ``duplicate``         — natural key already exists in the doc
+      - ``not_a_staker``      — staker contract returned no info
+      - ``not_a_delegator``   — delegator isn't a member of any of the
+                                staker's pools
+    """
+
+    def __init__(self, code: str, detail: str = "") -> None:
+        super().__init__(detail or code)
+        self.code = code
+        self.detail = detail
+
+
+def _normalize_label(label: str | None) -> str:
+    """Truncate user-supplied labels to 40 chars (matches bot behaviour)."""
+    if not label:
+        return ""
+    label = str(label).strip()
+    return label[:40]
+
+
+async def add_validator_to_tracking(
+    doc: dict,
+    *,
+    address: str,
+    label: str = "",
+) -> tuple[dict, dict]:
+    """Validate + insert a validator entry into ``doc``.
+
+    Returns ``(updated_doc, new_entry)``. ``doc`` is mutated in place
+    (callers that need a snapshot should ``copy.deepcopy`` first). The
+    returned entry has the ``{address, label}`` shape the bot uses.
+
+    Raises :class:`AddTrackingError` for any validation failure; the
+    caller maps the ``code`` to a user-facing message.
+    """
+    # Lazy-imported to avoid a circular dep with services.staking_service
+    # (which imports ``services.tracking_service`` for ``TrackingEntry``).
+    from utils.check_valid_addresses import is_valid_starknet_address
+    from services.staking_service import get_validator_info
+
+    if not is_valid_starknet_address(address):
+        raise AddTrackingError("invalid_address", f"invalid address: {address}")
+
+    doc = _normalize(doc)
+    if total_tracked(doc) >= MAX_TRACKED_ENTRIES:
+        raise AddTrackingError(
+            "limit_reached",
+            f"max {MAX_TRACKED_ENTRIES} tracked entries per user",
+        )
+
+    new_addr_lower = address.lower()
+    if any(
+        (v.get("address") or "").lower() == new_addr_lower
+        for v in doc["validators"]
+    ):
+        raise AddTrackingError(
+            "duplicate", "validator already in your tracking list"
+        )
+
+    # On-chain check — same as the bot's confirm-step. Skipping attestation
+    # avoids two extra RPC reads on the add-path; the dashboard pulls them
+    # later once the row is saved.
+    info = await get_validator_info(address, with_attestation=False)
+    if info is None:
+        raise AddTrackingError(
+            "not_a_staker", f"address is not a staker on-chain: {address}"
+        )
+
+    entry = {"address": address, "label": _normalize_label(label)}
+    doc["validators"].append(entry)
+    return doc, entry
+
+
+async def add_delegator_to_tracking(
+    doc: dict,
+    *,
+    delegator: str,
+    staker: str,
+    label: str = "",
+) -> tuple[dict, dict]:
+    """Validate + insert a delegation entry into ``doc``.
+
+    The natural identity of a delegation is the ``(delegator, staker)``
+    pair — pools are auto-discovered, so adding the same pair twice
+    yields the same dashboard card.
+    """
+    from utils.check_valid_addresses import is_valid_starknet_address
+    from services.staking_service import get_delegator_positions
+
+    if not is_valid_starknet_address(delegator):
+        raise AddTrackingError(
+            "invalid_address", f"invalid delegator address: {delegator}"
+        )
+    if not is_valid_starknet_address(staker):
+        raise AddTrackingError(
+            "invalid_address", f"invalid staker address: {staker}"
+        )
+
+    doc = _normalize(doc)
+    if total_tracked(doc) >= MAX_TRACKED_ENTRIES:
+        raise AddTrackingError(
+            "limit_reached",
+            f"max {MAX_TRACKED_ENTRIES} tracked entries per user",
+        )
+
+    del_lower = delegator.lower()
+    sta_lower = staker.lower()
+    if any(
+        (d.get("delegator") or "").lower() == del_lower
+        and (d.get("staker") or "").lower() == sta_lower
+        for d in doc["delegations"]
+    ):
+        raise AddTrackingError(
+            "duplicate", "delegation already in your tracking list"
+        )
+
+    multi = await get_delegator_positions(staker, delegator)
+    if multi is None or not multi.has_any:
+        raise AddTrackingError(
+            "not_a_delegator",
+            f"delegator {delegator} has no position in any of {staker}'s pools",
+        )
+
+    entry = {
+        "delegator": delegator,
+        "staker": staker,
+        "label": _normalize_label(label),
+    }
+    doc["delegations"].append(entry)
+    return doc, entry
