@@ -891,23 +891,20 @@ main {
 }
 .reorder-hint[hidden] { display: none; }
 
-/* Drag handle — visible only in reorder mode. The handle ITSELF stays
-   in the DOM in normal mode (so the card layout is identical), it's
-   just collapsed to width:0 / opacity:0 with a transition. The
-   ``touch-action: none`` rule on the handle blocks the browser from
-   stealing the pointermove sequence to scroll the page. */
+/* Drag handle — invisible AND removed from layout in normal mode
+   (``display: none`` keeps the card grid at its original 4-column
+   shape, so the icon/body/right/chevron line up exactly the way they
+   did before reorder shipped). Only when ``#app.reorder-mode`` is on
+   does the handle re-enter the layout — and we expand the card grid
+   to 5 columns to accommodate it without pushing the chevron onto a
+   second row. */
 .drag-handle {
-  flex: 0 0 auto;
-  width: 0;
-  overflow: hidden;
-  display: inline-flex;
+  display: none;
   align-items: center;
   justify-content: center;
   font-size: 18px;
   line-height: 1;
   color: var(--hint);
-  opacity: 0;
-  transition: width 120ms ease-out, opacity 120ms ease-out, margin 120ms ease-out;
   cursor: grab;
   user-select: none;
   touch-action: none;
@@ -919,15 +916,16 @@ main {
    flag through every nested component. */
 #app.reorder-mode .row-card {
   cursor: grab;
+  /* Add a 5th column at the LEFT for the drag handle. The original
+     ``36px 1fr auto 12px`` is preserved verbatim after the new column,
+     so icon / body / right / chevron stay in their canonical cells —
+     same widths as outside reorder mode. */
+  grid-template-columns: 28px 36px 1fr auto 12px;
   background: color-mix(in srgb, var(--secondary-bg) 60%, transparent);
 }
 #app.reorder-mode .row-card .chevron { opacity: 0.25; }
 #app.reorder-mode .drag-handle {
-  /* 44px guarantees an Apple HIG-compliant touch target on phones; on
-     desktop the larger hit-area helps mouse users too. */
-  width: 44px;
-  margin-right: var(--s2);
-  opacity: 1;
+  display: inline-flex;
 }
 #app.reorder-mode .row-card.dragging {
   /* Lift the card up: subtle shadow + slight scale so the user sees
