@@ -814,6 +814,81 @@ main {
   transition: opacity 100ms ease-out;
 }
 .section-cta:active { opacity: 0.55; }
+.section-cta[hidden] { display: none; }
+/* The two CTAs (+ Add and ↕ Reorder) sit on the right edge in a row.
+   We give them their own flex container so the section-title's
+   ``baseline`` alignment doesn't pull the whole pair into the heading. */
+.section-actions {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+}
+/* Reorder CTA is the secondary action of the pair — same size and
+   weight, different glyph, slightly muted color until reorder mode is
+   on. Active state recolors to the accent so the user has a clear
+   "you're in reorder mode" indicator on the button itself. */
+.section-cta.reorder { color: var(--header-fg); }
+.section-cta.reorder.active { color: var(--accent); }
+
+.reorder-hint {
+  margin: 0 var(--s2) var(--s2);
+  padding: var(--s2) var(--s3);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--header-fg);
+  border-radius: var(--r-sm);
+  text-align: center;
+}
+.reorder-hint[hidden] { display: none; }
+
+/* Drag handle — visible only in reorder mode. The handle ITSELF stays
+   in the DOM in normal mode (so the card layout is identical), it's
+   just collapsed to width:0 / opacity:0 with a transition. The
+   ``touch-action: none`` rule on the handle blocks the browser from
+   stealing the pointermove sequence to scroll the page. */
+.drag-handle {
+  flex: 0 0 auto;
+  width: 0;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--hint);
+  opacity: 0;
+  transition: width 120ms ease-out, opacity 120ms ease-out, margin 120ms ease-out;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+.drag-handle:active { cursor: grabbing; }
+
+/* Reorder-mode visuals — applied via ``#app.reorder-mode`` so the
+   class lives on the dashboard root and we don't have to plumb the
+   flag through every nested component. */
+#app.reorder-mode .row-card {
+  cursor: grab;
+  background: color-mix(in srgb, var(--secondary-bg) 60%, transparent);
+}
+#app.reorder-mode .row-card .chevron { opacity: 0.25; }
+#app.reorder-mode .drag-handle {
+  /* 44px guarantees an Apple HIG-compliant touch target on phones; on
+     desktop the larger hit-area helps mouse users too. */
+  width: 44px;
+  margin-right: var(--s2);
+  opacity: 1;
+}
+#app.reorder-mode .row-card.dragging {
+  /* Lift the card up: subtle shadow + slight scale so the user sees
+     it detach from the list. ``z-index: 2`` puts it above the
+     siblings during the translateY animation. */
+  background: var(--card-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  transform-origin: center;
+  z-index: 2;
+  position: relative;
+  opacity: 0.96;
+}
 
 /* Inline form error — sits inside ``.form-card`` under the input it
    refers to. Uses a softer red than ``.banner.danger`` because we want

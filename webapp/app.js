@@ -26,6 +26,10 @@ const state = {
   prices: null,         // CoinGecko-derived USD per symbol (best-effort)
   profile: null,        // /api/v1/users/me/profile (id, name, language)
   locale: null,         // loaded /api/v1/locales/{lang} bundle
+  reorderMode: false,   // dashboard drag-and-drop reorder toggle
+  // Snapshot of entries[] taken when reorder mode is entered, used to
+  // roll back the optimistic UI if the PUT /tracking/order call fails.
+  reorderInitial: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -592,6 +596,23 @@ async function renderDashboard() {
   const addBtn = viewEl.querySelector("[data-action='add']");
   if (addBtn) addBtn.addEventListener("click", () => navigate("#/add"));
 
+  // Wire the "↕ Reorder" / "✓ Done" CTA. The button is hidden when
+  // there's <2 entries (nothing to reorder). The same button doubles
+  // as the "Done" affordance during reorder mode — saves a topbar slot.
+  const reorderBtn = viewEl.querySelector("[data-action='reorder']");
+  if (reorderBtn) {
+    reorderBtn.hidden = entries.length < 2;
+    reorderBtn.addEventListener("click", () => {
+      if (state.reorderMode) {
+        // Tapping Done commits the order. We never block on the network
+        // — if it fails, the toast surfaces it and we roll back.
+        disableReorderMode(true);
+      } else {
+        enableReorderMode();
+      }
+    });
+  }
+
   // Entries list
   if (entries.length === 0) {
     $.entries.innerHTML = `<div class="placeholder">${escapeHtml(t("webapp_no_tracked_yet", "No tracked addresses yet. Tap “+ Add” above or open the bot."))}</div>`;
@@ -599,6 +620,11 @@ async function renderDashboard() {
   }
   $.entries.innerHTML = "";
   for (const e of entries) renderEntryCard(e, $.entries, prices);
+
+  // Re-apply the reorder visual state on every dashboard render. The
+  // user can navigate away and come back via #/v/... → back, and we
+  // want the mode to survive that round-trip if it was on.
+  if (state.reorderMode) _applyReorderVisuals(true);
 }
 
 function renderEntryCard(entry, container, prices) {
@@ -607,6 +633,18 @@ function renderEntryCard(entry, container, prices) {
   const card = document.createElement("button");
   card.className = "row-card";
   card.type = "button";
+
+  // Identity attributes — used by the reorder save step to read the
+  // post-drag order off the DOM. Validators key on ``address``, delegations
+  // key on ``(delegator, staker)``. We stamp ``kind`` so the save step can
+  // separate the two lists into the API payload.
+  card.dataset.kind = entry.kind;
+  if (isValidator) {
+    card.dataset.address = entry.address;
+  } else {
+    card.dataset.delegator = entry.data?.delegator_address || entry.address;
+    card.dataset.staker = entry.data?.staker_address || "";
+  }
 
   const unclaimed = entryUnclaimedBySymbol(entry);
   const unclaimedSum = unclaimed["STRK"] || 0;
@@ -638,7 +676,14 @@ function renderEntryCard(entry, container, prices) {
     if (positions.length > 1) subHtml += ` <span class="chip">${positions.length} pools</span>`;
   }
 
+  // Drag handle is rendered once and toggled via .reorder-mode parent
+  // class — keeps the card geometry stable so the layout shift between
+  // normal/reorder mode is just a fade-in for the handle (no jank). The
+  // ⠿ glyph (BRAILLE PATTERN DOTS-12345678) is the de-facto sortable
+  // handle character on iOS / GitHub / Notion / Linear; users recognise
+  // it without a tooltip.
   card.innerHTML = `
+    <span class="drag-handle" aria-hidden="true">⠿</span>
     <span class="icon ${isValidator ? "validator" : "delegator"}">${isValidator ? "🛡" : "🎱"}</span>
     <span class="body">
       <div class="label">${escapeHtml(label)}</div>
@@ -649,11 +694,231 @@ function renderEntryCard(entry, container, prices) {
       <path fill="currentColor" d="M9.3 5.3a1 1 0 0 1 1.4 0l6 6a1 1 0 0 1 0 1.4l-6 6a1 1 0 1 1-1.4-1.4L14.6 12 9.3 6.7a1 1 0 0 1 0-1.4z"/>
     </svg>
   `;
-  card.addEventListener("click", () => {
+  card.addEventListener("click", (ev) => {
+    // Suppress navigation while in reorder mode — tapping the body
+    // there has no semantic action; the only valid input is dragging
+    // the handle. Without this guard a user mid-drag who let go on
+    // the body would teleport into the detail view.
+    if (state.reorderMode) {
+      ev.preventDefault();
+      return;
+    }
     if (isValidator) navigate(`#/v/${entry.address}`);
     else navigate(`#/d/${entry.data?.delegator_address || entry.address}/${entry.data?.staker_address || ""}`);
   });
+
+  // Pointer-event sortable hookup. Lives on the handle, not the body,
+  // so vertical scroll on the rest of the card still works on touch.
+  const handle = card.querySelector(".drag-handle");
+  if (handle) _wireDragHandle(card, handle);
+
   container.appendChild(card);
+}
+
+// ---------------------------------------------------------------------------
+// Reorder mode (drag-and-drop)
+//
+// Two-list sortable. Validators reorder among validators; delegations
+// reorder among delegations. We enforce the section boundary by only
+// considering siblings of the same ``data-kind`` when computing drop
+// targets — dragging a validator past the last validator simply pins
+// it at the end of the validators block, the cursor doesn't pull it
+// into the delegations group.
+//
+// Pointer events (``pointerdown/move/up``) cover both mouse and touch
+// in one code path. We start the drag only on ``pointerdown`` on the
+// ``.drag-handle`` — never the body — so vertical scroll on the rest
+// of the card still works on touch (the ``touch-action: none`` rule is
+// scoped to the handle in CSS for the same reason).
+// ---------------------------------------------------------------------------
+
+function enableReorderMode() {
+  state.reorderMode = true;
+  // Snapshot the current order so we can roll back if the save fails.
+  state.reorderInitial = Array.isArray(state.entries)
+    ? state.entries.map((e) => ({ ...e }))
+    : null;
+  _applyReorderVisuals(true);
+  if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
+}
+
+async function disableReorderMode(save) {
+  state.reorderMode = false;
+  _applyReorderVisuals(false);
+
+  if (!save) {
+    // Cancel — restore the original order if we have a snapshot.
+    if (state.reorderInitial) state.entries = state.reorderInitial;
+    state.reorderInitial = null;
+    await renderDashboard();
+    return;
+  }
+
+  // Read the post-drag order off the DOM, build the API payload.
+  const cardEls = Array.from(viewEl.querySelectorAll(".row-card"));
+  const validators = [];
+  const delegations = [];
+  for (const el of cardEls) {
+    if (el.dataset.kind === "validator") {
+      if (el.dataset.address) validators.push(el.dataset.address);
+    } else if (el.dataset.kind === "delegator") {
+      if (el.dataset.delegator && el.dataset.staker) {
+        delegations.push([el.dataset.delegator, el.dataset.staker]);
+      }
+    }
+  }
+
+  // Optimistic update — sort ``state.entries`` to match the DOM order so
+  // the next renderDashboard call paints the new order even before the
+  // PUT lands. If the network fails we restore from the snapshot.
+  const orderKey = (e) => {
+    if (e.kind === "validator") return `v:${(e.address || "").toLowerCase()}`;
+    return `d:${(e.data?.delegator_address || "").toLowerCase()}|${(e.data?.staker_address || "").toLowerCase()}`;
+  };
+  const targetIndex = new Map();
+  cardEls.forEach((el, i) => {
+    if (el.dataset.kind === "validator" && el.dataset.address) {
+      targetIndex.set(`v:${el.dataset.address.toLowerCase()}`, i);
+    } else if (el.dataset.kind === "delegator") {
+      targetIndex.set(
+        `d:${(el.dataset.delegator || "").toLowerCase()}|${(el.dataset.staker || "").toLowerCase()}`,
+        i,
+      );
+    }
+  });
+  if (Array.isArray(state.entries)) {
+    state.entries = [...state.entries].sort(
+      (a, b) => (targetIndex.get(orderKey(a)) ?? 0) - (targetIndex.get(orderKey(b)) ?? 0),
+    );
+  }
+
+  try {
+    await api("/api/v1/users/me/tracking/order", {
+      method: "PUT",
+      body: { validators, delegations },
+    });
+    state.reorderInitial = null;
+    if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+    toast(t("webapp_saved", "Saved"));
+    await renderDashboard();
+  } catch (err) {
+    // Roll back the optimistic UI to the snapshot we took on enter.
+    if (state.reorderInitial) state.entries = state.reorderInitial;
+    state.reorderInitial = null;
+    if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("error");
+    toast(t("webapp_reorder_save_failed", err.message));
+    await renderDashboard();
+  }
+}
+
+function _applyReorderVisuals(on) {
+  // Toggle the mode class on the dashboard root + reveal the hint
+  // paragraph + flip the reorder button label between "Reorder" and
+  // "Done". CSS keys off the .reorder-mode class for the rest.
+  const app = document.getElementById("app");
+  if (app) app.classList.toggle("reorder-mode", on);
+
+  const hint = viewEl.querySelector("[data-bind='reorderHint']");
+  if (hint) hint.hidden = !on;
+
+  const reorderBtn = viewEl.querySelector("[data-action='reorder']");
+  if (reorderBtn) {
+    reorderBtn.textContent = on
+      ? t("webapp_reorder_done", "✓ Done")
+      : t("webapp_reorder_button", "↕ Reorder");
+    reorderBtn.classList.toggle("active", on);
+  }
+
+  // Hide the "+ Add" CTA in reorder mode — it's not actionable while
+  // dragging and the two buttons sitting side-by-side at different
+  // semantic levels was visually noisy.
+  const addBtn = viewEl.querySelector("[data-action='add']");
+  if (addBtn) addBtn.hidden = on;
+}
+
+// Drag-and-drop wiring. Plain pointer events — no Sortable.js dep so
+// the Mini App stays a single-file ~1700-line bundle. The drop target
+// resolution algorithm is "swap with the sibling whose midpoint we
+// crossed", run on every pointermove. Cheap enough at 10 cards.
+function _wireDragHandle(card, handle) {
+  let dragging = false;
+  let pointerId = null;
+  let startY = 0;
+  let cardCenterStart = 0;
+  let translateY = 0;
+
+  const onDown = (ev) => {
+    if (!state.reorderMode) return;
+    // Only the primary button / first touch — multi-finger zoom mid-drag
+    // would otherwise dump us into a half-drag state we can't recover.
+    if (ev.button !== undefined && ev.button !== 0) return;
+    ev.preventDefault();
+    pointerId = ev.pointerId;
+    handle.setPointerCapture(pointerId);
+    dragging = true;
+    startY = ev.clientY;
+    const rect = card.getBoundingClientRect();
+    cardCenterStart = rect.top + rect.height / 2;
+    translateY = 0;
+    card.classList.add("dragging");
+    if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("medium");
+  };
+
+  const onMove = (ev) => {
+    if (!dragging || ev.pointerId !== pointerId) return;
+    ev.preventDefault();
+    translateY = ev.clientY - startY;
+    card.style.transform = `translateY(${translateY}px)`;
+
+    // Find the sibling whose midpoint our card-center has crossed.
+    // Restricted to siblings with the same ``data-kind`` so a validator
+    // can't end up in the delegations group (and vice-versa).
+    const center = cardCenterStart + translateY;
+    const siblings = Array.from(
+      card.parentElement?.querySelectorAll(`.row-card[data-kind="${card.dataset.kind}"]`) ?? [],
+    ).filter((el) => el !== card);
+
+    for (const sib of siblings) {
+      const sibRect = sib.getBoundingClientRect();
+      const sibCenter = sibRect.top + sibRect.height / 2;
+      // ``DOCUMENT_POSITION_FOLLOWING`` means ``sib`` is after ``card``
+      // in source order — i.e. ``card`` precedes ``sib``. We move past
+      // ``sib`` only when the card-center crossed its midpoint in the
+      // direction of motion. Wrap the bitwise AND in parens because
+      // ``&`` has lower precedence than ``===`` and confuses the linter.
+      const pos = card.compareDocumentPosition(sib);
+      const sibIsAfter = (pos & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+      const sibIsBefore = (pos & Node.DOCUMENT_POSITION_PRECEDING) !== 0;
+
+      if (translateY > 0 && sibIsAfter && center > sibCenter) {
+        sib.parentElement.insertBefore(card, sib.nextSibling);
+        // Reset the visual drag offset because the DOM moved under us.
+        const newRect = card.getBoundingClientRect();
+        cardCenterStart = newRect.top + newRect.height / 2 - translateY;
+        break;
+      }
+      if (translateY < 0 && sibIsBefore && center < sibCenter) {
+        sib.parentElement.insertBefore(card, sib);
+        const newRect = card.getBoundingClientRect();
+        cardCenterStart = newRect.top + newRect.height / 2 - translateY;
+        break;
+      }
+    }
+  };
+
+  const onUp = (ev) => {
+    if (!dragging || ev.pointerId !== pointerId) return;
+    dragging = false;
+    try { handle.releasePointerCapture(pointerId); } catch (_) {}
+    pointerId = null;
+    card.style.transform = "";
+    card.classList.remove("dragging");
+  };
+
+  handle.addEventListener("pointerdown", onDown);
+  handle.addEventListener("pointermove", onMove);
+  handle.addEventListener("pointerup", onUp);
+  handle.addEventListener("pointercancel", onUp);
 }
 
 // ---------------------------------------------------------------------------

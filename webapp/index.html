@@ -65,8 +65,12 @@
 
     <div class="section-row">
       <h3 class="section-title" data-bind="listTitle" data-i18n="webapp_tracked_addresses">Tracked addresses</h3>
-      <button class="section-cta" type="button" data-action="add" data-i18n="webapp_add_button">+ Add</button>
+      <div class="section-actions">
+        <button class="section-cta reorder" type="button" data-action="reorder" data-bind="reorderBtn" data-i18n="webapp_reorder_button" hidden>↕ Reorder</button>
+        <button class="section-cta" type="button" data-action="add" data-bind="addBtn" data-i18n="webapp_add_button">+ Add</button>
+      </div>
     </div>
+    <p class="reorder-hint muted small" data-bind="reorderHint" data-i18n="webapp_reorder_hint" hidden>Drag the handles to reorder. Tap Done to save.</p>
     <div id="entries" class="card-list" data-bind="entries">
       <div class="placeholder" data-bind="placeholder" data-i18n="webapp_loading">Loading…</div>
     </div>

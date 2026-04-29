@@ -71,6 +71,27 @@ def test_all_locales_contain_add_flow_keys() -> None:
         assert not missing, f"{p.name} is missing add-flow keys: {missing}"
 
 
+# Mini-App reorder (drag-and-drop) — added 2026-04-29.
+_REQUIRED_REORDER_KEYS = {
+    "webapp_reorder_button",
+    "webapp_reorder_done",
+    "webapp_reorder_cancel",
+    "webapp_reorder_hint",
+    "webapp_reorder_save_failed",
+}
+
+
+def test_all_locales_contain_reorder_keys() -> None:
+    """Every locale must carry the full reorder bundle — ru/ua need
+    real translations because the user-facing copy is what the team
+    spec'd ("Сортировать", "Готово") and the EN fallback would feel
+    wrong on a Russian client."""
+    for p in pathlib.Path(LOCALES_DIR).glob("*.json"):
+        data = json.loads(p.read_text(encoding="utf-8"))
+        missing = _REQUIRED_REORDER_KEYS - data.keys()
+        assert not missing, f"{p.name} is missing reorder keys: {missing}"
+
+
 def test_translate_formats_kwargs() -> None:
     # ``attestation_missed`` was split into plural variants in 2026-04;
     # the substitution contract still needs to thread {count} through.

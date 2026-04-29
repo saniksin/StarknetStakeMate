@@ -249,6 +249,53 @@ async def add_tracking_entry(
         return doc
 
 
+async def reorder_tracking_entries(
+    user_id: int,
+    *,
+    validators_order: list[str] | None,
+    delegations_order: list[tuple[str, str]] | None,
+) -> dict:
+    """Atomically permute the user's ``tracking_data`` lists.
+
+    Same atomicity story as :func:`add_tracking_entry` — re-read inside
+    one session, mutate the JSON snapshot, emit a single targeted
+    ``UPDATE``. That keeps a concurrent tab's add (which writes the same
+    column) from losing this reorder, and vice-versa.
+
+    Returns the resulting full doc. Raises :class:`ValueError` when the
+    user row doesn't exist.
+    """
+    from services.tracking_service import (
+        dump_tracking,
+        load_tracking,
+        reorder_tracking_doc,
+    )
+
+    async with AsyncSession(db.engine) as session:
+        result = await session.execute(
+            select(Users).where(Users.user_id == user_id)
+        )
+        user = result.scalars().first()
+        if user is None:
+            raise ValueError(f"user {user_id} not found")
+
+        doc = load_tracking(user.tracking_data)
+        new_doc = reorder_tracking_doc(
+            doc,
+            validators_order=validators_order,
+            delegations_order=delegations_order,
+        )
+        new_json = dump_tracking(new_doc)
+
+        await session.execute(
+            update(Users)
+            .where(Users.user_id == user_id)
+            .values(tracking_data=new_json)
+        )
+        await session.commit()
+        return new_doc
+
+
 async def clear_request_queue(user_id: int) -> None:
     """Atomically null out ``request_queue`` for a user.
 

@@ -13,7 +13,12 @@ from pydantic import BaseModel, Field
 
 from api.auth import TelegramUser, telegram_user_from_header
 from data.contracts import get_network_addresses
-from db_api.database import add_tracking_entry, get_account, write_to_db
+from db_api.database import (
+    add_tracking_entry,
+    get_account,
+    reorder_tracking_entries,
+    write_to_db,
+)
 from services.tracking_service import (
     AddTrackingError,
     TrackingEntry,
@@ -91,6 +96,27 @@ class ProfilePayload(BaseModel):
     user_id: int
     user_name: str | None = None
     language: str = "en"
+
+
+class ReorderPayload(BaseModel):
+    """New order for the user's tracking lists, by identity key.
+
+    Each list is optional — ``None`` means "leave that side untouched"
+    so a future per-section reorder can ship without breaking the API
+    shape. The service layer applies the reorder permissively: unknown
+    keys are ignored, missing keys are appended at the end in their
+    original relative order. That keeps the endpoint idempotent against
+    a concurrent add (the new entry just lands at the bottom).
+    """
+
+    validators: list[str] | None = Field(
+        default=None,
+        description="Validator addresses in the desired order.",
+    )
+    delegations: list[tuple[str, str]] | None = Field(
+        default=None,
+        description="Delegation (delegator, staker) pairs in the desired order.",
+    )
 
 
 async def _resolve_user_id(
@@ -239,6 +265,37 @@ async def post_delegation(
 
     await clear_user_cache(user_id)
     return DelegationPayload(**entry)
+
+
+@router.put(
+    "/tracking/order",
+    summary="Reorder validators and/or delegations within tracking_data",
+)
+async def put_tracking_order(
+    payload: ReorderPayload, user_id: int = Depends(_resolve_user_id)
+) -> TrackingDoc:
+    """Apply a new order to the user's tracking lists.
+
+    The Mini App calls this once when the user taps Done on the
+    drag-and-drop reorder mode. Reordering a single side without
+    touching the other works too — pass ``null`` for the side you
+    don't want to disturb.
+    """
+    try:
+        new_doc = await reorder_tracking_entries(
+            user_id,
+            validators_order=payload.validators,
+            delegations_order=payload.delegations,
+        )
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    await clear_user_cache(user_id)
+
+    return TrackingDoc(
+        validators=[ValidatorPayload(**v) for v in new_doc.get("validators", [])],
+        delegations=[DelegationPayload(**d) for d in new_doc.get("delegations", [])],
+    )
 
 
 @router.patch("/tracking/label", summary="Rename a single tracked entry")

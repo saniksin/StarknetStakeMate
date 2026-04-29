@@ -569,3 +569,101 @@ async def add_delegator_to_tracking(
     }
     doc["delegations"].append(entry)
     return doc, entry
+
+
+# ---------------------------------------------------------------------------
+# Reorder helpers (used by Mini-App drag-and-drop)
+# ---------------------------------------------------------------------------
+
+def reorder_tracking_doc(
+    doc: dict,
+    *,
+    validators_order: list[str] | None,
+    delegations_order: list[tuple[str, str]] | None,
+) -> dict:
+    """Return ``doc`` with its lists reordered to match the keys passed in.
+
+    Identity keys:
+      - validator: ``address`` (case-insensitive match)
+      - delegation: ``(delegator, staker)`` pair (case-insensitive)
+
+    Behaviour is permissive on partial input (the dashboard sends the
+    full list today, but a future surface might ship a one-row reorder):
+
+      - Keys present in ``*_order`` are placed first in the order given.
+      - Keys missing from ``*_order`` are appended in their original
+        relative order — so a partial reorder doesn't silently lose
+        entries.
+      - Keys in ``*_order`` that don't match any existing entry are
+        ignored (a duplicate add+reorder race won't 422 the user).
+      - ``None`` for either list means "leave that side untouched".
+
+    The original ``doc`` is not mutated; we return a new dict so callers
+    that want a snapshot stay safe.
+    """
+    out = _normalize(doc)
+    out = {"validators": list(out["validators"]), "delegations": list(out["delegations"])}
+
+    if validators_order is not None:
+        out["validators"] = _reorder_list(
+            out["validators"],
+            keys=[k.lower() for k in validators_order],
+            key_of=lambda v: (v.get("address") or "").lower(),
+        )
+
+    if delegations_order is not None:
+        # Stored pairs use ``(delegator, staker)`` lower-cased so the
+        # comparison matches the bot's add-flow dedupe logic.
+        wanted = [
+            ((p[0] or "").lower(), (p[1] or "").lower())
+            for p in delegations_order
+            if p and len(p) >= 2
+        ]
+        out["delegations"] = _reorder_list(
+            out["delegations"],
+            keys=wanted,
+            key_of=lambda d: (
+                (d.get("delegator") or "").lower(),
+                (d.get("staker") or "").lower(),
+            ),
+        )
+
+    return out
+
+
+def _reorder_list(items: list, *, keys, key_of):
+    """Permissive list reorderer used by ``reorder_tracking_doc``.
+
+    Unknown keys in ``keys`` are skipped; existing items whose key isn't
+    in ``keys`` are appended at the end in their original order. The
+    function is total — it always returns a list with the same items as
+    ``items``, just possibly permuted.
+    """
+    by_key: dict = {}
+    for item in items:
+        by_key.setdefault(key_of(item), []).append(item)
+
+    seen: set = set()
+    out = []
+    for k in keys:
+        bucket = by_key.get(k)
+        if not bucket:
+            continue
+        out.append(bucket.pop(0))
+        if not bucket:
+            seen.add(k)
+            del by_key[k]
+
+    # Drain any items the caller didn't mention — keep relative order.
+    for item in items:
+        k = key_of(item)
+        if k in seen:
+            continue
+        bucket = by_key.get(k)
+        if bucket and item is bucket[0]:
+            out.append(bucket.pop(0))
+            if not bucket:
+                seen.add(k)
+                del by_key[k]
+
+    return out
