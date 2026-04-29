@@ -744,6 +744,15 @@ function enableReorderMode() {
 
 async function disableReorderMode(save) {
   state.reorderMode = false;
+  // Force-flush any in-flight drag — if the user taps Done while still
+  // holding a card (or a previous drag never received its terminal
+  // event for some reason), the per-card cleanup hook resets transform
+  // + dragging class so the rerender below paints clean cards.
+  for (const el of viewEl.querySelectorAll(".row-card")) {
+    if (typeof el._reorderCleanup === "function") {
+      try { el._reorderCleanup(); } catch (_) {}
+    }
+  }
   _applyReorderVisuals(false);
 
   if (!save) {
@@ -846,15 +855,59 @@ function _wireDragHandle(card, handle) {
   let startY = 0;
   let cardCenterStart = 0;
   let translateY = 0;
+  // Bound terminal listeners attached to ``window`` for the duration of
+  // the drag — see ``onDown`` for the rationale. Stored at the
+  // closure level so ``cleanup()`` can detach them symmetrically.
+  let windowListenersBound = false;
+
+  // Idempotent cleanup. Safe to call from any terminal pointer event
+  // (pointerup / pointercancel / lostpointercapture / touchend /
+  // touchcancel) AND from cancel paths in the parent reorder controller.
+  // The ``dragging`` flag guards against double-cleanup so a redundant
+  // ``lostpointercapture`` after a successful ``pointerup`` is a no-op.
+  const cleanup = () => {
+    if (!dragging && !windowListenersBound) return;
+    dragging = false;
+    if (pointerId !== null) {
+      // ``releasePointerCapture`` throws ``InvalidPointerId`` if the
+      // browser already lost capture on its own (which is exactly the
+      // path that left the card stuck). Swallow it.
+      try { handle.releasePointerCapture(pointerId); } catch (_) {}
+    }
+    pointerId = null;
+    // Reset visual state. ``transform`` is the load-bearing one — if
+    // it's left set the card visually stays "lifted" at its drag
+    // offset even though the DOM is in the right place.
+    card.style.transform = "";
+    card.style.zIndex = "";
+    card.classList.remove("dragging");
+    if (windowListenersBound) {
+      window.removeEventListener("pointerup", onUpWin, true);
+      window.removeEventListener("pointercancel", onUpWin, true);
+      window.removeEventListener("pointermove", onMoveWin, true);
+      window.removeEventListener("touchend", onUpWin, true);
+      window.removeEventListener("touchcancel", onUpWin, true);
+      windowListenersBound = false;
+    }
+  };
 
   const onDown = (ev) => {
     if (!state.reorderMode) return;
     // Only the primary button / first touch — multi-finger zoom mid-drag
     // would otherwise dump us into a half-drag state we can't recover.
     if (ev.button !== undefined && ev.button !== 0) return;
+    // Guard against re-entry: if a previous drag never cleaned up
+    // (shouldn't happen now, but defence-in-depth) flush state first.
+    if (dragging) cleanup();
     ev.preventDefault();
     pointerId = ev.pointerId;
-    handle.setPointerCapture(pointerId);
+    // ``setPointerCapture`` redirects subsequent move/up events to
+    // ``handle`` even if the finger drifts off the element. iOS Safari
+    // quietly drops capture when the captured element's parent chain
+    // mutates (which our DOM swap does), so we ALSO bind the same
+    // handlers on ``window`` as a safety net — whichever fires first
+    // wins, and ``cleanup()`` is idempotent.
+    try { handle.setPointerCapture(pointerId); } catch (_) {}
     dragging = true;
     startY = ev.clientY;
     const rect = card.getBoundingClientRect();
@@ -862,6 +915,19 @@ function _wireDragHandle(card, handle) {
     translateY = 0;
     card.classList.add("dragging");
     if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("medium");
+
+    // Bind window-level fallbacks. ``capture: true`` is important so
+    // we receive the event before any descendant ``stopPropagation``
+    // (the copy-handler does this on its [data-copy] children).
+    window.addEventListener("pointerup", onUpWin, true);
+    window.addEventListener("pointercancel", onUpWin, true);
+    window.addEventListener("pointermove", onMoveWin, true);
+    // Old WebViews that don't synthesise pointer events from touches
+    // still emit touch events — most notably Telegram WebView on some
+    // Android builds. The handler is identical (cleanup-only).
+    window.addEventListener("touchend", onUpWin, true);
+    window.addEventListener("touchcancel", onUpWin, true);
+    windowListenersBound = true;
   };
 
   const onMove = (ev) => {
@@ -906,19 +972,68 @@ function _wireDragHandle(card, handle) {
     }
   };
 
-  const onUp = (ev) => {
-    if (!dragging || ev.pointerId !== pointerId) return;
-    dragging = false;
-    try { handle.releasePointerCapture(pointerId); } catch (_) {}
-    pointerId = null;
-    card.style.transform = "";
-    card.classList.remove("dragging");
+  // Window-level move dispatcher: the spec says captured pointermoves
+  // route to the captured element, but in practice iOS WebView leaks
+  // them to ``window`` after a DOM mutation. Re-route those into the
+  // same ``onMove`` so the visual transform keeps tracking the finger
+  // even when capture is silently dropped.
+  const onMoveWin = (ev) => {
+    if (!dragging) return;
+    // Touch events use ``changedTouches[0].clientY``; pointer events
+    // expose ``clientY`` directly. Normalise.
+    const clientY = ev.clientY != null
+      ? ev.clientY
+      : ev.changedTouches?.[0]?.clientY;
+    if (clientY == null) return;
+    // Only honour events that match our pointerId, except for touch
+    // events (no pointerId field — we trust the dragging flag instead).
+    if (ev.pointerId !== undefined && ev.pointerId !== pointerId) return;
+    onMove({
+      pointerId: pointerId,
+      clientY,
+      preventDefault: () => { try { ev.preventDefault(); } catch (_) {} },
+    });
+  };
+
+  // Window-level terminal dispatcher. Fires on ANY of:
+  //   pointerup, pointercancel, touchend, touchcancel
+  // Crucial because the original ``handle.addEventListener('pointerup')``
+  // path silently misses the event when capture has been lost — which is
+  // the exact failure mode that left cards stuck after a drag.
+  const onUpWin = (ev) => {
+    if (!dragging) return;
+    if (ev.pointerId !== undefined && ev.pointerId !== pointerId) return;
+    cleanup();
+  };
+
+  // ``lostpointercapture`` is the canonical "you've lost capture" event.
+  // On iOS WebView it fires when the captured element's parent chain
+  // mutates (our DOM swap during pointermove triggers exactly this). The
+  // window-level listeners above are a safety net; this one is the
+  // primary signal that we should clean up.
+  const onLostCapture = (ev) => {
+    if (ev.pointerId !== undefined && ev.pointerId !== pointerId) return;
+    cleanup();
   };
 
   handle.addEventListener("pointerdown", onDown);
   handle.addEventListener("pointermove", onMove);
-  handle.addEventListener("pointerup", onUp);
-  handle.addEventListener("pointercancel", onUp);
+  handle.addEventListener("pointerup", (ev) => {
+    if (!dragging || ev.pointerId !== pointerId) return;
+    cleanup();
+  });
+  handle.addEventListener("pointercancel", (ev) => {
+    if (!dragging || ev.pointerId !== pointerId) return;
+    cleanup();
+  });
+  handle.addEventListener("lostpointercapture", onLostCapture);
+  // ``pointerleave`` on its own is too aggressive (fires whenever the
+  // finger drifts off the 16px handle, which is constant on touch);
+  // we rely on capture + window fallbacks instead.
+
+  // Expose the cleanup so the higher-level reorder controller can
+  // force-flush a stuck drag when the user taps Done / Cancel mid-gesture.
+  card._reorderCleanup = cleanup;
 }
 
 // ---------------------------------------------------------------------------
