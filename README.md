@@ -11,12 +11,15 @@ A Starknet staking companion: Telegram bot + REST API + Telegram Mini App / loca
 | Validator view (STRK + BTC pools, attestation) | ✅ | ✅ | `staker_info_v1` + `staker_pool_info` |
 | Delegator view (any pool, token-aware) | ✅ | ✅ | `pool_member_info_v1`; shows the staker's status banner too |
 | Total stake hero (own + delegations, USD-aggregated) | — | ✅ | per-token breakdown line below |
+| Extended attestation status (block-level) | ✅ | ✅ | waiting state shows `current_block` / `target_block` / sign window / time left; every state appends a "next epoch in N blocks (~M min)" tail |
 | Reward-threshold notifications (single-mode USD ⊻ token) | ✅ | ✅ | background notifier, wall-clock-aligned |
 | Missed-attestation alerts | ✅ | ✅ | `get_last_epoch_attestation_done`, per-minute scan |
+| Per-epoch operator-balance alert | ✅ | n/a | fires once at the start of every new epoch with the right transition message (low / recovered); `was_below` flag persisted per-staker |
+| Auto-split long Telegram digests | ✅ | n/a | `/get_full_info` / `/get_reward_info` chunk on card boundaries to stay under Telegram's 4096-char cap |
 | Tap-to-copy addresses (with HapticFeedback) | — | ✅ | every staker / delegator / pool address |
 | Confirm-before-delete (Yes/No on remove flows) | ✅ | ✅ | bot uses FSM; Mini App uses native `showConfirm` |
 | Reject duplicate validator/delegator add | ✅ | n/a | bot returns "already in your tracking list" |
-| Multi-language UI (8 locales × 228 keys) | ✅ | fallback en | EN / RU / UA / DE / ES / KO / PL / ZH parity-checked |
+| Multi-language UI with CLDR plural rules | ✅ | fallback en | 8 locales (EN / RU / UA / DE / ES / KO / PL / ZH); `services/i18n_plural.py` server-side, `Intl.PluralRules` in Mini App |
 | REST API (`/api/v1/*`) | — | ✅ | FastAPI + OpenAPI `/docs` |
 | Telegram WebApp HMAC auth | — | ✅ | standard `initData` validation |
 | Local dashboard mode | — | ✅ | no HMAC, uses `?tg_id=` |
@@ -87,7 +90,8 @@ The bare `/` URL is served by FastAPI directly and on the fly rewrites `/app/sty
 
 ```bash
 uv sync --extra dev
-uv run pytest                 # once tests are in place
+uv run pytest                 # 153 tests covering DTO / formatting / plurals /
+                              # per-epoch alerts / message-split / locale parity
 uv run ruff check .
 uv run ruff format .
 uv run mypy services api
@@ -110,11 +114,14 @@ uv run mypy services api
        │  ├─ staking_dto.py     ValidatorInfo   │
        │  │                     DelegatorInfo   │
        │  │                     AttestationStatus
+       │  │                     EpochTimeline   │
        │  ├─ staking_service.py contracts V2    │
        │  ├─ attestation_service.py missed eps  │
+       │  │                     + block window  │
        │  ├─ token_service.py   decimals/symbol │
        │  ├─ tracking_service.py user digest    │
        │  ├─ formatting.py      telegram HTML   │
+       │  ├─ i18n_plural.py     CLDR plurals    │
        │  └─ rpc_client.py      retry+backoff   │
        └────────────────┬───────────────────────┘
                         │
@@ -142,7 +149,10 @@ Key idea: every contract read and every user-visible string originates in `servi
 ├── bot/                   # Telegram UI (aiogram handlers, middlewares)
 ├── data/                  # Config: contracts, bot init, locales, paths
 ├── db_api/                # SQLAlchemy models + DB helpers (SQLite)
-├── locales/               # 8 JSON locale bundles (228 keys each)
+├── locales/               # 8 JSON locale bundles, CLDR-plural-aware
+│                          #   en/de/es: 319 keys (one + other forms)
+│                          #   ru/ua/pl: 326 keys (one + few + many)
+│                          #   ko/zh:    312 keys (other only)
 ├── parse/                 # Legacy shim — forwards to services.*
 ├── services/              # ✨ new clean domain layer
 ├── smart_contracts_abi/   # l2_staking, l2_pool, l2_attestation ABIs (live)
@@ -202,3 +212,5 @@ Every `/users/me/*` endpoint accepts either the `X-Telegram-Init-Data` header (M
 - Contract ABIs replaced with live v3.0.0 snapshots
 - New module layout: `services/`, `api/`, `webapp/`
 - `parse/parse_info.py` kept as a thin compatibility shim — new code imports from `services.staking_service`
+- Locale bundles split countable nouns into CLDR plural variants (`_one` / `_few` / `_many` / `_other`); render through `services.i18n_plural.t_n(...)` instead of `translate(...)` whenever a number is interpolated next to a noun. The legacy `(s)` suffix hack is gone.
+- Operator-balance state in `notification_config` migrated from the flip-triggered `_operator_balance_state` to the per-epoch `_operator_balance_was_below`; `db_api/models.Users.get_notification_config` auto-converts existing rows on read.
