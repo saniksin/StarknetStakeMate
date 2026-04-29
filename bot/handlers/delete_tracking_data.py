@@ -75,10 +75,13 @@ async def process_delete_choice(
             )
             return
         # Confirm before wiping the entire list — easy to mis-tap on the
-        # main delete menu and lose every address you've added.
+        # main delete menu and lose every address you've added. ``t_n``
+        # threads the count through the right plural template so ru/ua/pl
+        # get the noun in the correct case.
+        from services.i18n_plural import t_n
         count = total_tracked(doc)
         await message.reply(
-            translate("confirm_delete_all_prompt", user_locale).format(count=count),
+            t_n("confirm_delete_all_prompt", count, user_locale, count=count),
             reply_markup=_yes_no_kb(user_locale),
             parse_mode="HTML",
         )

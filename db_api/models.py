@@ -91,11 +91,25 @@ class Users(Base, AutoRepr):
                 cfg.setdefault("attestation_alerts_for", [])
                 cfg.setdefault("attestation_alerts", False)
                 cfg.setdefault("_attestation_state", {})
-                # Operator low-balance: 0 means "alert disabled". Per-validator
-                # state keeps us from re-alerting every cycle for the same
-                # below-threshold balance.
+                # Operator low-balance: 0 means "alert disabled". Alerts
+                # are now sent at most once per epoch (only when the epoch
+                # boundary ticks). ``_operator_balance_was_below`` is the
+                # snapshot from the last boundary so we can pick the right
+                # message (down-cross / recovered / silent) when the next
+                # boundary fires.
+                #
+                # Migration: the legacy ``_operator_balance_state`` (1=below,
+                # 0=above; flip-triggered) is converted in-place to the new
+                # shape so existing rows keep working without a one-shot
+                # SQL migration. Subsequent set_notification_config persists
+                # the cleaner shape.
                 cfg.setdefault("operator_balance_min_strk", 0.0)
-                cfg.setdefault("_operator_balance_state", {})
+                if "_operator_balance_was_below" not in cfg:
+                    legacy = cfg.get("_operator_balance_state") or {}
+                    cfg["_operator_balance_was_below"] = {
+                        str(k): True for k, v in legacy.items() if v
+                    }
+                cfg.pop("_operator_balance_state", None)
                 return cfg
             except (TypeError, ValueError):
                 pass
@@ -110,7 +124,7 @@ class Users(Base, AutoRepr):
             "attestation_alerts": False,
             "_attestation_state": {},
             "operator_balance_min_strk": 0.0,
-            "_operator_balance_state": {},
+            "_operator_balance_was_below": {},
         }
 
     def set_notification_config(self, cfg: dict) -> None:
@@ -135,12 +149,15 @@ class Users(Base, AutoRepr):
             "operator_balance_min_strk": float(
                 cfg.get("operator_balance_min_strk") or 0.0
             ),
-            # Per-staker last-known "below threshold" flag (1) / above (0).
-            # Used by the alert task to debounce so we send one DM per
-            # downward crossing instead of every minute.
-            "_operator_balance_state": {
-                str(k): int(v)
-                for k, v in (cfg.get("_operator_balance_state") or {}).items()
+            # Per-staker "was below threshold at last epoch boundary" flag.
+            # Read on the next boundary tick to decide whether to fire
+            # ``low-balance`` (still below) or ``recovered`` (now above)
+            # alerts. Only stored when True — absence == "above" so the
+            # JSON stays lean.
+            "_operator_balance_was_below": {
+                str(k): True
+                for k, v in (cfg.get("_operator_balance_was_below") or {}).items()
+                if v
             },
         }
         # If everything is off and no state is being tracked, store NULL so
@@ -152,7 +169,7 @@ class Users(Base, AutoRepr):
             and not clean["attestation_alerts_for"]
             and not clean["_attestation_state"]
             and clean["operator_balance_min_strk"] <= 0
-            and not clean["_operator_balance_state"]
+            and not clean["_operator_balance_was_below"]
         ):
             self.notification_config = None
         else:

@@ -13,11 +13,13 @@ from html import escape
 from typing import TYPE_CHECKING
 
 from data.languages import translate
+from services.i18n_plural import t_n
 from services.price_service import usd_value
 from services.staking_dto import (
     AttestationStatus,
     DelegatorInfo,
     DelegatorMultiPositions,
+    EpochTimeline,
     PoolInfoDto,
     StakingSystemInfo,
     ValidatorInfo,
@@ -111,27 +113,162 @@ def _attestation_badge(att: AttestationStatus | None, locale: str) -> str:
         return ""  # healthy — don't clutter the card
     return (
         f"\n⚠️ <b>{translate('attestation_header', locale)}</b>: "
-        f"{translate('attestation_missed', locale, count=att.missed_epochs)}"
+        + t_n("attestation_missed", att.missed_epochs, locale, count=att.missed_epochs)
     )
 
 
-def render_attestation(att: AttestationStatus | None, locale: str) -> str:
-    """Standalone attestation block (used by legacy long-form renderer)."""
+def _fmt_block_number(n: int) -> str:
+    """Render a block number with thin-space-style thousands separators.
+
+    Telegram's ``<code>`` font sometimes splits long digit runs awkwardly
+    on small screens; ``9_283_540`` is much more readable than ``9283540``
+    because the underscores act as visible groupers without inflating
+    width. We deliberately use ``_`` (not ``,``) because the renderer
+    surrounds these in ``<code>`` blocks where commas would be confusing
+    when copy-pasting.
+    """
+    return format(int(n), "_")
+
+
+def _format_epoch_tail(timeline: EpochTimeline | None, locale: str) -> str:
+    """One-line "next epoch in N blocks (~M min)" tail.
+
+    Appended to every status state (waiting / healthy / missed / exiting)
+    so the user always sees how far away the boundary is. Returns empty
+    string when ``timeline`` is None — this keeps callers free of branch
+    checks and makes the "no on-chain data" path silent.
+
+    Uses ``t_n`` (CLDR plural rules) so ru/ua/pl get correct noun forms
+    automatically — "1 блок" / "2 блока" / "5 блоков" — without any
+    locale-specific code in formatters.
+    """
+    if timeline is None or timeline.blocks_left_in_epoch < 0:
+        return ""
+    blocks_str = t_n(
+        "att_blocks", timeline.blocks_left_in_epoch, locale,
+        n=timeline.blocks_left_in_epoch,
+    )
+    minutes = timeline.minutes_left_in_epoch
+    minutes_str = t_n("att_minutes", minutes, locale, n=minutes)
+    return translate(
+        "epoch_tail_blocks", locale,
+        next_epoch=timeline.next_epoch,
+        blocks=blocks_str,
+        minutes=minutes_str,
+    )
+
+
+def _format_attestation_window(att: AttestationStatus | None, locale: str) -> str:
+    """Render the per-block sign-window detail rows (waiting state only).
+
+    Returns a multi-line block with current / target / window / time-left
+    rows when the on-chain block info is fully available. When any of the
+    extras is missing we degrade to the bare-minimum single line that the
+    legacy banner used (no current/assigned/window) so the user still sees
+    something useful.
+    """
+    if att is None or not att.has_block_info:
+        return ""
+    cur = _fmt_block_number(att.current_block)
+    tgt = _fmt_block_number(att.target_block)
+    win_open = _fmt_block_number(att.sign_window_open)
+    win_close = _fmt_block_number(att.sign_window_close)
+
+    lines = [
+        f"· {translate('att_current_block', locale)}: <code>{cur}</code>",
+        f"· {translate('att_assigned_block', locale)}: <code>{tgt}</code>",
+        f"· {translate('att_sign_window', locale)}: <code>{win_open} → {win_close}</code>",
+    ]
+    blocks_left = att.blocks_left_in_window
+    if blocks_left is not None:
+        if blocks_left < 0:
+            lines.append(f"· {translate('att_window_closed', locale)}")
+        else:
+            # Approximate Starknet block time. Mainnet target is ~2.6s
+            # but real blocks span 2-30s — render as ``~Ns`` to telegraph
+            # the imprecision without forcing the user to know that.
+            APPROX_BLOCK_SEC = 2.6
+            seconds_left = max(0, int(blocks_left * APPROX_BLOCK_SEC))
+            blocks_str = t_n("att_blocks", blocks_left, locale, n=blocks_left)
+            if seconds_left < 60:
+                seconds_str = t_n("att_seconds", seconds_left, locale, n=seconds_left)
+                lines.append(
+                    "· " + translate(
+                        "att_window_time_left_sec", locale,
+                        blocks=blocks_str, seconds=seconds_str,
+                    )
+                )
+            else:
+                minutes = seconds_left // 60
+                minutes_str = t_n("att_minutes", minutes, locale, n=minutes)
+                lines.append(
+                    "· " + translate(
+                        "att_window_time_left_min", locale,
+                        blocks=blocks_str, minutes=minutes_str,
+                    )
+                )
+    return "\n".join(lines)
+
+
+def render_attestation(
+    att: AttestationStatus | None,
+    locale: str,
+    *,
+    timeline: EpochTimeline | None = None,
+) -> str:
+    """Render the standalone attestation block (used by validator cards).
+
+    Always emits the block header + epoch line. Picks one of the four
+    body variants — waiting / healthy / missed / unavailable — and
+    appends the shared ``epoch_tail_blocks`` line so every status state
+    tells the user when the next epoch starts.
+
+    The waiting variant additionally renders the per-block window detail
+    (current / assigned / sign window / time left) when the on-chain
+    data is available. Otherwise it degrades to a single ``...waiting``
+    line, keeping the layout consistent.
+    """
     if att is None:
         return ""
-    icon = "✅" if att.is_attesting_this_epoch else "⚠️"
-    healthy = att.missed_epochs == 0
-    line = (
-        translate("attestation_healthy", locale)
-        if healthy
-        else translate("attestation_missed", locale, count=att.missed_epochs)
-    )
-    return (
+
+    body_lines: list[str] = []
+    if att.missed_epochs > 0:
+        body_lines.append(
+            f"· {translate('last_attested_epoch', locale)}: {att.last_epoch_attested}"
+        )
+        body_lines.append(
+            f"· ⚠️ "
+            + t_n(
+                "attestation_missed", att.missed_epochs, locale,
+                count=att.missed_epochs,
+            )
+        )
+    elif att.is_attesting_this_epoch:
+        body_lines.append(f"· ✅ {translate('attestation_already_done', locale)}")
+    else:
+        # Waiting state — try the rich block-level body first; fall back to
+        # the single-line "still in progress" template if RPC didn't give
+        # us the extras.
+        window_block = _format_attestation_window(att, locale)
+        if window_block:
+            body_lines.append(window_block)
+        else:
+            body_lines.append(
+                "· "
+                + translate(
+                    "attestation_waiting_simple", locale, epoch=att.current_epoch
+                )
+            )
+
+    tail = _format_epoch_tail(timeline, locale)
+    if tail:
+        body_lines.append(f"· {tail}")
+
+    header = (
         f"\n🧾 <b>{translate('attestation_header', locale)}</b>\n"
-        f"· {translate('epoch_current', locale)}: <b>{att.current_epoch}</b>\n"
-        f"· {translate('last_attested_epoch', locale)}: {att.last_epoch_attested}\n"
-        f"· {icon} {line}"
+        f"· {translate('epoch_current', locale)}: <b>{att.current_epoch}</b>"
     )
+    return header + "\n" + "\n".join(body_lines)
 
 
 # ---------------------------------------------------------------------------
@@ -425,7 +562,14 @@ def render_validator_card(
         )
 
     table = _table(rows)
-    attestation = _attestation_badge(info.attestation, locale)
+    # The full attestation block (status body + epoch tail) replaces the
+    # ad-hoc one-line "missed N" badge — every status state now gets the
+    # epoch tail, not only the missed branch. The renderer handles the
+    # "no on-chain data" branch internally and returns "" for it, so we
+    # don't need a guard here.
+    attestation = render_attestation(
+        info.attestation, locale, timeline=info.epoch_timeline
+    )
 
     # Inline pool line (active pools only, no "N empty")
     pool_inline = _pool_inline(info.pools, prices)

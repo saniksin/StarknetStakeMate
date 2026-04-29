@@ -24,7 +24,7 @@ from db_api.database import (
     db,
     get_strk_notification_users,
     update_attestation_state,
-    update_operator_balance_state,
+    update_operator_balance_was_below,
 )
 from db_api.models import Users
 from services.attestation_service import fetch_attestation_status
@@ -90,7 +90,7 @@ def _resolve_subscribed_set(cfg: dict, validators: list[dict]) -> set[str]:
 
 
 async def _check_user(
-    user: Users, current_epoch: int
+    user: Users, current_epoch: int, *, epoch_changed: bool
 ) -> tuple[dict | None, dict | None]:
     """Run one attestation + operator-balance check for a single user.
 
@@ -99,6 +99,13 @@ async def _check_user(
     Does NOT mutate the passed ``user`` object — the caller does atomic,
     targeted updates so we never clobber concurrent user-driven edits
     (language, tracking_data, etc.).
+
+    Operator-balance alerts fire **once per epoch boundary** (``epoch_changed``
+    True). On every other tick we skip the balance RPC entirely — the user
+    only wants one DM per epoch, and we already know "did the boundary
+    just tick" from the in-memory ``_last_seen_epoch`` in ``_run_cycle``.
+    The attestation watcher itself stays continuous: missed epochs need a
+    sub-minute alert SLA.
     """
     cfg = user.get_notification_config()
     doc = load_tracking(user.tracking_data)
@@ -114,9 +121,19 @@ async def _check_user(
         return None, None
 
     att_state = dict(cfg.get("_attestation_state") or {})
-    bal_state = dict(cfg.get("_operator_balance_state") or {})
+    was_below_state: dict[str, bool] = {
+        str(k): True
+        for k, v in (cfg.get("_operator_balance_was_below") or {}).items()
+        if v
+    }
     att_changed = False
     bal_changed = False
+
+    # Balance section runs only on the first tick after an epoch flip.
+    # Skip the staker_raw + balance_of RPCs for everyone else — pure
+    # bandwidth saving, no behavioural impact (we'd rediscover the same
+    # answer next boundary anyway).
+    do_balance = epoch_changed and balance_min > 0
 
     for v in validators:
         staker = (v.get("address") or "").lower()
@@ -124,7 +141,7 @@ async def _check_user(
             continue
         label = _validator_label(staker, validators)
 
-        # ---- Attestation health (existing flow) ------------------------
+        # ---- Attestation health (continuous, every tick) ---------------
         if staker in subscribed_att:
             try:
                 status = await fetch_attestation_status(
@@ -137,10 +154,11 @@ async def _check_user(
                 new_missed = status.missed_epochs
                 old_missed = int(att_state.get(staker, 0))
                 if new_missed > old_missed:
+                    from services.i18n_plural import t_n
                     await _send(
                         user.user_id,
-                        translate(
-                            "attestation_alert_missed", locale,
+                        t_n(
+                            "attestation_alert_missed", new_missed, locale,
                             label=label, count=new_missed,
                             epoch=status.current_epoch,
                         ),
@@ -158,14 +176,11 @@ async def _check_user(
                     att_state[staker] = new_missed
                     att_changed = True
 
-        # ---- Operator wallet STRK balance ------------------------------
-        # Threshold of 0 means "alerts disabled" — skip the RPC entirely
-        # so we don't burn balance_of calls when the feature isn't used.
-        # Also gated on the validator being subscribed to attestation
-        # alerts: the operator-balance alert is part of the same
-        # "validator health" channel; we don't want to fire balance
-        # alerts for stakers the user explicitly didn't opt into.
-        if balance_min <= 0 or staker not in subscribed_att:
+        # ---- Operator wallet STRK balance (epoch-boundary only) --------
+        # Skip when the boundary hasn't ticked, the feature is disabled,
+        # or the user didn't opt this validator into attestation alerts
+        # (the balance alert is part of the same per-validator channel).
+        if not do_balance or staker not in subscribed_att:
             continue
         try:
             staker_raw = await fetch_staker_raw(staker)
@@ -183,36 +198,62 @@ async def _check_user(
             logger.warning(f"operator balance fetch failed for {op_addr}: {exc}")
             continue
         balance_f = float(balance)
-        # ``1`` = currently below threshold, ``0`` = currently OK.
-        # Edge-triggered: alert only when the state flips, not every cycle.
-        was_below = bool(bal_state.get(staker, 0))
+        was_below = was_below_state.get(staker, False)
         is_below = balance_f < balance_min
-        if is_below and not was_below:
+
+        # Per-epoch state machine. The cells:
+        #   was=False, is=False → silent, no state change
+        #   was=False, is=True  → first time below this epoch → low-balance alert
+        #   was=True,  is=True  → still below this epoch     → low-balance alert (again)
+        #   was=True,  is=False → recovered since last boundary → recovered alert
+        # Either alert fires **once** per epoch boundary because we only
+        # enter this branch when ``epoch_changed=True``.
+        if is_below:
             await _send(
                 user.user_id,
                 translate(
                     "operator_low_balance_alert", locale,
                     label=label, balance=balance_f, threshold=balance_min,
+                    epoch=current_epoch,
                 ),
             )
-            bal_state[staker] = 1
-            bal_changed = True
-        elif not is_below and was_below:
+            if not was_below:
+                was_below_state[staker] = True
+                bal_changed = True
+        elif was_below:
             await _send(
                 user.user_id,
                 translate(
                     "operator_balance_recovered", locale,
                     label=label, balance=balance_f, threshold=balance_min,
+                    epoch=current_epoch,
                 ),
             )
-            bal_state.pop(staker, None)
+            was_below_state.pop(staker, None)
             bal_changed = True
+        # Final case (was=False, is=False) = silent, no state change.
 
     return (att_state if att_changed else None,
-            bal_state if bal_changed else None)
+            was_below_state if bal_changed else None)
+
+
+# In-memory cursor for "did the epoch number change since last cycle?".
+# Reset to 0 on process start so the first cycle after a restart always
+# counts as an epoch flip — that one wasted check is cheap, the
+# alternative (stashing the cursor in the DB) couples a notifier-only
+# concern to schema changes.
+_last_seen_epoch: int = 0
+
+
+def _reset_last_seen_epoch_for_tests() -> None:
+    """Test hook: clear the module-level epoch cursor between scenarios."""
+    global _last_seen_epoch
+    _last_seen_epoch = 0
 
 
 async def _run_cycle() -> None:
+    global _last_seen_epoch
+
     users = await get_strk_notification_users()
     # Keep ``get_strk_notification_users`` as the broad-net query; filter
     # out non-subscribers here so the SQL stays simple. Subscription is
@@ -239,14 +280,21 @@ async def _run_cycle() -> None:
         logger.warning(f"attestation cycle: current_epoch fetch failed: {exc}")
         return
 
+    epoch_changed = current_epoch != _last_seen_epoch
+    _last_seen_epoch = current_epoch
+    if epoch_changed:
+        logger.info(f"epoch boundary tick: now {current_epoch}")
+
     async def _process(u: Users) -> None:
         async with semaphore:
             try:
-                att_state, bal_state = await _check_user(u, current_epoch)
+                att_state, bal_state = await _check_user(
+                    u, current_epoch, epoch_changed=epoch_changed
+                )
                 if att_state is not None:
                     await update_attestation_state(u.user_id, att_state)
                 if bal_state is not None:
-                    await update_operator_balance_state(u.user_id, bal_state)
+                    await update_operator_balance_was_below(u.user_id, bal_state)
             except Exception as exc:  # noqa: BLE001
                 logger.error(f"attestation_alerts({u.user_id}) failed: {exc}")
 

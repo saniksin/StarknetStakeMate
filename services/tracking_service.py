@@ -243,15 +243,56 @@ def _render_reward_entry(
     return f"• <b>{name}</b> — 🎁 {rendered}", amount
 
 
-async def render_user_tracking(
+# Telegram cap is 4096 *characters* in HTML mode. Stay well below to
+# leave headroom for inline formatting and the occasional tail emoji
+# that throws off naive ``len`` counting.
+_TELEGRAM_MSG_LIMIT = 3900
+
+
+def _split_into_chunks(parts: list[str], glue: str = "\n\n") -> list[str]:
+    """Pack ``parts`` into Telegram-sized buffers without splitting any one part.
+
+    ``parts`` are pre-rendered cards / sections — we never break them
+    mid-string. If a single part already exceeds the limit (extremely
+    long single card) we emit it on its own and let Telegram clip rather
+    than truncate the rendered HTML by hand.
+    """
+    if not parts:
+        return []
+    chunks: list[str] = []
+    buf = parts[0]
+    for part in parts[1:]:
+        candidate = buf + glue + part
+        if len(candidate) <= _TELEGRAM_MSG_LIMIT:
+            buf = candidate
+        else:
+            chunks.append(buf)
+            buf = part
+    chunks.append(buf)
+    return chunks
+
+
+async def render_user_tracking_chunks(
     tracking_data_json: str | None, locale: str, mode: Mode = "full"
-) -> str:
+) -> list[str]:
+    """Render ``render_user_tracking``-style content as Telegram-sized chunks.
+
+    The "full" digest (portfolio summary + one card per tracked entry +
+    rewards footer) used to come out as a single string and got clipped
+    by Telegram's 4096-char limit when a user tracked 8+ validators with
+    BTC pools. We now build one chunk per logical section and pack them
+    into N messages without breaking any individual card.
+
+    Returned list always has at least one element. The reward digest
+    mode never realistically overflows (one line per entry) so it stays
+    a single chunk; we use the same return shape for both.
+    """
     from data.languages import translate
     from services.price_service import get_usd_prices
 
     entries = await fetch_tracking_entries(tracking_data_json)
     if not entries:
-        return translate("no_addresses_to_parse", locale)
+        return [translate("no_addresses_to_parse", locale)]
 
     try:
         prices = await get_usd_prices()
@@ -281,7 +322,7 @@ async def render_user_tracking(
                 f"{DIVIDER}"
             )
             footer = f"\n{DIVIDER}\n💎 <b>{translate('total_label', locale)}</b> — {total_str}"
-            return header + "\n" + "\n".join(decorated) + footer
+            return [header + "\n" + "\n".join(decorated) + footer]
 
         # Full mode: portfolio summary + one card per entry + total rewards footer.
         from decimal import Decimal as _D2
@@ -298,14 +339,40 @@ async def render_user_tracking(
         # Total unclaimed rewards — consolidated footer, not repeated per-card.
         rewards_total = sum((_entry_unclaimed_strk(e) for e in entries), _D2(0))
         rewards_footer = (
-            f"\n{DIVIDER}\n"
             f"🎁 {translate('total_rewards_unclaimed', locale)}: "
             f"{_awu(rewards_total, 'STRK', prices)}"
         )
-        return summary + "\n\n" + "\n\n".join(cards) + rewards_footer
+        # Logical pieces: the summary stays alone in the first message
+        # (it's small + the user expects the one-glance chip up top),
+        # then cards pack into as many chunks as needed, then the
+        # rewards footer goes on the final message. Cheap heuristic
+        # (preserves the visual grouping) without per-byte gymnastics.
+        sections = [summary, *cards]
+        chunks = _split_into_chunks(sections)
+        # Append the rewards footer to the last chunk if it fits, else
+        # send it as its own (small) message.
+        candidate = chunks[-1] + f"\n{DIVIDER}\n" + rewards_footer
+        if len(candidate) <= _TELEGRAM_MSG_LIMIT:
+            chunks[-1] = candidate
+        else:
+            chunks.append(rewards_footer)
+        return chunks
     except Exception as exc:  # noqa: BLE001
         logger.error(f"rendering tracking digest failed: {exc}")
-        return translate("error_processing_request", locale)
+        return [translate("error_processing_request", locale)]
+
+
+async def render_user_tracking(
+    tracking_data_json: str | None, locale: str, mode: Mode = "full"
+) -> str:
+    """Back-compat shim that joins chunks for callers expecting a single string.
+
+    New callers (``process_full_info``, ``process_reward_info``) use
+    ``render_user_tracking_chunks`` directly so each chunk goes out as
+    its own Telegram message and stays under the 4096-char cap.
+    """
+    chunks = await render_user_tracking_chunks(tracking_data_json, locale, mode)
+    return "\n\n".join(chunks)
 
 
 def render_dashboard_summary(entries: list[TrackingEntry], locale: str) -> str:

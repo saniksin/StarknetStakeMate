@@ -839,57 +839,188 @@ function bannerHTML(kind, title, sub) {
   `;
 }
 
+// Use Intl.PluralRules where available so we don't ship two diverging
+// CLDR tables (one in Python, one in JS). Telegram WebView has it on
+// every platform we care about (iOS Safari ≥12.1, Android Chrome ≥63).
+// Fallback below only triggers in ancient WebViews — keep behaviour
+// matched to the Python ``services/i18n_plural.py`` table.
+function pluralCategory(n, locale) {
+  try {
+    return new Intl.PluralRules(locale).select(Math.abs(Math.trunc(n)));
+  } catch (_) {
+    const lang = (locale || "en").toLowerCase().split("-")[0];
+    n = Math.abs(Math.trunc(n));
+    if (lang === "ru" || lang === "ua" || lang === "uk") {
+      const m10 = n % 10, m100 = n % 100;
+      if (m10 === 1 && m100 !== 11) return "one";
+      if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return "few";
+      return "many";
+    }
+    if (lang === "pl") {
+      if (n === 1) return "one";
+      const m10 = n % 10, m100 = n % 100;
+      if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return "few";
+      return "many";
+    }
+    if (lang === "ko" || lang === "zh") return "other";
+    return n === 1 ? "one" : "other";
+  }
+}
+
+function tN(keyBase, count, locale, fallback, extraVars) {
+  // Same lookup contract as services/i18n_plural.py::t_n: try
+  // {key}_{category} → {key}_other → {key} → fallback. We rely on
+  // ``t`` for the actual locale read (it falls back to English).
+  // ``extraVars`` lets callers pass {label}/{epoch}/etc. into templates
+  // that need more than just the count placeholder.
+  const cat = pluralCategory(count, locale);
+  const candidates = [`${keyBase}_${cat}`];
+  if (cat !== "other") candidates.push(`${keyBase}_other`);
+  candidates.push(keyBase);
+  const vars = Object.assign({ n: count, count: count }, extraVars || {});
+  for (const c of candidates) {
+    const v = t(c, null, vars);
+    // ``t`` returns the raw key when nothing matched; treat that as miss.
+    if (v && v !== c) return v;
+  }
+  return fallback != null ? fallback : String(count);
+}
+
+function renderEpochTail(timeline) {
+  // One-line "next epoch in N blocks (~M min)" appended to every status
+  // banner. Returns "" when EpochInfo / chain head wasn't fetched —
+  // banner stays consistent with the Python renderer in that case.
+  if (!timeline || timeline.blocks_left_in_epoch == null
+      || timeline.blocks_left_in_epoch < 0) {
+    return "";
+  }
+  const lang = (state && state.lang) || "en";
+  const blocks = tN("att_blocks", timeline.blocks_left_in_epoch, lang);
+  const minutes = Math.max(0, Math.floor((timeline.seconds_left_in_epoch || 0) / 60));
+  const minutesStr = tN("att_minutes", minutes, lang);
+  return t(
+    "epoch_tail_blocks",
+    `Next epoch (${timeline.next_epoch}) in ${blocks} (~${minutesStr})`,
+    {
+      next_epoch: timeline.next_epoch,
+      blocks: blocks,
+      minutes: minutesStr,
+    }
+  );
+}
+
+function fmtBlock(n) {
+  if (n == null) return "";
+  // Underscore separators mirror the Python renderer.
+  return String(Math.trunc(n)).replace(/\B(?=(\d{3})+(?!\d))/g, "_");
+}
+
+function bannerWithTail(kind, title, sub, tail) {
+  const tailHtml = tail
+    ? `<div class="banner-sub muted small">${escapeHtml(tail)}</div>`
+    : "";
+  return `
+    <div class="banner ${kind}">
+      <div class="banner-body">
+        <div class="banner-title">${title}</div>
+        <div class="banner-sub">${sub}</div>
+        ${tailHtml}
+      </div>
+    </div>
+  `;
+}
+
 function renderValidatorStatusBanner(data) {
-  // Picks the most actionable single line about the validator's health:
-  //   1. Unstake requested  → red, exit pending
-  //   2. Missed epochs > 0  → orange with count
-  //   3. Attested this epoch → green confirmation
-  //   4. Mid-epoch awaiting → neutral
-  // Used by both the validator detail view (own data) and the delegator
-  // detail view (their staker's data fetched via /api/v1/validators).
+  // Picks the most actionable verdict + appends the shared epoch tail
+  // ("next epoch in N blocks") under it. Used by both the validator
+  // detail view (own data) and the delegator detail view (their staker's
+  // data fetched via /api/v1/validators).
   if (!data) return "";
   const att = data.attestation;
+  const timeline = data.epoch_timeline;
+  const tail = renderEpochTail(timeline);
+  const lang = (state && state.lang) || "en";
+
   if (data.unstake_requested) {
-    return bannerHTML(
+    return bannerWithTail(
       "danger",
       t("webapp_status_exiting_t", "🚫 Validator is exiting"),
       t("webapp_status_exiting_sub",
         "An unstake has been requested. New rewards will stop and your delegation will be returned after the unbonding period."),
+      tail,
     );
   }
   if (att && att.missed_epochs > 0) {
     const n = att.missed_epochs;
-    return bannerHTML(
+    // tN picks the right ``_one/_few/_many/_other`` template per locale,
+    // so ru/ua/pl get the noun in the correct case ("аттестацию" /
+    // "аттестации" / "аттестаций") instead of the legacy "(s)" hack.
+    return bannerWithTail(
       "warn",
-      t("webapp_status_missed_t", `⚠ Validator missed ${n} attestation${n === 1 ? "" : "s"}`, { n }),
+      tN("webapp_status_missed_t", n, lang, `⚠ Validator missed ${n} attestation${n === 1 ? "" : "s"}`),
       t("webapp_status_missed_sub",
         `Last confirmed in epoch ${att.last_epoch_attested}, current epoch ${att.current_epoch}. Skipped attestations reduce both the validator's and delegators' rewards.`,
         { last: att.last_epoch_attested, epoch: att.current_epoch, n }),
+      tail,
     );
   }
   if (att && att.is_attesting_this_epoch) {
-    return bannerHTML(
+    return bannerWithTail(
       "success",
       t("webapp_status_healthy_t", "✓ Validator healthy"),
       t("webapp_status_healthy_sub",
         `Already attested for epoch ${att.current_epoch} — your rewards are accruing normally.`,
         { epoch: att.current_epoch }),
+      tail,
     );
   }
   if (att) {
-    return bannerHTML(
+    // Waiting state — try the rich block-level subtitle if the contract
+    // gave us target / window / current_block; otherwise fall back to
+    // the legacy single-line waiting message.
+    let sub;
+    if (att.target_block != null && att.attestation_window_blocks != null
+        && att.current_block != null) {
+      const winClose = att.target_block + att.attestation_window_blocks;
+      const blocksLeft = winClose - att.current_block;
+      const blocksLeftStr = tN("att_blocks", Math.max(0, blocksLeft), lang);
+      const APPROX_BLOCK_SEC = 2.6;
+      const secondsLeft = Math.max(0, Math.floor(blocksLeft * APPROX_BLOCK_SEC));
+      const secondsStr = secondsLeft < 60
+        ? tN("att_seconds", secondsLeft, lang)
+        : tN("att_minutes", Math.floor(secondsLeft / 60), lang);
+      sub = t(
+        "webapp_status_waiting_sub_blocks",
+        `Block ${fmtBlock(att.current_block)} · assigned ${fmtBlock(att.target_block)} · window ${fmtBlock(att.target_block)}→${fmtBlock(winClose)} · ${blocksLeftStr} left (~${secondsStr})`,
+        {
+          current_block: fmtBlock(att.current_block),
+          target_block: fmtBlock(att.target_block),
+          window_open: fmtBlock(att.target_block),
+          window_close: fmtBlock(winClose),
+          blocks_left: blocksLeftStr,
+          seconds_left: secondsStr,
+        }
+      );
+    } else {
+      sub = t(
+        "webapp_status_waiting_sub",
+        `Validators must attest once per epoch. Epoch ${att.current_epoch} is still in progress — this is normal as long as it finishes before the epoch ends.`,
+        { epoch: att.current_epoch }
+      );
+    }
+    return bannerWithTail(
       "muted",
       t("webapp_status_waiting_t", "⏳ Waiting for this epoch's attestation"),
-      t("webapp_status_waiting_sub",
-        `Validators must attest once per epoch. Epoch ${att.current_epoch} is still in progress — this is normal as long as it finishes before the epoch ends.`,
-        { epoch: att.current_epoch }),
+      sub,
+      tail,
     );
   }
-  return bannerHTML(
+  return bannerWithTail(
     "muted",
     t("webapp_status_unavailable_t", "Validator status unavailable"),
     t("webapp_status_unavailable_sub",
       "Couldn't reach the attestation contract just now. Reopen the Mini App in a few seconds."),
+    "",  // no tail when we have no data at all
   );
 }
 

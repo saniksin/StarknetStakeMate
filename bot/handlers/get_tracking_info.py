@@ -17,7 +17,10 @@ from data.languages import translate
 from data.tg_bot import BOT_TOKEN
 from db_api.database import db, get_account, write_to_db
 from db_api.models import Users
-from services.tracking_service import render_user_tracking
+from services.tracking_service import (
+    render_user_tracking,
+    render_user_tracking_chunks,
+)
 from utils.cache import cache, get_cache_key
 from utils.logger import logger
 
@@ -121,9 +124,17 @@ async def process_full_info(user: Users) -> None:
     # fresh tracking edits for up to 5 minutes. RPC is fast enough to render
     # on demand; reintroduce caching only with a real cross-process backing
     # store (e.g. SQLite or shared Manager dict passed via initializer).
+    #
+    # The chunked variant of the renderer never builds a string > 4096
+    # chars; we send each chunk as its own Telegram message so a user
+    # tracking 8+ validators with BTC pools doesn't get their digest
+    # silently truncated by the API.
     try:
-        body = await render_user_tracking(user.tracking_data, user.user_language, mode="full")
-        await send_message(user.user_id, body)
+        chunks = await render_user_tracking_chunks(
+            user.tracking_data, user.user_language, mode="full"
+        )
+        for body in chunks:
+            await send_message(user.user_id, body)
     except Exception as exc:  # noqa: BLE001
         logger.error(f"process_full_info({user.user_id}): {exc}")
         await send_message(user.user_id, translate("error_processing_request", user.user_language))
@@ -131,8 +142,11 @@ async def process_full_info(user: Users) -> None:
 
 async def process_reward_info(user: Users) -> None:
     try:
-        body = await render_user_tracking(user.tracking_data, user.user_language, mode="reward")
-        await send_message(user.user_id, body)
+        chunks = await render_user_tracking_chunks(
+            user.tracking_data, user.user_language, mode="reward"
+        )
+        for body in chunks:
+            await send_message(user.user_id, body)
     except Exception as exc:  # noqa: BLE001
         logger.error(f"process_reward_info({user.user_id}): {exc}")
         await send_message(user.user_id, translate("error_processing_request", user.user_language))

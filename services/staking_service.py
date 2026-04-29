@@ -12,11 +12,15 @@ from starknet_py.net.client_errors import ClientError
 from starknet_py.serialization.errors import InvalidValueException
 
 from data.contracts import STARKNET_NETWORK, get_network_addresses, load_abi
-from services.attestation_service import fetch_attestation_status
+from services.attestation_service import (
+    fetch_attestation_status,
+    fetch_current_block_number,
+)
 from services.rpc_client import get_client, is_domain_revert, with_retry
 from services.staking_dto import (
     DelegatorInfo,
     DelegatorMultiPositions,
+    EpochTimeline,
     PoolInfoDto,
     StakingSystemInfo,
     ValidatorInfo,
@@ -201,6 +205,90 @@ async def fetch_current_epoch() -> int:
     return await with_retry(_call, description="get_current_epoch")
 
 
+async def fetch_epoch_info() -> dict | None:
+    """Return the staking contract's ``EpochInfo`` struct.
+
+    Shape::
+
+        {
+          epoch_duration: u32,    # seconds per epoch (3600 on mainnet)
+          length: u32,            # blocks per epoch
+          starting_block: u64,    # last point where parameters changed
+          starting_epoch: u64,    # epoch number that starting_block opened
+          previous_length: u32,
+          previous_epoch_duration: u32
+        }
+
+    Returns ``None`` on RPC failure — callers should drop the epoch tail
+    rather than crash. We deliberately do NOT cache this: governance can
+    flip the parameters mid-flight, and the cost of one staking-contract
+    call per fetch_validator_info is negligible compared to the pool /
+    attestation reads that already run in parallel.
+    """
+    contract = _staking_contract()
+
+    async def _call() -> dict:
+        (info,) = await contract.functions["get_epoch_info"].call()
+        return info
+
+    try:
+        return await with_retry(_call, description="get_epoch_info")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"get_epoch_info failed: {exc}")
+        return None
+
+
+def _compute_epoch_timeline(
+    *,
+    current_epoch: int,
+    current_block: int | None,
+    epoch_info: dict | None,
+) -> EpochTimeline | None:
+    """Translate raw EpochInfo + chain head into the renderer-ready DTO.
+
+    Math::
+
+        next_epoch_starts_block = starting_block + (current_epoch + 1 - starting_epoch) * length
+        blocks_left             = max(0, next_epoch_starts_block - current_block)
+        seconds_left            = blocks_left * (epoch_duration / length)
+
+    Returns ``None`` when any required input is missing — keep the bar
+    low so the renderer's "no tail" branch is the same path for "RPC
+    failed" and "data not yet available".
+    """
+    if not epoch_info or current_block is None:
+        return None
+    try:
+        length = int(epoch_info.get("length") or 0)
+        starting_block = int(epoch_info.get("starting_block") or 0)
+        starting_epoch = int(epoch_info.get("starting_epoch") or 0)
+        epoch_duration = int(epoch_info.get("epoch_duration") or 0)
+    except (TypeError, ValueError):
+        return None
+    if length <= 0:
+        return None
+
+    next_epoch = current_epoch + 1
+    next_epoch_block = starting_block + (next_epoch - starting_epoch) * length
+    blocks_left = max(0, next_epoch_block - current_block)
+    # Average target block time for this epoch. Real Starknet block times
+    # are bursty (2-30s) — caller should display this as approximate.
+    seconds_left = (
+        int(blocks_left * epoch_duration / length) if epoch_duration > 0 else 0
+    )
+
+    return EpochTimeline(
+        current_epoch=current_epoch,
+        next_epoch=next_epoch,
+        next_epoch_block=next_epoch_block,
+        current_block=current_block,
+        blocks_left_in_epoch=blocks_left,
+        seconds_left_in_epoch=seconds_left,
+        epoch_length_blocks=length,
+        epoch_duration_seconds=epoch_duration,
+    )
+
+
 async def fetch_active_tokens() -> list[str]:
     """Return addresses of currently enabled staking tokens."""
     contract = _staking_contract()
@@ -301,16 +389,21 @@ async def get_validator_info(
 
     operational_hex = _addr_hex(staker_raw.get("operational_address", 0))
 
-    # Attestation health + operator-wallet STRK balance run in parallel —
-    # both are independent reads on independent contracts. Either failing
-    # is non-fatal; we just leave the field empty.
+    # Attestation health + operator-wallet STRK balance + epoch timeline
+    # all run in parallel. Each is independent and any one failing is
+    # non-fatal — we just leave the corresponding field empty so the
+    # renderer falls back to the short / no-tail variant of the card.
     from services.token_service import fetch_strk_balance  # local import: avoids cycle
 
     async def _att() -> "AttestationStatus | None":
         if not with_attestation:
             return None
         try:
-            return await fetch_attestation_status(staker_address, current_epoch=epoch)
+            return await fetch_attestation_status(
+                staker_address,
+                current_epoch=epoch,
+                operational_address=operational_hex,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"attestation lookup failed for {staker_address}: {exc}")
             return None
@@ -324,7 +417,24 @@ async def get_validator_info(
             logger.warning(f"operator balance lookup failed for {operational_hex}: {exc}")
             return None
 
-    attestation, operator_balance = await asyncio.gather(_att(), _bal())
+    async def _timeline_inputs() -> tuple[dict | None, int | None]:
+        # EpochInfo is short and the chain head only takes one RPC. Both
+        # return None on failure; ``_compute_epoch_timeline`` then yields
+        # None too and the renderer drops the tail.
+        return await asyncio.gather(
+            fetch_epoch_info(),
+            fetch_current_block_number(),
+        )
+
+    attestation, operator_balance, timeline_inputs = await asyncio.gather(
+        _att(), _bal(), _timeline_inputs()
+    )
+    epoch_info, current_block = timeline_inputs
+    epoch_timeline = _compute_epoch_timeline(
+        current_epoch=epoch,
+        current_block=current_block,
+        epoch_info=epoch_info,
+    )
 
     return ValidatorInfo(
         staker_address=_addr_hex(staker_address),
@@ -340,6 +450,7 @@ async def get_validator_info(
         pools=pools,
         current_epoch=epoch,
         attestation=attestation,
+        epoch_timeline=epoch_timeline,
         operator_strk_balance=operator_balance,
     )
 

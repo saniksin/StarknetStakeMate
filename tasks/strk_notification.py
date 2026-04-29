@@ -143,10 +143,11 @@ def _format_missed_attestation(entry: TrackingEntry, locale: str) -> str:
     att = entry.data.attestation
     if att is None or att.missed_epochs == 0:
         return ""
+    from services.i18n_plural import t_n
     return (
         f"\n⚠️ <b>{translate('attestation_header', locale)}</b>: "
         f"<code>{entry.address}</code> — "
-        f"{translate('attestation_missed', locale, count=att.missed_epochs)}"
+        + t_n("attestation_missed", att.missed_epochs, locale, count=att.missed_epochs)
     )
 
 

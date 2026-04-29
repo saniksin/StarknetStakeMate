@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+import pytest
+
 from services.formatting import (
     _active_pools,
     _fmt_amount,
@@ -13,6 +15,7 @@ from services.formatting import (
     render_delegator_card,
     render_validator_card,
 )
+from services.i18n_plural import t_n
 from services.staking_dto import (
     AttestationStatus,
     DelegatorInfo,
@@ -66,6 +69,160 @@ def test_render_attestation_missed_formatting() -> None:
     out = render_attestation(st, "en")
     assert "Missed 4" in out
     assert "⚠️" in out
+
+
+# ---------------------------------------------------------------------------
+# Extended attestation banner — block window + epoch tail. The renderer
+# is shared between the four status branches (waiting / healthy / missed
+# / exiting) so every state gets the same "next epoch in N blocks" tail.
+# ---------------------------------------------------------------------------
+
+from services.staking_dto import EpochTimeline  # noqa: E402
+
+
+def _mk_timeline(
+    blocks_left: int = 810, seconds_left: int = 35 * 60,
+    current_epoch: int = 9590,
+) -> EpochTimeline:
+    return EpochTimeline(
+        current_epoch=current_epoch,
+        next_epoch=current_epoch + 1,
+        next_epoch_block=9_283_224 + blocks_left,
+        current_block=9_283_224,
+        blocks_left_in_epoch=blocks_left,
+        seconds_left_in_epoch=seconds_left,
+        epoch_length_blocks=1389,
+        epoch_duration_seconds=3600,
+    )
+
+
+def test_attestation_waiting_renders_block_window_en() -> None:
+    """B.2 from the UX catalogue — waiting state with full block info."""
+    att = AttestationStatus(
+        last_epoch_attested=9589,
+        current_epoch=9590,
+        missed_epochs=0,
+        is_attesting_this_epoch=False,
+        target_block=9_283_500,
+        attestation_window_blocks=60,
+        current_block=9_283_540,
+    )
+    out = render_attestation(att, "en", timeline=_mk_timeline())
+    assert "Current block" in out
+    assert "9_283_540" in out
+    assert "Assigned block" in out
+    assert "9_283_500" in out
+    assert "9_283_560" in out  # window close
+    # Tail with next epoch
+    assert "9591" in out
+    # Plural noun forms came from t_n (en: "blocks" for 810).
+    assert "blocks" in out
+
+
+def test_attestation_waiting_renders_block_window_ru_with_plurals() -> None:
+    """B.1 — Russian waiting message uses correct plural noun forms."""
+    att = AttestationStatus(
+        last_epoch_attested=9589,
+        current_epoch=9590,
+        missed_epochs=0,
+        is_attesting_this_epoch=False,
+        target_block=9_283_500,
+        attestation_window_blocks=60,
+        current_block=9_283_540,
+    )
+    out = render_attestation(att, "ru", timeline=_mk_timeline())
+    assert "Текущий блок" in out
+    assert "Целевой блок" in out
+    assert "Окно подписи" in out
+    # 810 → "many" form in ru ("блоков")
+    assert "810 блоков" in out
+    # Tail in ru
+    assert "До эпохи 9591" in out
+
+
+def test_attestation_attested_renders_tail_only() -> None:
+    """B.4 — already attested: short message + epoch tail in every locale."""
+    att = AttestationStatus(
+        last_epoch_attested=9589,
+        current_epoch=9590,
+        missed_epochs=0,
+        is_attesting_this_epoch=True,
+        target_block=None,  # not relevant in attested state
+        attestation_window_blocks=60,
+        current_block=9_283_540,
+    )
+    out = render_attestation(att, "en", timeline=_mk_timeline())
+    assert "Already attested" in out
+    # Block-window detail must NOT appear in attested state.
+    assert "Sign window" not in out
+    assert "Current block" not in out
+    # But the epoch tail must.
+    assert "9591" in out
+    assert "blocks" in out
+
+
+def test_attestation_missed_renders_tail_in_ru() -> None:
+    """B.5 — missed state: ru pluralization on missed count + tail."""
+    att = AttestationStatus(
+        last_epoch_attested=9588,
+        current_epoch=9590,
+        missed_epochs=1,
+        is_attesting_this_epoch=False,
+        target_block=None,
+        attestation_window_blocks=60,
+        current_block=9_283_540,
+    )
+    out = render_attestation(att, "ru", timeline=_mk_timeline())
+    assert "9588" in out
+    assert "До эпохи 9591" in out
+
+
+def test_attestation_no_timeline_drops_tail() -> None:
+    """When EpochInfo / chain head fetch fails, no tail appears."""
+    att = AttestationStatus(
+        last_epoch_attested=9589,
+        current_epoch=9590,
+        missed_epochs=0,
+        is_attesting_this_epoch=False,
+        target_block=9_283_500,
+        attestation_window_blocks=60,
+        current_block=9_283_540,
+    )
+    out = render_attestation(att, "en", timeline=None)
+    # Block window still rendered (those fields are present)
+    assert "Current block" in out
+    # But no "next epoch" tail
+    assert "Next epoch" not in out
+
+
+def test_attestation_window_closed_branch() -> None:
+    """When current_block > sign_window_close → "window closed" message."""
+    att = AttestationStatus(
+        last_epoch_attested=9589,
+        current_epoch=9590,
+        missed_epochs=0,
+        is_attesting_this_epoch=False,
+        target_block=9_283_500,
+        attestation_window_blocks=60,
+        current_block=9_283_700,  # past target+60
+    )
+    out = render_attestation(att, "en", timeline=_mk_timeline())
+    assert "Window closed" in out
+
+
+def test_attestation_no_block_info_falls_back_to_simple_waiting() -> None:
+    """Without target_block we degrade to the single-line waiting template."""
+    att = AttestationStatus(
+        last_epoch_attested=9589,
+        current_epoch=9590,
+        missed_epochs=0,
+        is_attesting_this_epoch=False,
+        # target_block / window / current_block all None
+    )
+    out = render_attestation(att, "en", timeline=_mk_timeline())
+    assert "Awaiting attestation in epoch 9590" in out
+    # No block-level rows
+    assert "Current block" not in out
 
 
 def _mk_entry(info: ValidatorInfo, label: str = "Karnot") -> TrackingEntry:
@@ -285,3 +442,114 @@ def test_delegator_card_bank_uses_bank_icon() -> None:
     )
     out = render_delegator_card(_mk_delegator_entry(multi, label="bank"), "en")
     assert "🏦" in out
+
+
+# ---------------------------------------------------------------------------
+# Plural noun forms — ``attestation_missed`` / ``attestation_alert_missed``
+# / ``webapp_status_missed_t`` / ``confirm_delete_all_prompt``. The
+# previous renderer printed "Missed 3 epoch(s)" verbatim. The plural
+# table now picks the correct noun form per CLDR category in each
+# locale; these tests freeze the expected wording so a regression
+# (silently dropping a category from the locale file, or a JSON typo)
+# would break the build instead of shipping ungrammatical alerts.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "n, expected",
+    [
+        (1, "1 epoch since last attestation"),
+        (3, "3 epochs since last attestation"),
+        (5, "5 epochs since last attestation"),
+    ],
+)
+def test_attestation_missed_plural_en(n: int, expected: str) -> None:
+    out = t_n("attestation_missed", n, "en")
+    assert expected in out
+
+
+@pytest.mark.parametrize(
+    "n, expected_noun",
+    [
+        (1, "эпоху"),    # one
+        (3, "эпохи"),    # few
+        (5, "эпох"),     # many
+        (11, "эпох"),    # many (special: 11 ends in 1 but mod100=11 → many)
+        (21, "эпоху"),   # one (21 mod 100 = 21, mod 10 = 1)
+    ],
+)
+def test_attestation_missed_plural_ru(n: int, expected_noun: str) -> None:
+    out = t_n("attestation_missed", n, "ru")
+    assert f"{n} {expected_noun}" in out
+
+
+@pytest.mark.parametrize(
+    "n, expected_noun",
+    [
+        (1, "epokę"),    # one (Polish: only n==1)
+        (3, "epoki"),    # few
+        (5, "epok"),     # many
+        (21, "epok"),    # many (Polish 21 != one)
+    ],
+)
+def test_attestation_missed_plural_pl(n: int, expected_noun: str) -> None:
+    out = t_n("attestation_missed", n, "pl")
+    assert f"{n} {expected_noun}" in out
+
+
+def test_attestation_missed_singleform_ko() -> None:
+    """Korean has no cardinal pluralization — single template covers all n."""
+    for n in (1, 3, 5, 11):
+        out = t_n("attestation_missed", n, "ko")
+        # Just check the {count} got injected.
+        assert str(n) in out
+
+
+def test_attestation_alert_missed_plural_ru() -> None:
+    """Push-notification text picks correct ru noun forms."""
+    label = "Karnot"
+    epoch = 9590
+    one = t_n("attestation_alert_missed", 1, "ru", label=label, epoch=epoch)
+    few = t_n("attestation_alert_missed", 3, "ru", label=label, epoch=epoch)
+    many = t_n("attestation_alert_missed", 5, "ru", label=label, epoch=epoch)
+    assert "1</b> эпоха" in one or "1 эпоха" in one
+    assert "3</b> эпохи" in few or "3 эпохи" in few
+    assert "5</b> эпох" in many or "5 эпох" in many
+
+
+def test_webapp_status_missed_t_plural_ru() -> None:
+    """Webapp banner title gets the correct ru noun case."""
+    assert "1 аттестацию" in t_n("webapp_status_missed_t", 1, "ru")
+    assert "3 аттестации" in t_n("webapp_status_missed_t", 3, "ru")
+    assert "5 аттестаций" in t_n("webapp_status_missed_t", 5, "ru")
+
+
+def test_webapp_status_missed_t_plural_en() -> None:
+    """Banner title plural in en."""
+    assert "missed 1 attestation" in t_n("webapp_status_missed_t", 1, "en")
+    assert "missed 3 attestations" in t_n("webapp_status_missed_t", 3, "en")
+
+
+def test_confirm_delete_all_prompt_plural_ru() -> None:
+    """Delete-all confirmation: ru must use the right noun case for n addresses."""
+    assert "1 отслеживаемый адрес" in t_n("confirm_delete_all_prompt", 1, "ru")
+    assert "3 отслеживаемых адреса" in t_n("confirm_delete_all_prompt", 3, "ru")
+    assert "5 отслеживаемых адресов" in t_n("confirm_delete_all_prompt", 5, "ru")
+
+
+def test_render_attestation_uses_plural_for_missed_count() -> None:
+    """End-to-end through the renderer: ru bot card with missed=3 should
+    print "эпохи" (few), not "эпох" (many) or "эпох(а)" (legacy hack)."""
+    att = AttestationStatus(
+        last_epoch_attested=9587,
+        current_epoch=9590,
+        missed_epochs=3,
+        is_attesting_this_epoch=False,
+    )
+    out = render_attestation(att, "ru")
+    assert "3 эпохи" in out
+    assert "эпох(" not in out  # no legacy "(s)" / "(a)" hack remnants
+
+    out_en = render_attestation(att, "en")
+    assert "3 epochs" in out_en
+    assert "epoch(s)" not in out_en

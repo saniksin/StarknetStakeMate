@@ -120,13 +120,18 @@ async def update_attestation_state(user_id: int, state: dict) -> None:
         await session.commit()
 
 
-async def update_operator_balance_state(user_id: int, state: dict) -> None:
-    """Atomically refresh ``notification_config["_operator_balance_state"]``.
+async def update_operator_balance_was_below(
+    user_id: int, was_below: dict[str, bool]
+) -> None:
+    """Atomically refresh ``notification_config["_operator_balance_was_below"]``.
 
     Same pattern as :func:`update_attestation_state` — a targeted UPDATE on
     the JSON column so we don't ``merge()`` the rest of the row and clobber
     concurrent edits (language, tracking_data, etc.) made while the
     ~minute-long alert cycle was holding a stale Users snapshot.
+
+    ``was_below`` keys are staker addresses, values booleans. Persistence
+    keeps only True entries (absence means "above").
     """
     async with AsyncSession(db.engine) as session:
         result = await session.execute(
@@ -142,7 +147,9 @@ async def update_operator_balance_state(user_id: int, state: dict) -> None:
         if user is None:
             return
         cfg = user.get_notification_config()
-        cfg["_operator_balance_state"] = {str(k): int(v) for k, v in state.items()}
+        cfg["_operator_balance_was_below"] = {
+            str(k): bool(v) for k, v in was_below.items() if v
+        }
         user.set_notification_config(cfg)
         await session.execute(
             update(Users)
@@ -150,6 +157,11 @@ async def update_operator_balance_state(user_id: int, state: dict) -> None:
             .values(notification_config=user.notification_config)
         )
         await session.commit()
+
+
+# Back-compat alias for legacy callers (none expected in-tree, but the
+# webapp / migration scripts may still import the old name).
+update_operator_balance_state = update_operator_balance_was_below
 
 
 async def clear_request_queue(user_id: int) -> None:

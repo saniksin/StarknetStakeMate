@@ -42,12 +42,118 @@ class PoolInfoDto(BaseModel):
 
 
 class AttestationStatus(BaseModel):
-    """Block-attestation health for a staker in V2."""
+    """Block-attestation health for a staker in V2.
+
+    Extended in 2026-04 to also carry the block-level info the dashboard
+    needs for the waiting-state banner: which block the validator was
+    assigned, how wide the sign window is, and what block the chain head
+    is at right now. All three are optional so the renderer can fall back
+    to the legacy short banner when the extra RPCs fail.
+    """
 
     last_epoch_attested: int
     current_epoch: int
     missed_epochs: int                  # max(0, current_epoch - 1 - last_epoch_attested)
     is_attesting_this_epoch: bool       # has the staker attested in `current_epoch`
+
+    # ---- block-level extras (optional, populated when operational_address
+    # is known and the RPC call succeeds) -----------------------------------
+    target_block: int | None = Field(
+        default=None,
+        description=(
+            "Block the validator must attest in the current epoch. "
+            "Computed at epoch start from the validator's stake proof and "
+            "the RNG; per-operator. None when the target isn't known yet "
+            "(very early in epoch) or the RPC failed."
+        ),
+    )
+    attestation_window_blocks: int | None = Field(
+        default=None,
+        description=(
+            "Length of the sign window in blocks (governance-set, ~60 on "
+            "mainnet at the time of writing). None when RPC failed."
+        ),
+    )
+    current_block: int | None = Field(
+        default=None,
+        description="Current head block number on the chain at fetch time.",
+    )
+
+    @property
+    def sign_window_open(self) -> int | None:
+        """First block of the sign window (== ``target_block`` per ABI)."""
+        return self.target_block
+
+    @property
+    def sign_window_close(self) -> int | None:
+        """Last block of the sign window.
+
+        Equals ``target_block + attestation_window_blocks``. We don't try
+        to encode whether the window-end is inclusive vs. exclusive — the
+        renderer's "blocks left" math is symmetric either way.
+        """
+        if self.target_block is None or self.attestation_window_blocks is None:
+            return None
+        return self.target_block + self.attestation_window_blocks
+
+    @property
+    def blocks_left_in_window(self) -> int | None:
+        """Distance from the current head to ``sign_window_close``.
+
+        Negative when the window has already closed in the current epoch
+        — the renderer should treat negative values as "window closed,
+        retry next epoch" rather than printing "-3 blocks left".
+        """
+        if self.current_block is None or self.sign_window_close is None:
+            return None
+        return self.sign_window_close - self.current_block
+
+    @property
+    def has_block_info(self) -> bool:
+        """True when we have enough on-chain data to render the extended
+        block-level banner. Renderers fall back to the short banner when
+        this is False.
+        """
+        return (
+            self.target_block is not None
+            and self.attestation_window_blocks is not None
+            and self.current_block is not None
+        )
+
+
+class EpochTimeline(BaseModel):
+    """How the chain stands relative to the current vs. next epoch.
+
+    Sourced from the staking contract's ``EpochInfo`` struct plus the
+    chain head::
+
+        next_epoch_starts_block = starting_block + (current_epoch + 1 - starting_epoch) * length
+        blocks_left_in_epoch    = max(0, next_epoch_starts_block - current_block)
+        seconds_left_in_epoch   = blocks_left_in_epoch * (epoch_duration / length)
+
+    Attached to ``ValidatorInfo`` so the dashboard can render the same
+    "next epoch in N blocks (~M min)" tail under every status state, not
+    only waiting. ``None`` propagates when ``EpochInfo`` or the chain
+    head couldn't be fetched — renderers omit the tail rather than show
+    placeholder zeros.
+    """
+
+    current_epoch: int
+    next_epoch: int
+    next_epoch_block: int
+    current_block: int
+    blocks_left_in_epoch: int
+    seconds_left_in_epoch: int
+
+    # ``EpochInfo`` parameters preserved verbatim so callers (tests,
+    # webapp) can verify our derivations or re-derive on their side.
+    epoch_length_blocks: int
+    epoch_duration_seconds: int
+
+    @property
+    def minutes_left_in_epoch(self) -> int:
+        """Convenience accessor for renderers (always non-negative)."""
+        return max(0, self.seconds_left_in_epoch // 60)
 
 
 class ValidatorInfo(BaseModel):
@@ -76,6 +182,16 @@ class ValidatorInfo(BaseModel):
 
     current_epoch: int
     attestation: AttestationStatus | None = None
+
+    # End-of-epoch timeline shared by every status state (waiting /
+    # healthy / missed / exiting). Renderers append the same "next epoch
+    # in N blocks (~M min)" tail using these fields. ``None`` when
+    # EpochInfo / chain head fetch failed — renderers drop the tail
+    # silently in that case.
+    epoch_timeline: "EpochTimeline | None" = Field(
+        default=None,
+        description="Position of the chain inside the current epoch.",
+    )
 
     operator_strk_balance: Decimal | None = Field(
         default=None,
