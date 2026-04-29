@@ -961,6 +961,7 @@ async function renderValidator(address) {
   // Status banner — same logic delegator detail uses, factored out so the
   // two views always stay in sync.
   $.statusBanner.innerHTML = renderValidatorStatusBanner(data);
+  bindInfoIconHandlers();
 
   // Stats grid
   $.primaryStakeLabel.textContent = t("webapp_own_stake_label", "Own stake");
@@ -1090,6 +1091,7 @@ async function renderDelegator(delegatorAddr, stakerAddr) {
       // pure noise. The data is still one tap away on the validator
       // detail card if they actually need it.
       bindCopyHandlers();
+      bindInfoIconHandlers();
     })
     .catch((err) => {
       console.warn("validator status lookup failed", err);
@@ -1333,46 +1335,81 @@ function epochProgressPercent(timeline) {
 // its own column-aligned slot — readable like a key/value table.
 function renderAttestationDetails(att, timeline) {
   const lang = currentLang();
+  // Approx Starknet block time (~2.6s real, target 2-3s). The ~ already
+  // telegraphs imprecision — no need to caveat further. Pulled out of
+  // the inner block so the new "until target" row reuses the same coef.
+  const APPROX_BLOCK_SEC = 2.6;
+  // Each row is an object so we can attach an optional ``labelHtml``
+  // override (used by "Целевой блок (?)" — a plain HTML-escaped label
+  // can't carry a button). Backward-compat helper accepts the old
+  // 2-tuple shape too.
   const rows = [];
+  const _push = (label, value) => rows.push({ label, value });
+  const _pushHtml = (labelHtml, value) =>
+    rows.push({ labelHtml, value });
 
   if (att.current_block != null) {
-    rows.push([
+    _push(
       t("att_label_current_block", "Current block"),
       `<code>${fmtBlock(att.current_block)}</code>`,
-    ]);
+    );
   }
   if (att.target_block != null) {
-    rows.push([
-      t("att_label_target_block", "Assigned block"),
-      `<code>${fmtBlock(att.target_block)}</code>`,
-    ]);
+    // Target-block row gets a (?) info button in the label cell. The
+    // popup body lives in locales (``webapp_attestation_target_help``)
+    // and explains that the *attestation transaction itself* can land
+    // anywhere in the 60-block sign window, while the target block is
+    // the one whose hash gets confirmed. The button uses
+    // ``data-info-key`` so a single delegated click handler reads the
+    // key and calls ``tg.showAlert`` (or window.alert as fallback).
+    const targetLabel = t("att_label_target_block", "Assigned block");
+    const helpAria = t(
+      "webapp_attestation_target_help_aria", "What does this mean?",
+    );
+    const labelHtml = `${escapeHtml(targetLabel)}<button type="button" class="info-icon" data-info-key="webapp_attestation_target_help" aria-label="${escapeHtml(helpAria)}">?</button>`;
+    _pushHtml(labelHtml, `<code>${fmtBlock(att.target_block)}</code>`);
+  }
+  // New row: "До целевого блока N (~X мин)". Hidden once the target
+  // has already been crossed (``current >= target``) — at that point
+  // the user is inside the sign window and "Until window close" is the
+  // actionable line; showing ``-43 blocks`` would be noise.
+  if (att.target_block != null && att.current_block != null) {
+    const blocksToTarget = att.target_block - att.current_block;
+    if (blocksToTarget > 0) {
+      const seconds = Math.max(0, Math.floor(blocksToTarget * APPROX_BLOCK_SEC));
+      const blocksStr = tN("att_blocks", blocksToTarget, lang);
+      const timeStr = seconds < 60
+        ? tN("att_seconds", seconds, lang)
+        : tN("att_minutes", Math.floor(seconds / 60), lang);
+      _push(
+        t("att_label_until_target", "Time to target"),
+        `${escapeHtml(blocksStr)} <span class="muted">(~${escapeHtml(timeStr)})</span>`,
+      );
+    }
   }
   if (att.target_block != null && att.attestation_window_blocks != null) {
     const winClose = att.target_block + att.attestation_window_blocks;
-    rows.push([
+    _push(
       t("att_label_sign_window", "Sign window"),
       `<code>${fmtBlock(att.target_block)} → ${fmtBlock(winClose)}</code>`,
-    ]);
+    );
     if (att.current_block != null) {
       const blocksLeft = winClose - att.current_block;
       if (blocksLeft < 0) {
-        rows.push([
+        _push(
           t("att_label_window_closed", "Window status"),
           escapeHtml(t("att_window_closed", "Window closed in this epoch")),
-        ]);
+        );
       } else {
-        // Approx Starknet block time (~2.6s real, target 2-3s). The ~
-        // already telegraphs imprecision — no need to caveat further.
-        const APPROX_BLOCK_SEC = 2.6;
         const seconds = Math.max(0, Math.floor(blocksLeft * APPROX_BLOCK_SEC));
         const blocksStr = tN("att_blocks", blocksLeft, lang);
         const timeStr = seconds < 60
           ? tN("att_seconds", seconds, lang)
           : tN("att_minutes", Math.floor(seconds / 60), lang);
-        rows.push([
+        _push(
           t("att_label_window_left", "Until window close"),
           `${escapeHtml(blocksStr)} <span class="muted">(~${escapeHtml(timeStr)})</span>`,
-        ]);
+        );
       }
     }
   }
@@ -1382,22 +1419,49 @@ function renderAttestationDetails(att, timeline) {
     const minutes = Math.max(0, Math.floor((timeline.seconds_left_in_epoch || 0) / 60));
     const blocksStr = tN("att_blocks", timeline.blocks_left_in_epoch, lang);
     const minutesStr = tN("att_minutes", minutes, lang);
-    rows.push([
+    _push(
       `${t("att_label_next_epoch", "Next epoch")} ${timeline.next_epoch}`,
       `${escapeHtml(blocksStr)} <span class="muted">(~${escapeHtml(minutesStr)})</span>`,
-    ]);
+    );
   }
 
   if (rows.length === 0) return "";
   const body = rows
-    .map(([label, value]) => `
+    .map((r) => {
+      const labelCell = r.labelHtml ?? escapeHtml(r.label);
+      return `
       <div class="att-grid-row">
-        <span class="att-grid-label">${escapeHtml(label)}</span>
-        <span class="att-grid-value">${value}</span>
+        <span class="att-grid-label">${labelCell}</span>
+        <span class="att-grid-value">${r.value}</span>
       </div>
-    `)
+    `;
+    })
     .join("");
   return `<div class="att-details-grid">${body}</div>`;
+}
+
+/**
+ * Wire up the ``(?)`` info icons that ``renderAttestationDetails``
+ * embeds in the grid. Idempotent — call after every render that
+ * touches ``$.statusBanner``. Uses ``Telegram.WebApp.showAlert`` when
+ * available (matches the rest of the app's confirm-via-tg pattern) and
+ * falls back to ``window.alert`` for the local dashboard mode.
+ */
+function bindInfoIconHandlers() {
+  for (const el of viewEl.querySelectorAll("[data-info-key]")) {
+    if (el.dataset.infoBound === "1") continue;
+    el.dataset.infoBound = "1";
+    el.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const key = el.dataset.infoKey;
+      const message = t(key, key);
+      if (tg && typeof tg.showAlert === "function") {
+        try { tg.showAlert(message); return; } catch (_) { /* fallthrough */ }
+      }
+      window.alert(message);
+    });
+  }
 }
 
 function bannerWithGrid(kind, title, gridHtml) {

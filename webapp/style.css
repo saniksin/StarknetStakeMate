@@ -505,6 +505,57 @@ main {
 }
 .att-grid-value .muted { color: var(--hint); }
 
+/* Info-icon button next to a grid label (currently used on "Целевой
+   блок" — explains that the attestation tx itself can land anywhere in
+   the 60-block window, not just on the target block). The visible
+   chrome is a 16px circle so it doesn't overpower the label, but a
+   transparent extra padding inflates the touch target to ~36px so a
+   thumb-tap on a phone hits cleanly. ``vertical-align: middle`` keeps
+   it on the label baseline instead of dropping below the descender. */
+.info-icon {
+  appearance: none;
+  border: 1px solid var(--hint);
+  background: transparent;
+  color: var(--hint);
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
+  padding: 0;
+  margin-left: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  /* Touch-target inflation: a 10px transparent halo brings the
+     hit-area to ~36px without disturbing layout (the visible circle
+     stays 16px because ``box-sizing: content-box`` ignores padding
+     when ``width``/``height`` are set explicitly via the box). We
+     emulate that by stacking the click handler on the parent
+     button — which is what we already have — and giving it a
+     larger padding inside ``att-grid-label`` only. */
+  position: relative;
+}
+.info-icon::before {
+  /* Invisible halo that captures clicks. ``-webkit-tap-highlight-color``
+     is suppressed so iOS doesn't paint a grey square around the halo. */
+  content: "";
+  position: absolute;
+  inset: -10px;
+  border-radius: 50%;
+}
+.info-icon:active {
+  background: color-mix(in srgb, var(--hint) 15%, transparent);
+  color: var(--fg);
+  border-color: var(--fg);
+}
+.att-grid-label { -webkit-tap-highlight-color: transparent; }
+
 .grid-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;

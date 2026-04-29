@@ -92,6 +92,23 @@ def test_all_locales_contain_reorder_keys() -> None:
         assert not missing, f"{p.name} is missing reorder keys: {missing}"
 
 
+# Attestation grid: target-block tooltip + "until target block" row,
+# added 2026-04-29 after the user reported "целевой блок это блок
+# аттестации?" — both the row and the tooltip ship together.
+_REQUIRED_ATT_TARGET_KEYS = {
+    "att_label_until_target",
+    "webapp_attestation_target_help",
+    "webapp_attestation_target_help_aria",
+}
+
+
+def test_all_locales_contain_att_target_keys() -> None:
+    for p in pathlib.Path(LOCALES_DIR).glob("*.json"):
+        data = json.loads(p.read_text(encoding="utf-8"))
+        missing = _REQUIRED_ATT_TARGET_KEYS - data.keys()
+        assert not missing, f"{p.name} is missing att-target keys: {missing}"
+
+
 def test_translate_formats_kwargs() -> None:
     # ``attestation_missed`` was split into plural variants in 2026-04;
     # the substitution contract still needs to thread {count} through.
