@@ -524,11 +524,10 @@ main {
 .att-grid-value .muted { color: var(--hint); }
 
 /* ---------- Detail-view content rebalance (mobile) ----------
-   Only ``.hero-total-stake`` is clamped+centered — its short headline
-   reads better as a centered iOS-Settings-style block. The attestation
-   grid was reverted (dem7.jpg feedback): clamping it left an unwanted
-   right-side gap between the value column and the card's edge, the
-   label/value pair reads better edge-to-edge inside the banner.
+   Both ``.hero-total-stake`` and the waiting-banner attestation block
+   (title + grid) are clamped to the same 360px content rail and
+   centered, so they read as a single composition (dem8.jpg feedback —
+   the down-arrow from grid to hero confirmed the centered look).
 */
 .hero-total-stake {
   text-align: center;
@@ -555,6 +554,10 @@ main {
   text-align: center;
   font-size: 16px;
   margin-bottom: 4px;
+}
+.banner.banner-grid .att-details-grid {
+  max-width: 360px;
+  margin-inline: auto;
 }
 
 /* Info-icon button next to a grid label (currently used on "Целевой
