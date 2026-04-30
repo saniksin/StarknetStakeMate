@@ -557,6 +557,8 @@ main {
    Telegram WebView (Aug 2022) — safe for the Mini App audience. */
 .banner:has(.att-details-grid) .banner-title {
   text-align: center;
+  font-size: 16px;
+  margin-bottom: 4px;
 }
 
 /* Info-icon button next to a grid label (currently used on "Целевой
