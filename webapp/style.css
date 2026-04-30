@@ -548,11 +548,18 @@ main {
 
 /* Centered title for the waiting-state banner — marker class set by
    bannerWithGrid in app.js so older WebViews handle it without depending
-   on :has(). */
+   on :has(). Uses ``!important`` on every prop for the same defensive
+   reason as the outer ``.banner.banner-grid`` clamp below: an earlier
+   non-``!important`` revision rendered the title flush-left in Telegram
+   WebView. We have not pinned down which selector wins the cascade in
+   that environment (no override is visible in this stylesheet — see
+   greps for ``text-align``/``banner-title``), so ``!important`` makes
+   this rule win regardless of source order, specificity, or any future
+   inline ``style`` attribute that might creep into the title node. */
 .banner.banner-grid .banner-title {
-  text-align: center;
-  font-size: 16px;
-  margin-bottom: 4px;
+  text-align: center !important;
+  font-size: 16px !important;
+  margin-bottom: 4px !important;
 }
 /* Defensive centering for the waiting-state banner card.
    ``.view`` is a ``display: flex; flex-direction: column`` container with
