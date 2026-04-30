@@ -554,9 +554,21 @@ main {
   font-size: 16px;
   margin-bottom: 4px;
 }
+/* Defensive centering for the waiting-state banner card.
+   ``.view`` is a ``display: flex; flex-direction: column`` container with
+   the default ``align-items: stretch``, which would otherwise let the
+   banner's parent slot fill the full content width. We use ``!important``
+   here because earlier non-``!important`` revisions visibly failed in
+   Telegram WebView — likely due to a stretching/width-100% rule we have
+   not pinned down — so this rule force-centers the card regardless of
+   whether its parent uses block, flex, or grid layout. */
 .banner.banner-grid {
-  max-width: 360px;
-  margin-inline: auto;
+  max-width: 360px !important;
+  width: 100%;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  align-self: center !important;
+  justify-self: center !important;
 }
 
 /* Info-icon button next to a grid label (currently used on "Целевой
