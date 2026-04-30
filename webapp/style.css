@@ -524,14 +524,11 @@ main {
 .att-grid-value .muted { color: var(--hint); }
 
 /* ---------- Detail-view content rebalance (mobile) ----------
-   Two specific blocks looked off-balance on phone in dem5.jpg —
-   labels and values were pinned to the card's left edge with empty
-   space on the right. We constrain the inner content to a readable
-   max-width and center it within the card (iOS Settings / Notes
-   pattern). The card itself still spans the full row; only the
-   content is centered. Scoped narrowly: only applies to
-   ``.hero-total-stake`` and ``.att-details-grid`` — operator-wallet
-   and 2-col stat cards stay as-is per the user's explicit feedback.
+   Only ``.hero-total-stake`` is clamped+centered — its short headline
+   reads better as a centered iOS-Settings-style block. The attestation
+   grid was reverted (dem7.jpg feedback): clamping it left an unwanted
+   right-side gap between the value column and the card's edge, the
+   label/value pair reads better edge-to-edge inside the banner.
 */
 .hero-total-stake {
   text-align: center;
@@ -551,29 +548,13 @@ main {
   overflow: visible;
 }
 
-.att-details-grid {
-  /* Clamp the 6-row grid so it reads as a centered block instead of
-     stretching edge-to-edge. The previous 360px ceiling was wider than
-     the usable banner width on a 390px iOS viewport (390 − 16px card
-     margin × 2 − 16px banner padding × 2 ≈ 326px usable), so
-     ``margin-inline: auto`` resolved to 0 gutters and the grid pinned
-     left. 300px leaves ~13px gutters per side on the narrowest phones
-     while still fitting the longest row ("Окно подписи 9_297_768 →
-     9_297_828") on a single line. */
-  max-width: 300px;
-  margin-inline: auto;
-}
-
-/* The waiting-state banner produced by ``bannerWithGrid`` contains an
-   ``.att-details-grid``. Its title was pinned to the body's left edge
-   while the (now-narrower) grid sat centered, which read as
-   off-balance against the centered "Общий стейк" hero just below it.
-   Scope a ``text-align: center`` to that variant only via ``:has`` so
-   the success/warn/danger banners (which use ``bannerWithTail`` and
-   carry a multi-line ``.banner-sub`` paragraph) keep their natural
-   left-aligned reading flow. ``:has`` has been baseline since iOS
-   Safari 15.4 / Chrome 105 / Telegram WebView (Aug 2022) — safe for
-   the Mini App audience. */
+/* The waiting-state banner produced by ``bannerWithGrid`` carries an
+   ``.att-details-grid``. We center its title only (via ``:has``) so it
+   reads balanced above the edge-to-edge label/value rows; the
+   success/warn/danger banners (``bannerWithTail`` with a multi-line
+   ``.banner-sub``) keep their natural left-aligned reading flow.
+   ``:has`` has been baseline since iOS Safari 15.4 / Chrome 105 /
+   Telegram WebView (Aug 2022) — safe for the Mini App audience. */
 .banner:has(.att-details-grid) .banner-title {
   text-align: center;
 }
