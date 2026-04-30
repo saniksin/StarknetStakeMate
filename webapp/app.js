@@ -1824,7 +1824,7 @@ function bannerWithGrid(kind, title, gridHtml) {
   // already folds the epoch tail into the grid (last row). No standalone
   // tail div — keeps the banner compact and doesn't repeat data.
   return `
-    <div class="banner ${kind}">
+    <div class="banner ${kind} banner-grid">
       <div class="banner-body">
         <div class="banner-title">${title}</div>
         ${gridHtml}

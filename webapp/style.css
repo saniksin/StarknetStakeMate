@@ -548,14 +548,10 @@ main {
   overflow: visible;
 }
 
-/* The waiting-state banner produced by ``bannerWithGrid`` carries an
-   ``.att-details-grid``. We center its title only (via ``:has``) so it
-   reads balanced above the edge-to-edge label/value rows; the
-   success/warn/danger banners (``bannerWithTail`` with a multi-line
-   ``.banner-sub``) keep their natural left-aligned reading flow.
-   ``:has`` has been baseline since iOS Safari 15.4 / Chrome 105 /
-   Telegram WebView (Aug 2022) — safe for the Mini App audience. */
-.banner:has(.att-details-grid) .banner-title {
+/* Centered title for the waiting-state banner — marker class set by
+   bannerWithGrid in app.js so older WebViews handle it without depending
+   on :has(). */
+.banner.banner-grid .banner-title {
   text-align: center;
   font-size: 16px;
   margin-bottom: 4px;
