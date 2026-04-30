@@ -525,14 +525,21 @@ main {
 
 /* ---------- Detail-view content rebalance (mobile) ----------
    The waiting-state attestation banner (.banner-grid) is clamped to
-   a 360px max-width and centered with margin-inline:auto so the
+   a 480px max-width and centered with margin-inline:auto so the
    title + 6-row grid sit as a centered column with equal gutters
-   matching the .hero-total-stake rail just below. */
+   matching the .hero-total-stake rail just below.
+   480px is the sweet spot — wide enough to fill most modern phone
+   widths (390–428pt iPhone, 360–412dp Android) with minimal grey
+   gutters, narrow enough to still read as a centered card on
+   desktop / tablet preview. The earlier 360px clamp left visible
+   grey background strips on the right (and left) of the banner on
+   any phone wider than ~390pt — user reported it as "большое
+   пустое пространство серое". */
 .hero-total-stake {
   text-align: center;
 }
 .hero-total-stake > * {
-  max-width: 360px;
+  max-width: 480px;
   margin-inline: auto;
 }
 /* Hero values include ``white-space: nowrap`` from the base rule —
@@ -570,7 +577,7 @@ main {
    not pinned down — so this rule force-centers the card regardless of
    whether its parent uses block, flex, or grid layout. */
 .banner.banner-grid {
-  max-width: 360px !important;
+  max-width: 480px !important;
   width: 100%;
   margin-left: auto !important;
   margin-right: auto !important;
