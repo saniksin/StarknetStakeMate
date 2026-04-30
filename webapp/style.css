@@ -950,11 +950,28 @@ main {
      gesture; ``pan-y`` lets it scroll until our JS upgrades to a
      drag and flips ``touch-action: none`` dynamically. */
   touch-action: pan-y;
+  /* Mobile UX guards (scoped to reorder mode only — the normal-mode
+     row still allows tap-to-copy on the address). Without these, a
+     long-press on iOS Safari WebView during a drag triggers the native
+     text-selection / "Copy/Look Up" callout, which interrupts the
+     gesture and looks like a freeze. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
+/* Desktop press feedback: while the row is being held down (cursor
+   active), flip to the closed-fist ``grabbing`` cursor. The
+   ``.dragging`` rule below overrides this with !important so a child
+   element under the cursor mid-drag (e.g. the value column with
+   ``cursor: pointer``) can't reset it back to a pointer. */
+#app.reorder-mode .row-card:active { cursor: grabbing; }
+.row-card.dragging,
+.row-card.dragging * { cursor: grabbing !important; }
 #app.reorder-mode .row-card .chevron { display: none; }
 #app.reorder-mode .drag-handle {
   display: inline-flex;
 }
+#app.reorder-mode .drag-handle:active { cursor: grabbing; }
 #app.reorder-mode .row-card.dragging {
   /* Lift the card up: subtle shadow + slight scale so the user sees
      it detach from the list. ``z-index: 2`` puts it above the

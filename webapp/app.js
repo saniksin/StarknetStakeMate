@@ -818,13 +818,23 @@ async function disableReorderMode(save) {
     state.reorderInitial = null;
     if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
     toast(t("webapp_saved", "Saved"));
-    await renderDashboard();
+    // No rerender on success — the cards are already in the new order
+    // from the drag (DOM and ``state.entries`` were sorted optimistically
+    // above), and the ``.reorder-mode`` class was already removed by
+    // ``_applyReorderVisuals(false)`` at the top. Calling
+    // ``renderDashboard()`` here would tear down the template, refetch
+    // ``/entries``, and rebuild every card — visually a flicker / page
+    // reload right after Done. The next time the dashboard is entered
+    // fresh (back-nav, hash change, etc.) the API will return the new
+    // order anyway; nothing stale.
   } catch (err) {
     // Roll back the optimistic UI to the snapshot we took on enter.
     if (state.reorderInitial) state.entries = state.reorderInitial;
     state.reorderInitial = null;
     if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("error");
     toast(t("webapp_reorder_save_failed", err.message));
+    // Error path DOES rerender — the DOM is in the wrong (drag-target)
+    // order and we need to repaint from the snapshot.
     await renderDashboard();
   }
 }

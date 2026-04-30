@@ -563,3 +563,75 @@ def test_body_drag_skipped_when_pointerdown_originates_on_handle():
     assert res["cardCaptured"] is None, (
         "body-drag must skip when pointerdown originates on handle"
     )
+
+
+# ---------------------------------------------------------------------------
+# Regression: disableReorderMode(save=true) must NOT trigger a full
+# dashboard rerender on the happy path. The cards are already in the new
+# order from the optimistic DOM swap + state.entries sort, and
+# ``_applyReorderVisuals(false)`` already removed the .reorder-mode
+# class. Calling ``renderDashboard()`` here would refetch /entries and
+# tear down every card — visually a page reload right after the user
+# taps Done. The error path still rerenders (rollback to snapshot).
+# ---------------------------------------------------------------------------
+
+
+def test_disable_reorder_success_path_does_not_rerender():
+    """Static-source check on ``app.js``. We isolate the body of
+    ``disableReorderMode`` and assert the success ``try`` branch is free
+    of ``renderDashboard()`` calls, while the ``catch`` branch still
+    contains one. Cheap, no JS harness needed — and it catches the
+    regression of a future refactor accidentally re-introducing the
+    reload-feeling behaviour."""
+    src = (REPO / "webapp" / "app.js").read_text(encoding="utf-8")
+
+    # Locate ``async function disableReorderMode(`` and brace-match its body.
+    start = src.find("async function disableReorderMode(")
+    assert start >= 0, "disableReorderMode not found in app.js"
+    body_open = src.index("{", start)
+    depth = 0
+    end = -1
+    for i in range(body_open, len(src)):
+        ch = src[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+    assert end > 0, "failed to extract disableReorderMode body"
+    body = src[start:end]
+
+    # Split on the ``catch`` keyword so we can inspect the two branches
+    # separately. The function shape is roughly:
+    #   try { ... PUT ... await renderDashboard() ... }
+    #   catch (err) { ... rollback ... await renderDashboard() }
+    try_idx = body.rfind("try {")
+    catch_idx = body.find("} catch", try_idx)
+    assert try_idx >= 0 and catch_idx > try_idx, (
+        "expected try/catch around the PUT call"
+    )
+    try_block_raw = body[try_idx:catch_idx]
+    catch_block_raw = body[catch_idx:]
+
+    # Strip ``//`` line comments so prose mentioning ``renderDashboard()``
+    # in a comment doesn't trip the match. Block comments aren't used in
+    # this part of the file, so we don't bother with /* */ stripping.
+    import re as _re
+
+    def _strip_line_comments(s: str) -> str:
+        return _re.sub(r"//[^\n]*", "", s)
+
+    try_block = _strip_line_comments(try_block_raw)
+    catch_block = _strip_line_comments(catch_block_raw)
+
+    assert "renderDashboard(" not in try_block, (
+        "success path must NOT call renderDashboard — it causes a "
+        "page-reload feel after Done. Cards are already in the right "
+        "order via optimistic update."
+    )
+    assert "renderDashboard(" in catch_block, (
+        "error path must still call renderDashboard so the rollback "
+        "from snapshot actually repaints the DOM"
+    )
