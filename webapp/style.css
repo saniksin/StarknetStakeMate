@@ -523,6 +523,42 @@ main {
 }
 .att-grid-value .muted { color: var(--hint); }
 
+/* ---------- Detail-view content rebalance (mobile) ----------
+   Two specific blocks looked off-balance on phone in dem5.jpg —
+   labels and values were pinned to the card's left edge with empty
+   space on the right. We constrain the inner content to a readable
+   max-width and center it within the card (iOS Settings / Notes
+   pattern). The card itself still spans the full row; only the
+   content is centered. Scoped narrowly: only applies to
+   ``.hero-total-stake`` and ``.att-details-grid`` — operator-wallet
+   and 2-col stat cards stay as-is per the user's explicit feedback.
+*/
+.hero-total-stake {
+  text-align: center;
+}
+.hero-total-stake > * {
+  max-width: 360px;
+  margin-inline: auto;
+}
+/* Hero values include ``white-space: nowrap`` from the base rule —
+   when centered we want the long ``≈ $119,342`` line to remain a
+   single block but ellipsis if it ever overflows the 360px clamp on
+   a tiny phone. */
+.hero-total-stake .hero-value {
+  /* Override base nowrap+overflow so the centered headline never
+     truncates with an ellipsis on a wide enough number — at 360px
+     ``≈ $1,234,567,890`` still fits. */
+  overflow: visible;
+}
+
+.att-details-grid {
+  /* Same clamp — the 6-row grid reads better when not stretched
+     across the full card width. ``max-width: 360px`` keeps a
+     comfortable label-to-value distance regardless of screen size. */
+  max-width: 360px;
+  margin-inline: auto;
+}
+
 /* Info-icon button next to a grid label (currently used on "Целевой
    блок" — explains that the attestation tx itself can land anywhere in
    the 60-block window, not just on the target block). The visible

@@ -1115,31 +1115,79 @@ function _wireDragHandle(card, handle) {
 }
 
 /**
- * Wire body-area drag with an 8px threshold.
+ * Wire body-area drag with input-aware activation.
  *
  * Without this, only the ⠿ handle on the left edge can start a drag.
- * Most users instinctively grab the card itself, so we also listen on
- * ``card`` and promote a pointerdown into a drag once the finger has
- * moved >8px vertically. The threshold lets the user still scroll the
- * page (touch-action: pan-y on the row in reorder mode) — a slow
- * scroll never crosses the threshold and the gesture stays a scroll.
+ * Most users instinctively grab the card itself. The trick is doing
+ * that without breaking native vertical scroll on touch devices — we
+ * use two activation strategies depending on ``pointerType``:
  *
- * The actual drag flow (capture, transform tracking, sibling swap,
- * cleanup) is reused from ``_wireDragHandle`` via ``card._startReorderDrag``;
- * this function is just a gate.
+ *   - **Mouse / pen**: 8px Δy threshold. Mouse gestures are explicit;
+ *     a small motion is unambiguously a drag intent.
+ *   - **Touch (iOS / Android)**: 250ms long-press AND finger essentially
+ *     stationary (Δy ≤ 6px). If the finger moves before 250ms elapses,
+ *     the user is scrolling — we abort and never touch the gesture.
+ *     This matches the iOS Notes / Reminders / Files reorder pattern;
+ *     the alternative (Δy threshold alone) fights with native scroll
+ *     because iOS Safari WebView already commits to a pan-y scroll
+ *     within the first ~6-12px of motion, and flipping ``touch-action``
+ *     mid-gesture doesn't reliably reclaim it.
+ *
+ * Once activated, the regular drag flow takes over via
+ * ``card._startReorderDrag``.
  */
-const _BODY_DRAG_THRESHOLD_PX = 8;
+const _BODY_DRAG_THRESHOLD_MOUSE_PX = 8;
+const _BODY_DRAG_THRESHOLD_TOUCH_PX = 14; // raised for touch noise floor
+const _BODY_DRAG_LONGPRESS_MS = 250;
+const _BODY_DRAG_LONGPRESS_CANCEL_PX = 6; // pre-activation movement budget
 
 function _wireBodyDrag(card, handle) {
   let pendingPointerId = null;
   let pendingStartY = 0;
+  let pendingStartX = 0;
   let pendingDownEv = null;
+  let pendingPointerType = "";
+  // Long-press timer — only set on touch. Cleared by either the timer
+  // firing (= activation), Δy/Δx exceeding the cancel budget (= scroll
+  // intent, abort), or any terminal pointer event.
+  let longPressTimer = null;
 
-  // Only listen in reorder mode AND only on pointerdowns that don't
-  // originate inside an interactive element (button/link). The card
-  // currently has no nested ``<a>`` or non-handle ``<button>``, but
-  // we keep the guard so a future "open in explorer" link inside the
-  // sub-line can't accidentally suppress the drag-start on its tap.
+  // Wipe every closure variable involved in the pending state. Called
+  // from terminal events AND when a different input device or scroll
+  // intent invalidates the pending grab. Idempotent.
+  const clearPending = () => {
+    if (longPressTimer !== null) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+    pendingPointerId = null;
+    pendingDownEv = null;
+    pendingPointerType = "";
+  };
+
+  // Promotes the pending grab into an active drag. Re-entrant-safe via
+  // ``card._isDraggingForReorder()`` check — if the handle path
+  // beat us to it, do nothing.
+  const promote = () => {
+    if (longPressTimer !== null) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+    if (pendingPointerId === null) return;
+    if (card._isDraggingForReorder && card._isDraggingForReorder()) {
+      pendingPointerId = null;
+      pendingDownEv = null;
+      pendingPointerType = "";
+      return;
+    }
+    if (typeof card._startReorderDrag === "function" && pendingDownEv) {
+      card._startReorderDrag(pendingDownEv, card);
+    }
+    pendingPointerId = null;
+    pendingDownEv = null;
+    pendingPointerType = "";
+  };
+
   card.addEventListener("pointerdown", (ev) => {
     if (!state.reorderMode) return;
     if (ev.button !== undefined && ev.button !== 0) return;
@@ -1150,45 +1198,82 @@ function _wireBodyDrag(card, handle) {
     if (ev.target && typeof ev.target.closest === "function") {
       if (ev.target.closest("button:not(.row-card), a, [data-copy]")) return;
     }
+
+    // Wipe any stale pending state — defends against a missed terminal
+    // event leaving leftovers (e.g. finger released off-screen on iOS
+    // without firing pointerup on the original target).
+    clearPending();
+
     pendingPointerId = ev.pointerId;
     pendingStartY = ev.clientY;
+    pendingStartX = ev.clientX;
     pendingDownEv = ev;
+    // ``pointerType`` is undefined on synthetic events from older
+    // WebViews — fall back to "mouse" semantics for those (the
+    // threshold path is the safer default if we can't distinguish).
+    pendingPointerType = (ev.pointerType || "mouse").toLowerCase();
+
+    // Touch path: arm the long-press timer. If it fires while the
+    // finger is still essentially stationary, we promote.
+    if (pendingPointerType === "touch") {
+      const armedFor = pendingPointerId;
+      longPressTimer = setTimeout(() => {
+        // The pending state may have been wiped by a scroll-cancel
+        // or terminal event; only fire if our pointer is still it.
+        if (pendingPointerId === armedFor && longPressTimer !== null) {
+          longPressTimer = null;
+          promote();
+        }
+      }, _BODY_DRAG_LONGPRESS_MS);
+    }
   });
 
-  // Watch pointermoves on the card. Once Δy exceeds the threshold,
-  // promote into a drag using the ORIGINAL down-event coordinates so
-  // the card visually starts where the finger started — no jump.
   card.addEventListener("pointermove", (ev) => {
     if (pendingPointerId === null) return;
     if (ev.pointerId !== pendingPointerId) return;
-    // Already promoted — let the regular drag path handle the move.
+    // Already promoted — the regular drag flow's window-level move
+    // dispatcher takes over from here.
     if (card._isDraggingForReorder && card._isDraggingForReorder()) return;
+
     const dy = Math.abs(ev.clientY - pendingStartY);
-    if (dy < _BODY_DRAG_THRESHOLD_PX) return;
-    // Threshold crossed → promote. ``startDrag`` records the original
-    // pointerdown's clientY as ``startY`` so the running ``translateY``
-    // computation in onMove yields ``ev.clientY - originalStartY`` —
-    // matches the user's actual finger travel from the tap start.
-    if (typeof card._startReorderDrag === "function") {
-      card._startReorderDrag(pendingDownEv, card);
+    const dx = Math.abs(ev.clientX - pendingStartX);
+
+    if (pendingPointerType === "touch") {
+      // Long-press path: any non-trivial motion before the timer
+      // fires means the user is trying to scroll (or pan horizontally,
+      // which is also "not a drag"). Abort and let the browser scroll.
+      if (dy > _BODY_DRAG_LONGPRESS_CANCEL_PX || dx > _BODY_DRAG_LONGPRESS_CANCEL_PX) {
+        clearPending();
+      }
+      // Also, even if the long-press timer hasn't fired, a sustained
+      // larger motion past the touch threshold still promotes — covers
+      // the user who held briefly then dragged hard before 250ms.
+      else if (dy >= _BODY_DRAG_THRESHOLD_TOUCH_PX) {
+        promote();
+      }
+      return;
     }
-    // After promotion the next pointermove handled by the drag flow's
-    // ``onMoveWin`` will paint translateY using the original startY.
-    pendingPointerId = null;
-    pendingDownEv = null;
+
+    // Mouse / pen: simple Δy threshold. No long-press.
+    if (dy >= _BODY_DRAG_THRESHOLD_MOUSE_PX) {
+      promote();
+    }
   });
 
-  // If the user taps and releases without crossing the threshold,
-  // discard the pending state so the next gesture starts clean.
-  const clearPending = (ev) => {
+  // Terminal events on the card — clear pending state. ``pointerleave``
+  // is added (in addition to up/cancel/lostcapture) for the iOS edge
+  // case where a finger swipes off-screen without firing pointerup on
+  // the original target; ``pointerleave`` is the most reliable signal
+  // that the gesture is over without going through ``cleanup()``.
+  const clearOnEvent = (ev) => {
     if (pendingPointerId !== null && (ev.pointerId === undefined || ev.pointerId === pendingPointerId)) {
-      pendingPointerId = null;
-      pendingDownEv = null;
+      clearPending();
     }
   };
-  card.addEventListener("pointerup", clearPending);
-  card.addEventListener("pointercancel", clearPending);
-  card.addEventListener("lostpointercapture", clearPending);
+  card.addEventListener("pointerup", clearOnEvent);
+  card.addEventListener("pointercancel", clearOnEvent);
+  card.addEventListener("pointerleave", clearOnEvent);
+  card.addEventListener("lostpointercapture", clearOnEvent);
 }
 
 // ---------------------------------------------------------------------------
@@ -1865,8 +1950,12 @@ function renderTotalStakeHero(totalsBySym, prices) {
   const headline = usdAggregate !== null ? `≈ ${fmtUsd(usdAggregate)}` : breakdown;
   const sub = usdAggregate !== null ? breakdown : "";
 
+  // ``hero-total-stake`` marker class scopes the visual rebalance CSS
+  // (centered content, max-width clamp on wide screens) to JUST this
+  // block. The operator-wallet hero deliberately keeps its own
+  // left-aligned layout — see screenshot dem5 thread for context.
   return `
-    <div class="hero">
+    <div class="hero hero-total-stake">
       <div class="muted small">${escapeHtml(t("webapp_total_stake_caption", "Total stake (own + delegations)"))}</div>
       <div class="hero-value">${escapeHtml(headline)}</div>
       ${sub ? `<div class="hero-sub muted small">${escapeHtml(sub)}</div>` : ""}
