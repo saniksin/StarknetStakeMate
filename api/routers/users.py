@@ -9,7 +9,7 @@ import json
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from api.auth import TelegramUser, telegram_user_from_header
 from data.contracts import get_network_addresses
@@ -50,6 +50,12 @@ class DelegationPayload(BaseModel):
 class TrackingDoc(BaseModel):
     validators: list[ValidatorPayload] = Field(default_factory=list)
     delegations: list[DelegationPayload] = Field(default_factory=list)
+    # Flat list of stable display-order keys (``validator:0x…`` /
+    # ``delegation:0x…|0x…``). ``None`` = no explicit order set, fall back
+    # to the natural order (validators first, delegations second). Surfaced
+    # so admin tooling and future Mini-App features can read the raw
+    # display order without resolving every entry through ``/entries``.
+    display_order: list[str] | None = Field(default=None)
 
 
 class ThresholdPayload(BaseModel):
@@ -99,24 +105,72 @@ class ProfilePayload(BaseModel):
 
 
 class ReorderPayload(BaseModel):
-    """New order for the user's tracking lists, by identity key.
+    """New order for the user's tracking lists.
 
-    Each list is optional — ``None`` means "leave that side untouched"
-    so a future per-section reorder can ship without breaking the API
-    shape. The service layer applies the reorder permissively: unknown
-    keys are ignored, missing keys are appended at the end in their
-    original relative order. That keeps the endpoint idempotent against
-    a concurrent add (the new entry just lands at the bottom).
+    Two payload shapes are accepted:
+
+    1. **Flat (preferred, since cross-group reorder shipped)** — a single
+       ``order`` array of stable identity keys::
+
+           {"order": ["validator:0xabc…", "delegation:0xdel…|0xstaker…", …]}
+
+       Allows mixing validators and delegations in any sequence (e.g. a
+       delegation between two validators). The service layer is
+       permissive: unknown keys are ignored (concurrent-delete path) and
+       unmentioned entries fall through to the end (concurrent-add path).
+
+    2. **Two-list (deprecated, kept for cached PWA clients)** —
+       ``{validators: [...], delegations: [...]}``. Synthesised into a
+       flat ``display_order`` server-side via the back-compat shim. The
+       same permissive matching applies. Cannot mix groups.
+
+    Passing ``order`` together with ``validators`` or ``delegations``
+    yields a 422 — the two shapes are mutually exclusive so a stale
+    client can't accidentally double-write.
     """
 
+    order: list[str] | None = Field(
+        default=None,
+        description=(
+            "Flat list of stable identity keys (``validator:0x…`` / "
+            "``delegation:0xdel…|0xstaker…``) in the desired display "
+            "order. Preferred over the two-list shape since cross-group "
+            "reorder shipped."
+        ),
+    )
     validators: list[str] | None = Field(
         default=None,
-        description="Validator addresses in the desired order.",
+        description=(
+            "Deprecated: validator addresses in the desired order. "
+            "Use ``order`` instead — this field cannot represent "
+            "cross-group ordering."
+        ),
     )
     delegations: list[tuple[str, str]] | None = Field(
         default=None,
-        description="Delegation (delegator, staker) pairs in the desired order.",
+        description=(
+            "Deprecated: delegation (delegator, staker) pairs in the "
+            "desired order. Use ``order`` instead."
+        ),
     )
+
+    @model_validator(mode="after")
+    def _exclusive_shape(self) -> "ReorderPayload":
+        """Reject payloads that mix the two shapes.
+
+        ``order`` is the canonical shape; ``validators`` / ``delegations``
+        are accepted only when ``order`` is omitted. Allowing both would
+        require us to invent merge semantics that the user can't predict
+        — better to surface a 422 and let the client pick one.
+        """
+        if self.order is not None and (
+            self.validators is not None or self.delegations is not None
+        ):
+            raise ValueError(
+                "conflicting_payload: pass either ``order`` or the legacy "
+                "``validators``/``delegations`` lists, not both"
+            )
+        return self
 
 
 async def _resolve_user_id(
@@ -132,16 +186,29 @@ async def _resolve_user_id(
     return tg_id
 
 
+def _tracking_doc_from_dict(doc: dict) -> TrackingDoc:
+    """Adapter: tracking_data dict → ``TrackingDoc`` response model.
+
+    Exists because ``display_order`` is now a third field carried
+    through every endpoint that returns a ``TrackingDoc``. Centralizing
+    the construction means a future schema change touches one helper
+    instead of four endpoints.
+    """
+    raw_order = doc.get("display_order")
+    return TrackingDoc(
+        validators=[ValidatorPayload(**v) for v in doc.get("validators", [])],
+        delegations=[DelegationPayload(**d) for d in doc.get("delegations", [])],
+        display_order=raw_order if isinstance(raw_order, list) else None,
+    )
+
+
 @router.get("/tracking", summary="List tracked validators and delegator positions")
 async def list_tracking(user_id: int = Depends(_resolve_user_id)) -> TrackingDoc:
     user = await get_account(str(user_id))
     if user is None:
         return TrackingDoc()
     doc = load_tracking(user.tracking_data)
-    return TrackingDoc(
-        validators=[ValidatorPayload(**v) for v in doc.get("validators", [])],
-        delegations=[DelegationPayload(**d) for d in doc.get("delegations", [])],
-    )
+    return _tracking_doc_from_dict(doc)
 
 
 @router.put("/tracking", summary="Replace the user's tracking list")
@@ -158,10 +225,18 @@ async def put_tracking(
     user = await get_account(str(user_id))
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="unknown user")
-    user.tracking_data = dump_tracking(payload.model_dump())
+    # Full-replace path: the new arrays may have removed entries that
+    # were referenced in the existing display_order. ``_prune_display_order``
+    # drops dangling keys before we persist so a future ``GET /entries``
+    # doesn't try to render a removed entry. Empty pruned order auto-clears
+    # the field, falling back to natural rendering.
+    from services.tracking_service import _prune_display_order
+    doc = payload.model_dump()
+    _prune_display_order(doc)
+    user.tracking_data = dump_tracking(doc)
     await write_to_db(user)
     await clear_user_cache(user_id)
-    return payload
+    return _tracking_doc_from_dict(doc)
 
 
 def _add_error_to_http(exc: AddTrackingError) -> HTTPException:
@@ -269,21 +344,23 @@ async def post_delegation(
 
 @router.put(
     "/tracking/order",
-    summary="Reorder validators and/or delegations within tracking_data",
+    summary="Reorder tracked entries (cross-group via flat ``order`` list)",
 )
 async def put_tracking_order(
     payload: ReorderPayload, user_id: int = Depends(_resolve_user_id)
 ) -> TrackingDoc:
-    """Apply a new order to the user's tracking lists.
+    """Apply a new display order to the user's tracking_data.
 
-    The Mini App calls this once when the user taps Done on the
-    drag-and-drop reorder mode. Reordering a single side without
-    touching the other works too — pass ``null`` for the side you
-    don't want to disturb.
+    The Mini App calls this once when the user taps Done on the drag-
+    and-drop reorder mode. The flat ``order`` shape supports cross-group
+    reorder (a delegation between two validators, etc.); the legacy
+    two-list shape stays accepted as a back-compat shim for cached PWA
+    clients that haven't reloaded yet.
     """
     try:
         new_doc = await reorder_tracking_entries(
             user_id,
+            order=payload.order,
             validators_order=payload.validators,
             delegations_order=payload.delegations,
         )
@@ -291,11 +368,7 @@ async def put_tracking_order(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
     await clear_user_cache(user_id)
-
-    return TrackingDoc(
-        validators=[ValidatorPayload(**v) for v in new_doc.get("validators", [])],
-        delegations=[DelegationPayload(**d) for d in new_doc.get("delegations", [])],
-    )
+    return _tracking_doc_from_dict(new_doc)
 
 
 @router.patch("/tracking/label", summary="Rename a single tracked entry")
@@ -314,10 +387,7 @@ async def patch_label(
     user.tracking_data = dump_tracking(doc)
     await write_to_db(user)
     await clear_user_cache(user_id)
-    return TrackingDoc(
-        validators=[ValidatorPayload(**v) for v in doc["validators"]],
-        delegations=[DelegationPayload(**d) for d in doc["delegations"]],
-    )
+    return _tracking_doc_from_dict(doc)
 
 
 @router.get("/digest", summary="Render the tracking digest (same as bot /get_full_info)")

@@ -772,34 +772,44 @@ async function disableReorderMode(save) {
     return;
   }
 
-  // Read the post-drag order off the DOM, build the API payload.
+  // Read the post-drag order off the DOM and build the flat
+  // ``display_order`` payload. Stable identity keys use the same
+  // ``validator:`` / ``delegation:`` prefix vocabulary the server uses
+  // in JSON storage — single canonical form across the wire so we
+  // never have to translate between client and server shapes.
   const cardEls = Array.from(viewEl.querySelectorAll(".row-card"));
-  const validators = [];
-  const delegations = [];
+  const order = [];
   for (const el of cardEls) {
     if (el.dataset.kind === "validator") {
-      if (el.dataset.address) validators.push(el.dataset.address);
+      if (el.dataset.address) {
+        order.push(`validator:${el.dataset.address.toLowerCase()}`);
+      }
     } else if (el.dataset.kind === "delegator") {
       if (el.dataset.delegator && el.dataset.staker) {
-        delegations.push([el.dataset.delegator, el.dataset.staker]);
+        order.push(
+          `delegation:${el.dataset.delegator.toLowerCase()}|${el.dataset.staker.toLowerCase()}`,
+        );
       }
     }
   }
 
-  // Optimistic update — sort ``state.entries`` to match the DOM order so
-  // the next renderDashboard call paints the new order even before the
-  // PUT lands. If the network fails we restore from the snapshot.
+  // Optimistic update — sort ``state.entries`` to match the DOM order
+  // so the next renderDashboard call (if any) paints the new order
+  // even before the PUT lands. If the network fails we restore from
+  // the snapshot. Same canonical prefix as the wire format.
   const orderKey = (e) => {
-    if (e.kind === "validator") return `v:${(e.address || "").toLowerCase()}`;
-    return `d:${(e.data?.delegator_address || "").toLowerCase()}|${(e.data?.staker_address || "").toLowerCase()}`;
+    if (e.kind === "validator") {
+      return `validator:${(e.address || "").toLowerCase()}`;
+    }
+    return `delegation:${(e.data?.delegator_address || "").toLowerCase()}|${(e.data?.staker_address || "").toLowerCase()}`;
   };
   const targetIndex = new Map();
   cardEls.forEach((el, i) => {
     if (el.dataset.kind === "validator" && el.dataset.address) {
-      targetIndex.set(`v:${el.dataset.address.toLowerCase()}`, i);
+      targetIndex.set(`validator:${el.dataset.address.toLowerCase()}`, i);
     } else if (el.dataset.kind === "delegator") {
       targetIndex.set(
-        `d:${(el.dataset.delegator || "").toLowerCase()}|${(el.dataset.staker || "").toLowerCase()}`,
+        `delegation:${(el.dataset.delegator || "").toLowerCase()}|${(el.dataset.staker || "").toLowerCase()}`,
         i,
       );
     }
@@ -813,7 +823,7 @@ async function disableReorderMode(save) {
   try {
     await api("/api/v1/users/me/tracking/order", {
       method: "PUT",
-      body: { validators, delegations },
+      body: { order },
     });
     state.reorderInitial = null;
     if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
@@ -986,11 +996,13 @@ function _wireDragHandle(card, handle) {
     card.style.transform = `translateY(${translateY}px)`;
 
     // Find the sibling whose midpoint our card-center has crossed.
-    // Restricted to siblings with the same ``data-kind`` so a validator
-    // can't end up in the delegations group (and vice-versa).
+    // Cross-group eligible: validators and delegations can swap freely
+    // since the server stores order as a single flat ``display_order``.
+    // The data-kind attribute is still stamped on each card and used by
+    // the save step to compose the right stable-key prefix.
     const center = cardCenterStart + translateY;
     const siblings = Array.from(
-      card.parentElement?.querySelectorAll(`.row-card[data-kind="${card.dataset.kind}"]`) ?? [],
+      card.parentElement?.querySelectorAll(`.row-card`) ?? [],
     ).filter((el) => el !== card);
 
     for (const sib of siblings) {

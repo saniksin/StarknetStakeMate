@@ -252,15 +252,27 @@ async def add_tracking_entry(
 async def reorder_tracking_entries(
     user_id: int,
     *,
-    validators_order: list[str] | None,
-    delegations_order: list[tuple[str, str]] | None,
+    order: list[str] | None = None,
+    validators_order: list[str] | None = None,
+    delegations_order: list[tuple[str, str]] | None = None,
 ) -> dict:
-    """Atomically permute the user's ``tracking_data`` lists.
+    """Atomically update the user's display_order.
 
     Same atomicity story as :func:`add_tracking_entry` — re-read inside
     one session, mutate the JSON snapshot, emit a single targeted
-    ``UPDATE``. That keeps a concurrent tab's add (which writes the same
+    ``UPDATE``. Keeps a concurrent tab's add (which writes the same
     column) from losing this reorder, and vice-versa.
+
+    Two parameter shapes are accepted; the API layer enforces mutual
+    exclusivity (passing both is a 422), so by the time we get here at
+    most one is non-None:
+
+      - ``order`` (preferred): flat list of stable identity keys, used
+        for cross-group reorder. Routed to ``reorder_tracking_doc_v2``.
+      - ``validators_order`` / ``delegations_order`` (legacy): two-list
+        shape from cached PWA clients; routed to the back-compat shim
+        ``reorder_tracking_doc`` which synthesises a flat order and
+        delegates to v2 internally.
 
     Returns the resulting full doc. Raises :class:`ValueError` when the
     user row doesn't exist.
@@ -269,6 +281,7 @@ async def reorder_tracking_entries(
         dump_tracking,
         load_tracking,
         reorder_tracking_doc,
+        reorder_tracking_doc_v2,
     )
 
     async with AsyncSession(db.engine) as session:
@@ -280,11 +293,18 @@ async def reorder_tracking_entries(
             raise ValueError(f"user {user_id} not found")
 
         doc = load_tracking(user.tracking_data)
-        new_doc = reorder_tracking_doc(
-            doc,
-            validators_order=validators_order,
-            delegations_order=delegations_order,
-        )
+        if order is not None:
+            new_doc = reorder_tracking_doc_v2(doc, order=order)
+        else:
+            # Either both are None (no-op — write through dump_tracking
+            # which still preserves display_order if any) or one of
+            # validators_order/delegations_order is set; the shim handles
+            # both paths.
+            new_doc = reorder_tracking_doc(
+                doc,
+                validators_order=validators_order,
+                delegations_order=delegations_order,
+            )
         new_json = dump_tracking(new_doc)
 
         await session.execute(

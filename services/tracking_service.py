@@ -46,13 +46,30 @@ def _normalize(doc: dict | None) -> dict:
     """Ensure both top-level lists exist. Legacy ``data_pair`` format is no
     longer migrated — the project decided to wipe the DB on this breaking
     change instead of resolving pool → staker via RPC at startup.
+
+    ``display_order`` is preserved when present (added for cross-group
+    drag-and-drop reorder). Any value that isn't a list-of-strings is
+    dropped — defends against a corrupt blob smuggled in via a future
+    schema regression. We do NOT prune dangling keys here — that's the
+    job of :func:`_prune_display_order`, called from the write paths
+    (``add_*_to_tracking``, ``reorder_tracking_doc_v2``).
     """
     if not doc:
         return _empty()
     doc.setdefault("validators", [])
     doc.setdefault("delegations", [])
-    # Drop obsolete keys silently.
-    return {"validators": doc["validators"], "delegations": doc["delegations"]}
+    # Drop obsolete keys silently — but PRESERVE ``display_order``. Before
+    # this fix the round-trip ``load_tracking → dump_tracking`` wiped any
+    # extra field, so adding ``display_order`` to the storage shape was
+    # impossible without this change.
+    out: dict = {
+        "validators": doc["validators"],
+        "delegations": doc["delegations"],
+    }
+    raw_order = doc.get("display_order")
+    if isinstance(raw_order, list) and all(isinstance(k, str) for k in raw_order):
+        out["display_order"] = raw_order
+    return out
 
 
 def load_tracking(tracking_data_json: str | None) -> dict:
@@ -71,6 +88,95 @@ def dump_tracking(doc: dict) -> str:
 def total_tracked(doc: dict) -> int:
     d = _normalize(doc)
     return len(d["validators"]) + len(d["delegations"])
+
+
+# ---------------------------------------------------------------------------
+# display_order keys (cross-group reorder)
+#
+# ``display_order`` is a flat ``list[str]`` of stable identity keys, one
+# per tracked entry. Two prefixes are used:
+#
+#   - ``"validator:0xabc…"``                 (lowercase address)
+#   - ``"delegation:0xdel…|0xstaker…"``      (lowercase, ``|`` separator)
+#
+# The same prefix vocabulary is used by the Mini App's optimistic-sort
+# code (``orderKey()`` in ``webapp/app.js``) so there's exactly one
+# canonical form across the wire. ``v:`` / ``d:`` shorthands from the
+# pre-cross-group era were retired together with this change.
+# ---------------------------------------------------------------------------
+
+
+def compose_validator_key(address: str) -> str:
+    """Stable display-order key for a validator entry."""
+    return f"validator:{(address or '').lower()}"
+
+
+def compose_delegation_key(delegator: str, staker: str) -> str:
+    """Stable display-order key for a delegation entry."""
+    return f"delegation:{(delegator or '').lower()}|{(staker or '').lower()}"
+
+
+def _entry_to_key(kind: str, entry: dict) -> str | None:
+    """Resolve a stored entry dict into its display-order key, or
+    ``None`` if the entry is malformed (missing required fields)."""
+    if kind == "validators":
+        addr = entry.get("address")
+        if not addr:
+            return None
+        return compose_validator_key(addr)
+    if kind == "delegations":
+        delegator = entry.get("delegator")
+        staker = entry.get("staker")
+        if not (delegator and staker):
+            return None
+        return compose_delegation_key(delegator, staker)
+    return None
+
+
+def _all_existing_keys(doc: dict) -> set[str]:
+    """Set of stable keys for every entry currently in the doc.
+    Used by ``_prune_display_order`` to drop dangling keys."""
+    keys: set[str] = set()
+    for v in doc.get("validators", []):
+        k = _entry_to_key("validators", v)
+        if k:
+            keys.add(k)
+    for d in doc.get("delegations", []):
+        k = _entry_to_key("delegations", d)
+        if k:
+            keys.add(k)
+    return keys
+
+
+def _prune_display_order(doc: dict) -> dict:
+    """Drop dangling keys from ``doc["display_order"]``.
+
+    Called from every write path (add, reorder, label edit, full
+    replace) so stale keys can't accumulate in long-lived users. If the
+    pruned order ends up empty, the field is removed entirely so the
+    fallback "natural order" path kicks in cleanly.
+    """
+    order = doc.get("display_order")
+    if not isinstance(order, list):
+        return doc
+    existing = _all_existing_keys(doc)
+    seen: set[str] = set()
+    pruned: list[str] = []
+    for key in order:
+        if not isinstance(key, str):
+            continue
+        if key in seen:
+            # Dedup defensively — a buggy client sending the same key
+            # twice would otherwise leave one entry hidden.
+            continue
+        if key in existing:
+            pruned.append(key)
+            seen.add(key)
+    if pruned:
+        doc["display_order"] = pruned
+    else:
+        doc.pop("display_order", None)
+    return doc
 
 
 # ---------------------------------------------------------------------------
@@ -103,16 +209,63 @@ class TrackingEntry:
 async def fetch_tracking_entries(tracking_data_json: str | None) -> list[TrackingEntry]:
     doc = load_tracking(tracking_data_json)
 
-    jobs: list[tuple[int, str, str, str, str]] = []  # (idx, kind, a1, a2, label)
-    idx = 0
+    # Build the canonical "natural order" job list (validators first,
+    # delegations second) — same order this function used to produce
+    # before display_order was introduced. We keep this list around as
+    # the fallback ordering for entries that ``display_order`` doesn't
+    # mention (concurrent-add path: an entry was inserted into the
+    # underlying array AFTER the user opened reorder mode and tapped
+    # Done; its key isn't in the saved order, so it lands at the end).
+    natural: list[tuple[str, str, str, str]] = []  # (kind, a1, a2, label)
+    by_key: dict[str, tuple[str, str, str, str]] = {}
     for v in doc["validators"]:
-        jobs.append((idx, "validator", v["address"], "", v.get("label", "")))
-        idx += 1
+        addr = v.get("address") or ""
+        if not addr:
+            continue
+        item = ("validator", addr, "", v.get("label", ""))
+        natural.append(item)
+        by_key[compose_validator_key(addr)] = item
     for d in doc["delegations"]:
         delegator = d.get("delegator") or d.get("address", "")
         staker = d.get("staker") or d.get("pool", "")
-        jobs.append((idx, "delegator", delegator, staker, d.get("label", "")))
-        idx += 1
+        if not delegator:
+            continue
+        item = ("delegator", delegator, staker, d.get("label", ""))
+        natural.append(item)
+        if staker:
+            by_key[compose_delegation_key(delegator, staker)] = item
+
+    # Apply display_order when present. Permissive: unknown keys
+    # ignored (concurrent-delete path), unmentioned entries appended in
+    # natural order at the end (concurrent-add path).
+    raw_order = doc.get("display_order")
+    if isinstance(raw_order, list) and raw_order:
+        ordered: list[tuple[str, str, str, str]] = []
+        used: set[int] = set()
+        for key in raw_order:
+            if not isinstance(key, str):
+                continue
+            item = by_key.get(key)
+            if item is None:
+                continue
+            # Multiple instances of the same key in display_order would
+            # otherwise cause duplicate rendering — guard via id() so a
+            # buggy client can't double-render an entry.
+            ident = id(item)
+            if ident in used:
+                continue
+            ordered.append(item)
+            used.add(ident)
+        # Append entries from natural order that weren't covered.
+        for item in natural:
+            if id(item) not in used:
+                ordered.append(item)
+        natural = ordered
+
+    jobs: list[tuple[int, str, str, str, str]] = [
+        (i, kind, a1, a2, label)
+        for i, (kind, a1, a2, label) in enumerate(natural)
+    ]
 
     async def _one(
         i: int, kind: str, a1: str, a2: str, label: str
@@ -509,6 +662,11 @@ async def add_validator_to_tracking(
 
     entry = {"address": address, "label": _normalize_label(label)}
     doc["validators"].append(entry)
+    # Prune any dangling keys in display_order (defensive — keeps the
+    # order field honest if a previous remove path forgot to touch it).
+    # The new entry's key is naturally absent, so it lands at the end
+    # via the fallback in fetch_tracking_entries.
+    _prune_display_order(doc)
     return doc, entry
 
 
@@ -568,12 +726,86 @@ async def add_delegator_to_tracking(
         "label": _normalize_label(label),
     }
     doc["delegations"].append(entry)
+    # Prune dangling keys (mirror of the validator add-path).
+    _prune_display_order(doc)
     return doc, entry
 
 
 # ---------------------------------------------------------------------------
 # Reorder helpers (used by Mini-App drag-and-drop)
+#
+# Storage: ``doc["display_order"]`` is a flat ``list[str]`` of stable
+# identity keys (see ``compose_validator_key`` / ``compose_delegation_key``).
+# When present, ``fetch_tracking_entries`` renders entries in that order;
+# when absent, it falls back to natural order (validators first,
+# delegations second). Cross-group reorder is supported because there's
+# only one ordered list — a delegator can sit between two validators or
+# vice versa.
+#
+# Raw arrays (``validators`` / ``delegations``) stay in insertion order.
+# They're the source of truth for membership; ``display_order`` is the
+# source of truth for *position*. ``add_*_to_tracking`` therefore appends
+# to the array without touching display_order — the new entry's missing
+# key naturally lands at the end of the rendered list.
 # ---------------------------------------------------------------------------
+
+
+def reorder_tracking_doc_v2(doc: dict, *, order: list[str] | None) -> dict:
+    """Set the user's ``display_order`` to a flat list of stable keys.
+
+    Permissive matching:
+      - Unknown keys are dropped (concurrent-delete path: a key in the
+        client's drag-snapshot may refer to an entry already removed
+        in another tab).
+      - Duplicates in ``order`` are deduplicated — a buggy client that
+        sends the same key twice can't double-render the entry.
+      - Keys for entries that exist but aren't mentioned in ``order``
+        are NOT injected here — ``fetch_tracking_entries`` handles the
+        "fallback append at the end" behaviour at render time. Doing it
+        there keeps ``display_order`` short (= only what the user
+        explicitly arranged) and keeps the concurrent-add path coherent
+        across read paths that don't go through this function.
+      - ``order=None`` is a no-op (the doc isn't mutated).
+
+    The original ``doc`` is not mutated; a fresh dict is returned.
+    """
+    out = _normalize(doc)
+    out = {"validators": list(out["validators"]), "delegations": list(out["delegations"])}
+    if "display_order" in _normalize(doc):
+        out["display_order"] = list(_normalize(doc)["display_order"])
+
+    if order is None:
+        return out
+
+    existing = _all_existing_keys(out)
+    seen: set[str] = set()
+    pruned: list[str] = []
+    for raw in order:
+        if not isinstance(raw, str):
+            continue
+        # Server-side normalization: lowercase the hex parts of the key
+        # so a client that stamped ``Validator:0xABC…`` (mixed case)
+        # still matches the canonical ``validator:0xabc…``. We split
+        # on the prefix to avoid lowercasing prefixes that may evolve.
+        key = raw.lower() if ":" in raw else raw
+        if key in seen:
+            continue
+        if key not in existing:
+            # Unknown key — silently drop. Stays robust against
+            # concurrent-delete and against malformed kind prefixes.
+            continue
+        pruned.append(key)
+        seen.add(key)
+
+    if pruned:
+        out["display_order"] = pruned
+    else:
+        # Caller passed ``[]`` (or all keys were stale). Treat as
+        # "clear ordering" — the natural-order fallback takes over.
+        out.pop("display_order", None)
+
+    return out
+
 
 def reorder_tracking_doc(
     doc: dict,
@@ -581,89 +813,83 @@ def reorder_tracking_doc(
     validators_order: list[str] | None,
     delegations_order: list[tuple[str, str]] | None,
 ) -> dict:
-    """Return ``doc`` with its lists reordered to match the keys passed in.
+    """Backward-compat shim for the legacy two-list reorder API.
 
-    Identity keys:
-      - validator: ``address`` (case-insensitive match)
-      - delegation: ``(delegator, staker)`` pair (case-insensitive)
+    Pre-cross-group, the Mini App PUT'd ``{validators: [...],
+    delegations: [...]}`` — two independent permutations of the
+    underlying arrays. We now serve cross-group reorder via the v2
+    flat ``display_order`` field, but old clients (cached PWA, tabs
+    kept open across deploys) still need to keep working.
 
-    Behaviour is permissive on partial input (the dashboard sends the
-    full list today, but a future surface might ship a one-row reorder):
+    This shim:
+      1. Synthesizes a flat ``order`` by concatenating the partial
+         lists into the canonical "validators-first, delegations-second"
+         shape.
+      2. Delegates to :func:`reorder_tracking_doc_v2` which writes
+         ``display_order``.
 
-      - Keys present in ``*_order`` are placed first in the order given.
-      - Keys missing from ``*_order`` are appended in their original
-        relative order — so a partial reorder doesn't silently lose
-        entries.
-      - Keys in ``*_order`` that don't match any existing entry are
-        ignored (a duplicate add+reorder race won't 422 the user).
-      - ``None`` for either list means "leave that side untouched".
+    The raw arrays are NOT permuted — keeping a single source of truth
+    (``display_order``) for position. Behaviour visible to the user is
+    identical because ``fetch_tracking_entries`` honours
+    ``display_order``.
 
-    The original ``doc`` is not mutated; we return a new dict so callers
-    that want a snapshot stay safe.
+    ``None`` for either parameter means "leave that side untouched";
+    in this shim it falls back to the natural order of the corresponding
+    side so the synthesized flat list still covers every entry the
+    caller intended to reorder.
     """
     out = _normalize(doc)
     out = {"validators": list(out["validators"]), "delegations": list(out["delegations"])}
+    if "display_order" in _normalize(doc):
+        out["display_order"] = list(_normalize(doc)["display_order"])
 
+    flat: list[str] = []
+
+    # Validator side.
     if validators_order is not None:
-        out["validators"] = _reorder_list(
-            out["validators"],
-            keys=[k.lower() for k in validators_order],
-            key_of=lambda v: (v.get("address") or "").lower(),
-        )
+        seen_v: set[str] = set()
+        # Ordered keys requested by the caller, in the order given.
+        for addr in validators_order:
+            if not isinstance(addr, str):
+                continue
+            key = compose_validator_key(addr)
+            if key not in seen_v:
+                flat.append(key)
+                seen_v.add(key)
+        # Unmentioned validators preserve their natural relative order.
+        for v in out["validators"]:
+            key = _entry_to_key("validators", v)
+            if key and key not in seen_v:
+                flat.append(key)
+                seen_v.add(key)
+    else:
+        for v in out["validators"]:
+            key = _entry_to_key("validators", v)
+            if key:
+                flat.append(key)
 
+    # Delegation side — same shape, plus pair tuple normalization.
     if delegations_order is not None:
-        # Stored pairs use ``(delegator, staker)`` lower-cased so the
-        # comparison matches the bot's add-flow dedupe logic.
-        wanted = [
-            ((p[0] or "").lower(), (p[1] or "").lower())
-            for p in delegations_order
-            if p and len(p) >= 2
-        ]
-        out["delegations"] = _reorder_list(
-            out["delegations"],
-            keys=wanted,
-            key_of=lambda d: (
-                (d.get("delegator") or "").lower(),
-                (d.get("staker") or "").lower(),
-            ),
-        )
+        seen_d: set[str] = set()
+        for pair in delegations_order:
+            if not pair or len(pair) < 2:
+                continue
+            delegator, staker = pair[0], pair[1]
+            if not (isinstance(delegator, str) and isinstance(staker, str)):
+                continue
+            key = compose_delegation_key(delegator, staker)
+            if key not in seen_d:
+                flat.append(key)
+                seen_d.add(key)
+        for d in out["delegations"]:
+            key = _entry_to_key("delegations", d)
+            if key and key not in seen_d:
+                flat.append(key)
+                seen_d.add(key)
+    else:
+        for d in out["delegations"]:
+            key = _entry_to_key("delegations", d)
+            if key:
+                flat.append(key)
 
-    return out
-
-
-def _reorder_list(items: list, *, keys, key_of):
-    """Permissive list reorderer used by ``reorder_tracking_doc``.
-
-    Unknown keys in ``keys`` are skipped; existing items whose key isn't
-    in ``keys`` are appended at the end in their original order. The
-    function is total — it always returns a list with the same items as
-    ``items``, just possibly permuted.
-    """
-    by_key: dict = {}
-    for item in items:
-        by_key.setdefault(key_of(item), []).append(item)
-
-    seen: set = set()
-    out = []
-    for k in keys:
-        bucket = by_key.get(k)
-        if not bucket:
-            continue
-        out.append(bucket.pop(0))
-        if not bucket:
-            seen.add(k)
-            del by_key[k]
-
-    # Drain any items the caller didn't mention — keep relative order.
-    for item in items:
-        k = key_of(item)
-        if k in seen:
-            continue
-        bucket = by_key.get(k)
-        if bucket and item is bucket[0]:
-            out.append(bucket.pop(0))
-            if not bucket:
-                seen.add(k)
-                del by_key[k]
-
-    return out
+    return reorder_tracking_doc_v2(out, order=flat)
