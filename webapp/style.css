@@ -524,11 +524,10 @@ main {
 .att-grid-value .muted { color: var(--hint); }
 
 /* ---------- Detail-view content rebalance (mobile) ----------
-   Both ``.hero-total-stake`` and the waiting-banner attestation block
-   (title + grid) are clamped to the same 360px content rail and
-   centered, so they read as a single composition (dem8.jpg feedback —
-   the down-arrow from grid to hero confirmed the centered look).
-*/
+   The waiting-state attestation banner (.banner-grid) is clamped to
+   a 360px max-width and centered with margin-inline:auto so the
+   title + 6-row grid sit as a centered column with equal gutters
+   matching the .hero-total-stake rail just below. */
 .hero-total-stake {
   text-align: center;
 }
@@ -555,7 +554,7 @@ main {
   font-size: 16px;
   margin-bottom: 4px;
 }
-.banner.banner-grid .att-details-grid {
+.banner.banner-grid {
   max-width: 360px;
   margin-inline: auto;
 }
