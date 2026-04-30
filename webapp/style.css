@@ -552,11 +552,30 @@ main {
 }
 
 .att-details-grid {
-  /* Same clamp — the 6-row grid reads better when not stretched
-     across the full card width. ``max-width: 360px`` keeps a
-     comfortable label-to-value distance regardless of screen size. */
-  max-width: 360px;
+  /* Clamp the 6-row grid so it reads as a centered block instead of
+     stretching edge-to-edge. The previous 360px ceiling was wider than
+     the usable banner width on a 390px iOS viewport (390 − 16px card
+     margin × 2 − 16px banner padding × 2 ≈ 326px usable), so
+     ``margin-inline: auto`` resolved to 0 gutters and the grid pinned
+     left. 300px leaves ~13px gutters per side on the narrowest phones
+     while still fitting the longest row ("Окно подписи 9_297_768 →
+     9_297_828") on a single line. */
+  max-width: 300px;
   margin-inline: auto;
+}
+
+/* The waiting-state banner produced by ``bannerWithGrid`` contains an
+   ``.att-details-grid``. Its title was pinned to the body's left edge
+   while the (now-narrower) grid sat centered, which read as
+   off-balance against the centered "Общий стейк" hero just below it.
+   Scope a ``text-align: center`` to that variant only via ``:has`` so
+   the success/warn/danger banners (which use ``bannerWithTail`` and
+   carry a multi-line ``.banner-sub`` paragraph) keep their natural
+   left-aligned reading flow. ``:has`` has been baseline since iOS
+   Safari 15.4 / Chrome 105 / Telegram WebView (Aug 2022) — safe for
+   the Mini App audience. */
+.banner:has(.att-details-grid) .banner-title {
+  text-align: center;
 }
 
 /* Info-icon button next to a grid label (currently used on "Целевой
