@@ -164,7 +164,7 @@ function fmtBps(bps) {
   return (Number(bps) / 100).toFixed(2) + "%";
 }
 
-const TOKEN_DECIMALS = { STRK: 18, WBTC: 8, LBTC: 8, tBTC: 18, SolvBTC: 18 };
+const TOKEN_DECIMALS = { STRK: 18, WBTC: 8, LBTC: 18, tBTC: 18, SolvBTC: 8 };
 
 // ---------------------------------------------------------------------------
 // Aggregations from /entries DTOs
