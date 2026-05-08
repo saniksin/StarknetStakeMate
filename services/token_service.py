@@ -138,6 +138,10 @@ _WELL_KNOWN: dict[str, tuple[str, int]] = {
     "0x04daa17763b286d1e59b97c283c0b8c949994c361e426a28f743c67bdfe9a32f": ("LBTC", 18),
     "0x0593e034dda23eea82d2ba9a30960ed42cf4a01502cc2351dc9b9881f9931a68": ("tBTC", 18),
     "0x036834a40984312f7f7de8d31e3f6305b325389eaeea5b1c0664b2fb936461a4": ("SolvBTC", 8),
+    # strkBTC — Starknet's BTC LST. ERC-20 underlying for the new
+    # delegation-pool token added 2026-05-08; pool contract is
+    # 0x0136cb830054c3eebcf3c82951f3cd9f846aeff841328660c5777bf298f033f5.
+    "0x0787150e306e6eae6e3f79dea881770e8bbff2c1b8eb490f969669ee945b3135": ("strkBTC", 8),
 }
 
 

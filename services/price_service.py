@@ -35,6 +35,11 @@ _SYMBOL_TO_CG_ID: dict[str, str] = {
     "LBTC": "bitcoin",
     "tBTC": "bitcoin",
     "SolvBTC": "bitcoin",
+    # strkBTC has no CoinGecko listing as of 2026-05-08 (search returned no
+    # results). Treating it as 1:1 BTC-pegged for valuation — same heuristic
+    # we apply to every other BTC wrapper above. Revisit once it gets a
+    # proper CG id; until then USD figures here track BTC spot.
+    "strkBTC": "bitcoin",
 }
 
 _TTL = int(os.getenv("PRICE_CACHE_TTL", "300"))  # 5 min default

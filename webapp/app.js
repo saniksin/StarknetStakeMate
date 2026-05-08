@@ -164,7 +164,7 @@ function fmtBps(bps) {
   return (Number(bps) / 100).toFixed(2) + "%";
 }
 
-const TOKEN_DECIMALS = { STRK: 18, WBTC: 8, LBTC: 18, tBTC: 18, SolvBTC: 8 };
+const TOKEN_DECIMALS = { STRK: 18, WBTC: 8, LBTC: 18, tBTC: 18, SolvBTC: 8, strkBTC: 8 };
 
 // ---------------------------------------------------------------------------
 // Aggregations from /entries DTOs
@@ -231,7 +231,7 @@ async function loadPrices() {
   // CoinGecko free tier — no key required. Fallback gracefully on failure;
   // the UI just hides USD numbers.
   try {
-    const ids = ["starknet", "wrapped-bitcoin", "lombard-staked-btc", "tbtc", "solv-protocol-solvbtc"];
+    const ids = ["starknet", "wrapped-bitcoin", "lombard-staked-btc", "tbtc", "solv-protocol-solvbtc", "bitcoin"];
     const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(",")}&vs_currencies=usd`;
     const r = await fetch(url);
     if (!r.ok) throw new Error("price fetch " + r.status);
@@ -242,6 +242,9 @@ async function loadPrices() {
       LBTC:    data["lombard-staked-btc"]?.usd ?? null,
       tBTC:    data["tbtc"]?.usd ?? null,
       SolvBTC: data["solv-protocol-solvbtc"]?.usd ?? null,
+      // strkBTC has no CoinGecko listing yet — peg to BTC spot (matches the
+      // backend price_service.py heuristic).
+      strkBTC: data["bitcoin"]?.usd ?? null,
     };
   } catch {
     return null;
