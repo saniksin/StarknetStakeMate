@@ -374,5 +374,12 @@
     "att_label_window_closed": "Статус вікна",
     "att_label_next_epoch": "Наступна епоха",
     "epoch_tail_chip": "→ {next_epoch} ~{minutes}",
-    "epoch_progress_label": "{percent}% до епохи {next_epoch}"
+    "epoch_progress_label": "{percent}% до епохи {next_epoch}",
+    "webapp_rename": "Перейменувати",
+    "webapp_rename_save": "Зберегти",
+    "webapp_rename_cancel": "Скасувати",
+    "webapp_rename_success": "Збережено",
+    "webapp_rename_error": "Не вдалося перейменувати",
+    "webapp_rename_too_long": "Занадто довге (макс. 64)",
+    "webapp_rename_empty": "Назва не може бути порожньою"
 }

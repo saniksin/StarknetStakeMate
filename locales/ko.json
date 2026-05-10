@@ -356,5 +356,12 @@
     "att_label_window_closed": "창 상태",
     "att_label_next_epoch": "다음 에포크",
     "epoch_tail_chip": "→ {next_epoch} ~{minutes}",
-    "epoch_progress_label": "{next_epoch}까지 {percent}%"
+    "epoch_progress_label": "{next_epoch}까지 {percent}%",
+    "webapp_rename": "이름 변경",
+    "webapp_rename_save": "저장",
+    "webapp_rename_cancel": "취소",
+    "webapp_rename_success": "저장됨",
+    "webapp_rename_error": "이름을 변경하지 못했습니다",
+    "webapp_rename_too_long": "이름이 너무 깁니다 (최대 64자)",
+    "webapp_rename_empty": "이름은 비워둘 수 없습니다"
 }

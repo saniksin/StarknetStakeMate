@@ -365,5 +365,12 @@
     "att_label_window_closed": "Window status",
     "att_label_next_epoch": "Next epoch",
     "epoch_tail_chip": "→ {next_epoch} ~{minutes}",
-    "epoch_progress_label": "{percent}% to {next_epoch}"
+    "epoch_progress_label": "{percent}% to {next_epoch}",
+    "webapp_rename": "Rename",
+    "webapp_rename_save": "Save",
+    "webapp_rename_cancel": "Cancel",
+    "webapp_rename_success": "Saved",
+    "webapp_rename_error": "Failed to rename",
+    "webapp_rename_too_long": "Label is too long (max 64)",
+    "webapp_rename_empty": "Label cannot be empty"
 }

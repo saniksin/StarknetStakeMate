@@ -374,5 +374,12 @@
     "att_label_window_closed": "Статус окна",
     "att_label_next_epoch": "Следующая эпоха",
     "epoch_tail_chip": "→ {next_epoch} ~{minutes}",
-    "epoch_progress_label": "{percent}% до эпохи {next_epoch}"
+    "epoch_progress_label": "{percent}% до эпохи {next_epoch}",
+    "webapp_rename": "Переименовать",
+    "webapp_rename_save": "Сохранить",
+    "webapp_rename_cancel": "Отмена",
+    "webapp_rename_success": "Сохранено",
+    "webapp_rename_error": "Не удалось переименовать",
+    "webapp_rename_too_long": "Слишком длинный (макс. 64)",
+    "webapp_rename_empty": "Название не может быть пустым"
 }

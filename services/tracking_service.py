@@ -604,6 +604,100 @@ class AddTrackingError(Exception):
         self.detail = detail
 
 
+class RenameTrackingError(Exception):
+    """Raised by :func:`rename_tracking_entry` when validation rejects input.
+
+    Code vocabulary (mapped to HTTP statuses by the API layer and to
+    locale keys by the Mini App):
+
+      - ``invalid_kind``    — ``kind`` argument wasn't ``validator`` /
+                              ``delegator``
+      - ``label_empty``     — empty / whitespace-only label after strip
+      - ``label_too_long``  — label exceeds the 64-char ceiling
+      - ``not_found``       — no entry with that ``(kind, address)`` pair
+                              exists in the user's doc
+    """
+
+    def __init__(self, code: str, detail: str = "") -> None:
+        super().__init__(detail or code)
+        self.code = code
+        self.detail = detail
+
+
+# Hard ceiling on the length of a renamed label. Slightly more generous
+# than the add-flow's 40-char cap (``_normalize_label``) — the Mini App
+# rename UI lets users paste in slightly longer descriptive names ("My
+# main validator (Karnot)") without having to abbreviate. Keeping it
+# below 80 still fits the row card without truncation.
+MAX_RENAME_LABEL_LEN = 64
+
+
+def rename_tracking_entry(
+    doc: dict,
+    *,
+    kind: str,
+    address: str,
+    label: str,
+) -> tuple[dict, dict]:
+    """Validate + rename a single tracked entry in ``doc``.
+
+    ``address`` is matched case-insensitively against:
+
+      - ``entry["address"]`` for ``kind == "validator"``
+      - ``entry["delegator"]`` for ``kind == "delegator"`` — the
+        delegator address is what the user sees on the detail card and
+        what the Mini App embeds in the URL.
+
+    Returns ``(updated_doc, renamed_entry)``. ``doc`` is mutated in
+    place; callers that need a snapshot should ``copy.deepcopy`` first.
+    Pure function: no DB, no network. The DB-layer counterpart
+    :func:`db_api.database.update_label` re-runs this validation inside
+    a transaction so two simultaneous tabs can't lose each other's
+    writes.
+
+    Raises :class:`RenameTrackingError` for any validation failure.
+    """
+    if kind not in ("validator", "delegator"):
+        raise RenameTrackingError("invalid_kind", f"unknown kind: {kind!r}")
+
+    if not isinstance(label, str):
+        raise RenameTrackingError("label_empty", "label must be a string")
+
+    stripped = label.strip()
+    if not stripped:
+        raise RenameTrackingError(
+            "label_empty", "label cannot be empty or whitespace-only"
+        )
+    if len(stripped) > MAX_RENAME_LABEL_LEN:
+        raise RenameTrackingError(
+            "label_too_long",
+            f"label exceeds {MAX_RENAME_LABEL_LEN}-character ceiling",
+        )
+
+    doc = _normalize(doc)
+    needle = (address or "").lower()
+
+    if kind == "validator":
+        for v in doc["validators"]:
+            if (v.get("address") or "").lower() == needle:
+                v["label"] = stripped
+                # display_order is keyed by (kind, address) — labels
+                # don't appear in the key, so no pruning needed.
+                return doc, v
+        raise RenameTrackingError(
+            "not_found", f"no validator with address {address}"
+        )
+
+    # kind == "delegator"
+    for d in doc["delegations"]:
+        if (d.get("delegator") or "").lower() == needle:
+            d["label"] = stripped
+            return doc, d
+    raise RenameTrackingError(
+        "not_found", f"no delegation with delegator address {address}"
+    )
+
+
 def _normalize_label(label: str | None) -> str:
     """Truncate user-supplied labels to 40 chars (matches bot behaviour)."""
     if not label:

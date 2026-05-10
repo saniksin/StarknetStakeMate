@@ -365,5 +365,12 @@
     "att_label_window_closed": "Fensterstatus",
     "att_label_next_epoch": "Nächste Epoche",
     "epoch_tail_chip": "→ {next_epoch} ~{minutes}",
-    "epoch_progress_label": "{percent}% bis Epoche {next_epoch}"
+    "epoch_progress_label": "{percent}% bis Epoche {next_epoch}",
+    "webapp_rename": "Umbenennen",
+    "webapp_rename_save": "Speichern",
+    "webapp_rename_cancel": "Abbrechen",
+    "webapp_rename_success": "Gespeichert",
+    "webapp_rename_error": "Umbenennen fehlgeschlagen",
+    "webapp_rename_too_long": "Name zu lang (max. 64)",
+    "webapp_rename_empty": "Name darf nicht leer sein"
 }

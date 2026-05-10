@@ -374,5 +374,12 @@
     "att_label_window_closed": "Stan okna",
     "att_label_next_epoch": "Następna epoka",
     "epoch_tail_chip": "→ {next_epoch} ~{minutes}",
-    "epoch_progress_label": "{percent}% do epoki {next_epoch}"
+    "epoch_progress_label": "{percent}% do epoki {next_epoch}",
+    "webapp_rename": "Zmień nazwę",
+    "webapp_rename_save": "Zapisz",
+    "webapp_rename_cancel": "Anuluj",
+    "webapp_rename_success": "Zapisano",
+    "webapp_rename_error": "Nie udało się zmienić nazwy",
+    "webapp_rename_too_long": "Etykieta zbyt długa (maks. 64)",
+    "webapp_rename_empty": "Etykieta nie może być pusta"
 }

@@ -249,6 +249,60 @@ async def add_tracking_entry(
         return doc
 
 
+async def update_label(
+    user_id: int,
+    *,
+    kind: str,
+    address: str,
+    label: str,
+) -> dict:
+    """Atomically rename a single tracked entry's label.
+
+    Mirrors the atomicity story of :func:`update_attestation_state` and
+    :func:`add_tracking_entry`: re-read the row inside one session,
+    mutate the JSON snapshot via the service-layer helper (which
+    enforces validation), and emit a single targeted ``UPDATE
+    tracking_data`` so concurrent edits to other JSON columns or other
+    tracking-list operations (add, reorder) don't lose each other.
+
+    Returns the resulting full doc. Raises :class:`ValueError` for
+    "user not found" (404 at the API layer) and re-raises
+    :class:`services.tracking_service.RenameTrackingError` so the API
+    layer can map the ``code`` to a status (400 / 404 / 409) and
+    surface a localized message via the ``code`` JSON field.
+    """
+    from services.tracking_service import (
+        dump_tracking,
+        load_tracking,
+        rename_tracking_entry,
+    )
+
+    async with AsyncSession(db.engine) as session:
+        result = await session.execute(
+            select(Users).where(Users.user_id == user_id)
+        )
+        user = result.scalars().first()
+        if user is None:
+            raise ValueError(f"user {user_id} not found")
+
+        doc = load_tracking(user.tracking_data)
+        # Service-layer mutates ``doc`` in place + raises on bad input.
+        # We propagate ``RenameTrackingError`` to the caller (API layer
+        # maps the ``code`` to the right HTTP status).
+        new_doc, _entry = rename_tracking_entry(
+            doc, kind=kind, address=address, label=label
+        )
+        new_json = dump_tracking(new_doc)
+
+        await session.execute(
+            update(Users)
+            .where(Users.user_id == user_id)
+            .values(tracking_data=new_json)
+        )
+        await session.commit()
+        return new_doc
+
+
 async def reorder_tracking_entries(
     user_id: int,
     *,

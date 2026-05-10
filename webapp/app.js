@@ -1388,6 +1388,18 @@ async function renderValidator(address) {
     label,
     matcher: (v, _) => (v.address || "").toLowerCase() === lower,
   });
+  attachRenameUI($, {
+    kind: "validator",
+    address: entry.address,
+    currentLabel: entry.label || "",
+    onRenamed: (next) => {
+      // Keep the local entry snapshot coherent so a subsequent
+      // re-render (e.g. after a back/forward) picks up the new label
+      // without a network refetch.
+      entry.label = next;
+      setTopbar(t("webapp_topbar_validator", "Validator"), next);
+    },
+  });
   bindCopyHandlers();
 }
 
@@ -1515,6 +1527,17 @@ async function renderDelegator(delegatorAddr, stakerAddr) {
     matcher: (d) =>
       (d.delegator || "").toLowerCase() === dLower &&
       (!sLower || (d.staker || "").toLowerCase() === sLower),
+  });
+  attachRenameUI($, {
+    kind: "delegator",
+    // The PATCH endpoint matches delegations by the delegator address
+    // (the staker is auto-discovered server-side via the entry tuple).
+    address: data.delegator_address || delegatorAddr,
+    currentLabel: entry.label || "",
+    onRenamed: (next) => {
+      entry.label = next;
+      setTopbar(t("webapp_topbar_delegation", "Delegation"), next);
+    },
   });
   bindCopyHandlers();
 }
@@ -2020,6 +2043,178 @@ function renderOperatorWalletBlock(data, state) {
       </div>
     </div>
   `;
+}
+
+// ---------------------------------------------------------------------------
+// In-place tag rename (detail view)
+//
+// Replaces the ``<h2 data-bind="label">`` with a small inline editor:
+//   [ input ]  [Save]  [Cancel]
+// Save → PATCH /api/v1/users/me/tracking/{kind}/{address}, then refreshes
+// state.entries so the rest of the dashboard / detail card pick the new
+// label up. HapticFeedback fires on success / error so the user gets
+// physical confirmation even when the toast text fades fast.
+//
+// We don't use Telegram.WebApp.showPopup — its API exposes only buttons,
+// no text input, so a native ``<input>`` rendered inside the page is the
+// only path that lets the user actually type the new tag.
+// ---------------------------------------------------------------------------
+
+function attachRenameUI($, { kind, address, currentLabel, onRenamed }) {
+  // ``$`` is the bindings object from ``bindings()``; ``$.label`` is the
+  // ``<h2 data-bind="label">`` we replace in-place. Pencil button is
+  // appended next to it on first call. Calling this function again on
+  // re-render is safe — we always rebuild the trailing pencil node.
+  const labelEl = $.label;
+  if (!labelEl) return;
+
+  // Prevent the parent ``<div>`` from line-breaking after the pencil —
+  // the avatar+text row should stay on one line on narrow phones, with
+  // the pencil hugging the title.
+  labelEl.style.display = "inline";
+
+  // Remove any stale pencil from a previous render of the same view
+  // (re-renders happen on language switch / data refresh).
+  const headRow = labelEl.parentElement;
+  if (headRow) {
+    headRow.querySelectorAll(".rename-trigger, .rename-editor").forEach(
+      (n) => n.remove(),
+    );
+  }
+
+  const pencil = document.createElement("button");
+  pencil.type = "button";
+  pencil.className = "rename-trigger";
+  pencil.textContent = "✎";
+  pencil.setAttribute(
+    "aria-label",
+    t("webapp_rename", "Rename"),
+  );
+  // Sit on the same line as the title; CSS handles the visual spacing.
+  if (headRow) headRow.appendChild(pencil);
+
+  pencil.addEventListener("click", () => {
+    if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
+    enterEditMode();
+  });
+
+  function enterEditMode() {
+    // Hide the title + pencil, mount an inline editor in the same slot.
+    const editor = document.createElement("div");
+    editor.className = "rename-editor";
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.maxLength = 64;
+    input.className = "rename-input";
+    input.value = currentLabel;
+    input.setAttribute(
+      "aria-label",
+      t("webapp_rename", "Rename"),
+    );
+
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.className = "rename-save";
+    saveBtn.textContent = t("webapp_rename_save", "Save");
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "rename-cancel";
+    cancelBtn.textContent = t("webapp_rename_cancel", "Cancel");
+
+    editor.append(input, saveBtn, cancelBtn);
+
+    labelEl.style.display = "none";
+    pencil.style.display = "none";
+    if (headRow) headRow.appendChild(editor);
+
+    // Autofocus + place caret at end so the user can extend the existing
+    // tag (common case: prepend an emoji or append "(main)").
+    setTimeout(() => {
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }, 0);
+
+    function exitEditMode() {
+      editor.remove();
+      labelEl.style.display = "inline";
+      pencil.style.display = "";
+    }
+
+    cancelBtn.addEventListener("click", () => {
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
+      exitEditMode();
+    });
+
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        exitEditMode();
+      } else if (ev.key === "Enter") {
+        ev.preventDefault();
+        commit();
+      }
+    });
+
+    saveBtn.addEventListener("click", commit);
+
+    async function commit() {
+      const next = input.value.trim();
+      if (!next) {
+        if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("error");
+        toast(t("webapp_rename_empty", "Label cannot be empty"));
+        input.focus();
+        return;
+      }
+      if (next.length > 64) {
+        if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("error");
+        toast(t("webapp_rename_too_long", "Label is too long (max 64)"));
+        input.focus();
+        return;
+      }
+      saveBtn.disabled = true;
+      cancelBtn.disabled = true;
+      input.disabled = true;
+      try {
+        // Address goes into the URL — encodeURIComponent guards against
+        // any non-hex character that might sneak in via a future schema
+        // change (today the regex is strict).
+        await api(
+          `/api/v1/users/me/tracking/${kind}/${encodeURIComponent(address)}`,
+          { method: "PATCH", body: { label: next } },
+        );
+        // Bust the cached entries snapshot so the dashboard picks up the
+        // new label on next navigation. Cheap; the next ``renderDashboard``
+        // refetches.
+        state.entries = null;
+        currentLabel = next;
+        labelEl.textContent = next;
+        if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+        toast(t("webapp_rename_success", "Saved"));
+        exitEditMode();
+        if (typeof onRenamed === "function") onRenamed(next);
+      } catch (err) {
+        if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("error");
+        // Try to extract the service-layer ``code`` from the JSON body
+        // for a localized message; fall back to the raw error.
+        let msg = t("webapp_rename_error", "Failed to rename");
+        const m = (err && err.message) || "";
+        if (m.includes("label_too_long")) {
+          msg = t("webapp_rename_too_long", "Label is too long (max 64)");
+        } else if (m.includes("label_empty")) {
+          msg = t("webapp_rename_empty", "Label cannot be empty");
+        } else if (m.includes("not_found")) {
+          msg = t("webapp_rename_error", "Failed to rename");
+        }
+        toast(msg);
+        saveBtn.disabled = false;
+        cancelBtn.disabled = false;
+        input.disabled = false;
+        input.focus();
+      }
+    }
+  }
 }
 
 function attachRemoveButton(btn, { kind, label, matcher }) {

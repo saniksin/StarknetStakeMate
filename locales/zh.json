@@ -356,5 +356,12 @@
     "att_label_window_closed": "窗口状态",
     "att_label_next_epoch": "下一纪元",
     "epoch_tail_chip": "→ {next_epoch} ~{minutes}",
-    "epoch_progress_label": "至纪元 {next_epoch} {percent}%"
+    "epoch_progress_label": "至纪元 {next_epoch} {percent}%",
+    "webapp_rename": "重命名",
+    "webapp_rename_save": "保存",
+    "webapp_rename_cancel": "取消",
+    "webapp_rename_success": "已保存",
+    "webapp_rename_error": "重命名失败",
+    "webapp_rename_too_long": "标签过长 (最多 64)",
+    "webapp_rename_empty": "标签不能为空"
 }

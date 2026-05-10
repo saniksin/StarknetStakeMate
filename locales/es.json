@@ -365,5 +365,12 @@
     "att_label_window_closed": "Estado de ventana",
     "att_label_next_epoch": "Próxima época",
     "epoch_tail_chip": "→ {next_epoch} ~{minutes}",
-    "epoch_progress_label": "{percent}% hasta época {next_epoch}"
+    "epoch_progress_label": "{percent}% hasta época {next_epoch}",
+    "webapp_rename": "Renombrar",
+    "webapp_rename_save": "Guardar",
+    "webapp_rename_cancel": "Cancelar",
+    "webapp_rename_success": "Guardado",
+    "webapp_rename_error": "No se pudo renombrar",
+    "webapp_rename_too_long": "Etiqueta demasiado larga (máx. 64)",
+    "webapp_rename_empty": "La etiqueta no puede estar vacía"
 }

@@ -17,10 +17,13 @@ from db_api.database import (
     add_tracking_entry,
     get_account,
     reorder_tracking_entries,
+    update_label,
     write_to_db,
 )
 from services.tracking_service import (
     AddTrackingError,
+    MAX_RENAME_LABEL_LEN,
+    RenameTrackingError,
     TrackingEntry,
     add_delegator_to_tracking,
     add_validator_to_tracking,
@@ -87,6 +90,25 @@ class LabelUpdate(BaseModel):
     kind: Literal["validator", "delegator"]
     index: int = Field(ge=0)
     label: str = Field(max_length=40)
+
+
+class RenamePayload(BaseModel):
+    """New label for an existing tracked entry.
+
+    Used by ``PATCH /api/v1/users/me/tracking/{kind}/{address}``. Bare
+    ``str`` (no ``Optional``) — empty / whitespace-only labels are
+    rejected by the service layer with code ``label_empty`` and mapped
+    to 400 here. Length cap is enforced both with Pydantic
+    ``max_length`` (cheap, fail-fast) and again inside
+    ``rename_tracking_entry`` so the DB layer can never accept a value
+    that would visually overflow the row card.
+    """
+
+    label: str = Field(
+        min_length=1,
+        max_length=MAX_RENAME_LABEL_LEN,
+        description="New display label (1..64 chars after strip)",
+    )
 
 
 class LanguagePayload(BaseModel):
@@ -371,10 +393,15 @@ async def put_tracking_order(
     return _tracking_doc_from_dict(new_doc)
 
 
-@router.patch("/tracking/label", summary="Rename a single tracked entry")
+@router.patch("/tracking/label", summary="Rename a single tracked entry (legacy index-based)")
 async def patch_label(
     update: LabelUpdate, user_id: int = Depends(_resolve_user_id)
 ) -> TrackingDoc:
+    """Legacy index-based rename. Kept for cached PWA clients still
+    pointing at this URL — the new in-place rename UX uses the address-
+    keyed PATCH below (atomic, immune to concurrent reorder shifting the
+    target index out from under us).
+    """
     user = await get_account(str(user_id))
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="unknown user")
@@ -388,6 +415,70 @@ async def patch_label(
     await write_to_db(user)
     await clear_user_cache(user_id)
     return _tracking_doc_from_dict(doc)
+
+
+def _rename_error_to_http(exc: RenameTrackingError) -> HTTPException:
+    """Map a service-layer rename-error code to the right HTTP status.
+
+    - ``invalid_kind``    → 400 (bad path component)
+    - ``label_empty``     → 400 (validation)
+    - ``label_too_long``  → 400 (validation; pydantic also catches this
+      pre-handler when ``max_length`` is hit, but the service-layer
+      strip can shorten the value to a still-too-long form which would
+      slip past pydantic — keep this branch for defensive mapping)
+    - ``not_found``       → 404 (the user has no entry with that
+      ``(kind, address)`` pair)
+    """
+    code = exc.code
+    if code == "not_found":
+        status_code = status.HTTP_404_NOT_FOUND
+    else:
+        status_code = status.HTTP_400_BAD_REQUEST
+    return HTTPException(
+        status_code=status_code,
+        detail={"code": code, "message": exc.detail or code},
+    )
+
+
+@router.patch(
+    "/tracking/{kind}/{address}",
+    summary="Rename a tracked entry by (kind, address)",
+)
+async def patch_tracking_label(
+    kind: Literal["validator", "delegator"],
+    address: str,
+    payload: RenamePayload,
+    user_id: int = Depends(_resolve_user_id),
+) -> TrackingDoc:
+    """In-place rename used by the Mini App's edit-tag UX.
+
+    Path identity is ``(kind, address)`` rather than the legacy ``index``
+    so a concurrent reorder in another tab can't shift the target row
+    out from under the caller. The DB-layer helper re-runs validation
+    inside its session for atomicity.
+    """
+    if kind not in ("validator", "delegator"):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail={"code": "invalid_kind", "message": f"unknown kind: {kind}"},
+        )
+    if not is_valid_starknet_address(address):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail={"code": "invalid_address", "message": f"invalid address: {address}"},
+        )
+
+    try:
+        new_doc = await update_label(
+            user_id, kind=kind, address=address, label=payload.label
+        )
+    except RenameTrackingError as exc:
+        raise _rename_error_to_http(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    await clear_user_cache(user_id)
+    return _tracking_doc_from_dict(new_doc)
 
 
 @router.get("/digest", summary="Render the tracking digest (same as bot /get_full_info)")

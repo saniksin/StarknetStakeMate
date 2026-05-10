@@ -408,6 +408,81 @@ main {
   margin: 0 0 4px;
   word-break: break-word;
 }
+
+/* ---------- In-place rename (detail view) ----------
+   Pencil button sits inline next to the title; clicking it swaps the
+   ``<h2>`` for an editable row [input | Save | Cancel]. The pencil
+   uses the muted hint color so it doesn't compete with the title for
+   attention; it scales up on hover/focus for a discoverable target.
+   The editor row uses the same form-field colors as the Add view so
+   it visually reads as "you're editing data" without bringing in a
+   modal. */
+.rename-trigger {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--hint);
+  font-size: 16px;
+  line-height: 1;
+  margin-left: 8px;
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: var(--r-sm, 6px);
+  vertical-align: middle;
+}
+.rename-trigger:hover,
+.rename-trigger:focus-visible {
+  color: var(--link);
+  background: color-mix(in srgb, var(--link) 12%, transparent);
+  outline: none;
+}
+.rename-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+  width: 100%;
+}
+.rename-input {
+  flex: 1 1 160px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--separator);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 16px;
+  font-weight: 600;
+}
+.rename-input:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 1px;
+  border-color: var(--link);
+}
+.rename-save,
+.rename-cancel {
+  appearance: none;
+  border: 1px solid var(--separator);
+  background: var(--card-bg);
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: var(--r-md);
+  cursor: pointer;
+}
+.rename-save {
+  background: var(--link);
+  border-color: var(--link);
+  color: white;
+}
+.rename-save:disabled,
+.rename-cancel:disabled,
+.rename-input:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
 .addr-mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, "Liberation Mono", monospace;
   font-size: 13px;
