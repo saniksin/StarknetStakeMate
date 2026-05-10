@@ -585,6 +585,60 @@ main {
   justify-self: center !important;
 }
 
+/* ---------- Inner grid centering (waiting-state banner) ----------
+   Earlier revisions kept ``.att-details-grid`` as a ``flex column`` of
+   ``.att-grid-row``s with ``justify-content: space-between`` — labels
+   stuck to the left edge, values to the right edge, and the wide
+   middle gap read as "text прижат к левому углу" even though the
+   outer card was already centered (see ``need_fix.jpg`` 2026-05-10).
+   Inside ``.banner-grid`` we collapse the rows to a single 2-column
+   ``inline-grid`` (auto auto, ``width: fit-content``) and center it
+   inside the body via ``margin-inline: auto``. Result: each label
+   sits next to its value with a tight ``column-gap`` instead of
+   floating apart, and the whole pair-list is visibly centered —
+   matching the ``.hero-total-stake`` block below. ``align-items:
+   center`` on the body keeps the title centered above the now-
+   compact grid (the title was already centered via the
+   ``.banner-title`` rule, but flex-start cross-alignment would have
+   left-aligned the now-narrower grid otherwise). */
+.banner.banner-grid .banner-body {
+  align-items: center;
+}
+.banner.banner-grid .att-details-grid {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  column-gap: 24px;
+  row-gap: 6px;
+  width: fit-content;
+  margin-inline: auto;
+  /* Drop the ``flex column`` ``gap: 4px`` — replaced by ``row-gap``
+     above so the grid layout owns the spacing. */
+}
+/* Each ``.att-grid-row`` was a flex container itself — inside the
+   inline-grid we want the label and value as direct grid items, so
+   we ``display: contents`` to dissolve the row wrapper without
+   touching the JS structure. The per-row top border (mobile-only
+   visual separator) goes away in this compact layout — labels read
+   as paired with their values purely by adjacency. */
+.banner.banner-grid .att-grid-row {
+  display: contents;
+}
+.banner.banner-grid .att-grid-row + .att-grid-row {
+  /* Disable the top-border that the legacy flex layout used between
+     rows — in the inline-grid the row-gap + adjacency is enough. */
+  border-top: 0 !important;
+  padding-top: 0 !important;
+}
+.banner.banner-grid .att-grid-label {
+  text-align: left;
+}
+.banner.banner-grid .att-grid-value {
+  text-align: left;
+  /* Override the legacy ``text-align: right`` from the flex layout
+     so values sit immediately after their column gap, not pushed to
+     a far right edge. */
+}
+
 /* Info-icon button next to a grid label (currently used on "Целевой
    блок" — explains that the attestation tx itself can land anywhere in
    the 60-block window, not just on the target block). The visible
