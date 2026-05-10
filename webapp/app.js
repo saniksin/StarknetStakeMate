@@ -342,6 +342,7 @@ function parseRoute() {
   if (parts[0] === "d" && parts[2]) return { name: "delegator", delegator: parts[1], staker: parts[2] };
   if (parts[0] === "settings") return { name: "settings" };
   if (parts[0] === "add") return { name: "add" };
+  if (parts[0] === "yield") return { name: "yield" };
   return { name: "dashboard" };
 }
 
@@ -453,12 +454,18 @@ async function renderRoute() {
     await loadProfileAndLocale();
   }
 
+  // Tab-bar visibility: show on top-level routes (dashboard, yield),
+  // hide on detail / form / settings routes so the user sees a clear
+  // drill-down hierarchy. Highlight the active tab.
+  _renderTabbar(route.name);
+
   try {
     if (route.name === "dashboard") await renderDashboard();
     else if (route.name === "validator") await renderValidator(route.address);
     else if (route.name === "delegator") await renderDelegator(route.delegator, route.staker);
     else if (route.name === "settings") await renderSettings();
     else if (route.name === "add") await renderAdd();
+    else if (route.name === "yield") await renderYieldView();
   } catch (err) {
     // Render the diagnostic block alongside the error so the user can
     // tell whether the failure is "Telegram never sent initData" vs
@@ -2598,6 +2605,314 @@ async function renderAdd() {
       submitBtn.disabled = false;
     }
   });
+}
+
+// ---------------------------------------------------------------------------
+// Bottom tab-bar
+//
+// Two top-level tabs: Portfolio (#/) and Yield (#/yield). Visible only
+// on those two routes — drill-down views (validator/delegator detail,
+// add, settings) hide the bar so the back-button hierarchy stays
+// unambiguous. Active tab highlights via the ``.active`` class; CSS
+// keys off ``[data-tab]`` for the icon/label colours.
+// ---------------------------------------------------------------------------
+
+const _TABBAR_VISIBLE_ROUTES = new Set(["dashboard", "yield"]);
+
+function _renderTabbar(routeName) {
+  const bar = document.querySelector(".tabbar");
+  if (!bar) return;
+  if (_TABBAR_VISIBLE_ROUTES.has(routeName)) {
+    bar.hidden = false;
+    document.body.classList.add("with-tabbar");
+  } else {
+    bar.hidden = true;
+    document.body.classList.remove("with-tabbar");
+  }
+  for (const tab of bar.querySelectorAll(".tab")) {
+    tab.classList.toggle("active", tab.dataset.tab === routeName);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Yield calculator view
+//
+// Reads /api/v1/users/me/yield-data once per visit (server caches 60s),
+// reads STRK + BTC APR from <input>s persisted in localStorage, and
+// computes per-pool / per-entity / Grand Total yield numbers entirely
+// client-side using the linear formulas documented in
+// services/yield_service.py.
+//
+// Math (mirrors services.yield_service for parity):
+//   validator pool: (own + delegated * commission_bps/10000) * apr/100
+//   delegator pool: delegated * apr/100 * (10000-commission_bps)/10000
+// All yearly. Monthly = year/12, daily = year/365.
+//
+// Amounts come from the server as base-unit *strings* (won't fit in
+// JSON Number). We BigInt-divide to a Decimal-ish JS Number only after
+// applying token decimals.
+// ---------------------------------------------------------------------------
+
+const _YIELD_DEFAULTS = { strk: 8.39, btc: 3.55 };
+
+function _readApr(key, fallback) {
+  // localStorage is per-origin; under the Mini App's HTTPS host the
+  // value persists across sessions so the user's last-typed APR is
+  // restored next visit. Bad values (NaN, negative) fall back to default.
+  const raw = (() => {
+    try { return localStorage.getItem(key); } catch (_) { return null; }
+  })();
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0 || n > 100) return fallback;
+  return n;
+}
+
+function _writeApr(key, value) {
+  try { localStorage.setItem(key, String(value)); } catch (_) { /* private mode */ }
+}
+
+function _aprForSymbol(symbol, strkApr, btcApr) {
+  if (!symbol) return strkApr;
+  const s = String(symbol).toUpperCase();
+  if (s === "STRK") return strkApr;
+  if (["WBTC", "LBTC", "TBTC", "SOLVBTC", "STRKBTC"].includes(s)) return btcApr;
+  return strkApr;
+}
+
+/** Convert a base-unit BigInt-string to a JS Number with token decimals applied.
+ *  Loses precision past ~15 significant digits but that's fine for UI display. */
+function _baseToNumber(rawStr, decimals) {
+  if (!rawStr || rawStr === "0") return 0;
+  // Use BigInt-safe parsing for the integer/fractional split.
+  let s = String(rawStr);
+  let neg = false;
+  if (s.startsWith("-")) { neg = true; s = s.slice(1); }
+  if (s.length <= decimals) {
+    s = s.padStart(decimals + 1, "0");
+  }
+  const intPart = s.slice(0, s.length - decimals);
+  const fracPart = s.slice(s.length - decimals);
+  const num = Number(intPart + "." + fracPart);
+  return neg ? -num : num;
+}
+
+function _validatorPoolYieldYear(ownNum, delegatedNum, aprPct, commissionBps) {
+  const aprFrac = aprPct / 100;
+  const own = ownNum * aprFrac;
+  const commission = delegatedNum * aprFrac * (commissionBps / 10000);
+  return own + commission;
+}
+
+function _delegatorPoolYieldYear(delegatedNum, aprPct, commissionBps) {
+  return delegatedNum * (aprPct / 100) * ((10000 - commissionBps) / 10000);
+}
+
+/** Build a self-contained breakdown object for one entry — used for both
+ *  validators and delegators. ``poolYieldFn`` chooses the formula. */
+function _buildEntryYield(entry, kind, strkApr, btcApr) {
+  const pools = entry.pools || [];
+  const breakdown = [];
+  let yearTokenSum = 0; // unused (per-token totals stay separate)
+  let yearUsdTotal = 0;
+  for (const p of pools) {
+    const ownNum = _baseToNumber(p.own || "0", p.decimals);
+    const delegatedNum = _baseToNumber(p.delegated || "0", p.decimals);
+    const apr = _aprForSymbol(p.symbol, strkApr, btcApr);
+    const commission = entry.commission_bps || 0;
+    const yieldYearToken = (kind === "validator")
+      ? _validatorPoolYieldYear(ownNum, delegatedNum, apr, commission)
+      : _delegatorPoolYieldYear(delegatedNum, apr, commission);
+    const price = (p.price_usd === null || p.price_usd === undefined) ? null : Number(p.price_usd);
+    const yieldYearUsd = price !== null ? yieldYearToken * price : null;
+    if (yieldYearUsd !== null) yearUsdTotal += yieldYearUsd;
+    breakdown.push({
+      symbol: p.symbol,
+      decimals: p.decimals,
+      ownNum,
+      delegatedNum,
+      apr,
+      commission,
+      yieldYearToken,
+      yieldYearUsd,
+      price,
+    });
+  }
+  return { breakdown, yearUsdTotal };
+}
+
+async function renderYieldView() {
+  setTopbar(t("yield_tab", "Yield"), "");
+  renderTemplate("tpl-yield");
+  const $ = bindings();
+
+  const aprStrkInput = document.getElementById("apr-strk-input");
+  const aprBtcInput = document.getElementById("apr-btc-input");
+  const errorEl = document.getElementById("yield-apr-error");
+
+  // Restore from localStorage (or defaults).
+  let strkApr = _readApr("apr_strk", _YIELD_DEFAULTS.strk);
+  let btcApr = _readApr("apr_btc", _YIELD_DEFAULTS.btc);
+  aprStrkInput.value = String(strkApr);
+  aprBtcInput.value = String(btcApr);
+
+  // Fetch yield-data + prices in parallel. The server-side endpoint
+  // already attaches per-pool prices, so we don't need a separate
+  // CoinGecko call for this view.
+  let payload;
+  try {
+    payload = await api("/api/v1/users/me/yield-data");
+  } catch (err) {
+    $.yieldCards.innerHTML = `<div class="placeholder">${escapeHtml(err.message)}</div>`;
+    return;
+  }
+
+  const validators = payload.validators || [];
+  const delegators = payload.delegators || [];
+
+  if (validators.length === 0 && delegators.length === 0) {
+    $.yieldCards.innerHTML = `<div class="placeholder">${escapeHtml(t("yield_no_data", "No tracked validators or delegators yet — add some on the Portfolio tab."))}</div>`;
+    $.yieldGrandTotal.hidden = true;
+    return;
+  }
+
+  function _renderAll() {
+    // Validate APRs before rendering. Out-of-range silently snaps back
+    // to the prior value — we don't want to nuke user intent on a
+    // mid-typing 100.5.
+    const sNum = Number(aprStrkInput.value);
+    const bNum = Number(aprBtcInput.value);
+    const valid = (n) => Number.isFinite(n) && n >= 0 && n <= 100;
+    if (!valid(sNum) || !valid(bNum)) {
+      errorEl.hidden = false;
+      errorEl.textContent = t("yield_apr_invalid", "APR must be between 0 and 100");
+      return;
+    }
+    errorEl.hidden = true;
+    strkApr = sNum;
+    btcApr = bNum;
+    _writeApr("apr_strk", strkApr);
+    _writeApr("apr_btc", btcApr);
+
+    // Render every entity card + Grand Total.
+    $.yieldCards.innerHTML = "";
+    let grandYearUsd = 0;
+
+    for (const v of validators) {
+      const { breakdown, yearUsdTotal } = _buildEntryYield(v, "validator", strkApr, btcApr);
+      grandYearUsd += yearUsdTotal;
+      $.yieldCards.appendChild(_renderYieldCard({
+        title: v.label || fmtAddr(v.address),
+        subtitleKey: "yield_validator_card_subtitle",
+        subtitleFallback: "as validator (own + commission)",
+        address: v.address,
+        breakdown,
+        yearUsdTotal,
+        kind: "validator",
+      }));
+    }
+    for (const d of delegators) {
+      const { breakdown, yearUsdTotal } = _buildEntryYield(d, "delegator", strkApr, btcApr);
+      grandYearUsd += yearUsdTotal;
+      const subtitleAddon = d.validator_label || (d.validator_address ? fmtAddr(d.validator_address) : "");
+      $.yieldCards.appendChild(_renderYieldCard({
+        title: d.label || fmtAddr(d.address),
+        subtitleKey: "yield_delegator_card_subtitle",
+        subtitleFallback: "as delegator (net of commission)",
+        subtitleAddon: subtitleAddon ? `· ${t("yield_via", "via")} ${subtitleAddon}` : "",
+        address: d.address,
+        breakdown,
+        yearUsdTotal,
+        kind: "delegator",
+      }));
+    }
+
+    // Grand Total
+    $.yieldGrandTotal.hidden = false;
+    $.yieldYearTotal.textContent = fmtUsd(grandYearUsd);
+    $.yieldMonthTotal.textContent = fmtUsd(grandYearUsd / 12);
+    $.yieldDayTotal.textContent = fmtUsd(grandYearUsd / 365);
+  }
+
+  // Reactive recalc on input change. ``input`` event fires per keystroke
+  // — no debounce needed at 10 cards × 6 pools.
+  aprStrkInput.addEventListener("input", () => {
+    if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
+    _renderAll();
+  });
+  aprBtcInput.addEventListener("input", () => {
+    if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
+    _renderAll();
+  });
+
+  _renderAll();
+}
+
+function _renderYieldCard({ title, subtitleKey, subtitleFallback, subtitleAddon, address, breakdown, yearUsdTotal, kind }) {
+  const card = document.createElement("div");
+  card.className = "yield-card card";
+  card.dataset.expanded = "false";
+
+  const subtitle = t(subtitleKey, subtitleFallback) + (subtitleAddon ? ` ${subtitleAddon}` : "");
+
+  // Header (always visible)
+  const header = document.createElement("div");
+  header.className = "yield-card-header";
+  header.innerHTML = `
+    <div class="yield-card-title-block">
+      <div class="yield-card-title">${escapeHtml(title)}</div>
+      <div class="muted small">${escapeHtml(subtitle)}</div>
+    </div>
+    <div class="yield-card-summary">
+      <div class="yield-card-year">${escapeHtml(fmtUsd(yearUsdTotal))}</div>
+      <div class="muted small">
+        <span data-i18n-fallback>${escapeHtml(t("monthly", "Monthly"))}</span>: ${escapeHtml(fmtUsd(yearUsdTotal / 12))}
+        ·
+        <span>${escapeHtml(t("daily", "Daily"))}</span>: ${escapeHtml(fmtUsd(yearUsdTotal / 365))}
+      </div>
+    </div>
+    <span class="yield-card-chevron" aria-hidden="true">▾</span>
+  `;
+  card.appendChild(header);
+
+  // Breakdown (collapsed by default)
+  const body = document.createElement("div");
+  body.className = "yield-card-body";
+
+  if (breakdown.length === 0) {
+    body.innerHTML = `<div class="muted small">${escapeHtml(t("yield_no_pools", "No active pools"))}</div>`;
+  } else {
+    const rows = breakdown.map((p) => {
+      const usdYear = p.yieldYearUsd !== null ? fmtUsd(p.yieldYearUsd) : `<span class="muted">${escapeHtml(t("yield_price_unavailable", "Price unavailable"))}</span>`;
+      const usdMonth = p.yieldYearUsd !== null ? fmtUsd(p.yieldYearUsd / 12) : "—";
+      const usdDay = p.yieldYearUsd !== null ? fmtUsd(p.yieldYearUsd / 365) : "—";
+      const tokenYear = fmtAmount(p.yieldYearToken, p.symbol);
+      const tokenMonth = fmtAmount(p.yieldYearToken / 12, p.symbol);
+      const tokenDay = fmtAmount(p.yieldYearToken / 365, p.symbol);
+      return `
+        <div class="yield-pool-row">
+          <div class="yield-pool-symbol">${escapeHtml(p.symbol)}</div>
+          <div class="yield-pool-figures">
+            <div><span class="muted small">${escapeHtml(t("yearly", "Yearly"))}</span> ${escapeHtml(tokenYear)} <span class="muted small">/ ${usdYear}</span></div>
+            <div><span class="muted small">${escapeHtml(t("monthly", "Monthly"))}</span> ${escapeHtml(tokenMonth)} <span class="muted small">/ ${usdMonth}</span></div>
+            <div><span class="muted small">${escapeHtml(t("daily", "Daily"))}</span> ${escapeHtml(tokenDay)} <span class="muted small">/ ${usdDay}</span></div>
+          </div>
+        </div>
+      `;
+    }).join("");
+    body.innerHTML = rows;
+  }
+  card.appendChild(body);
+
+  // Tap-to-toggle. Smooth animation via ``max-height`` transition; we
+  // measure the body height on first expand and reuse it. No JS work
+  // per pixel — CSS handles the curve.
+  header.addEventListener("click", () => {
+    const expanded = card.dataset.expanded === "true";
+    card.dataset.expanded = expanded ? "false" : "true";
+    if (tg && tg.HapticFeedback) tg.HapticFeedback.selectionChanged();
+  });
+
+  return card;
 }
 
 // ---------------------------------------------------------------------------

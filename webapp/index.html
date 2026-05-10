@@ -7,7 +7,7 @@
   <title>StakeMate</title>
   <link rel="preconnect" href="https://telegram.org" crossorigin />
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="stylesheet" href="/app/style.css?v=20260510-2" />
+  <link rel="stylesheet" href="/app/style.css?v=20260510-3" />
 </head>
 <body>
   <div id="app" data-view="dashboard">
@@ -35,6 +35,30 @@
       <!-- Views render here -->
       <section id="view" class="view"></section>
     </main>
+
+    <!--
+      Bottom tab-bar — Portfolio + Yield. Visible only on top-level views
+      (dashboard, yield); the JS hides it on detail views and Settings to
+      preserve the "drill-down" mental model. Native iOS-style: pill icons
+      with labels, safe-area-inset bottom respected.
+    -->
+    <nav class="tabbar" data-bind="tabbar" aria-label="Primary">
+      <a class="tab" data-tab="dashboard" href="#/" aria-label="Portfolio">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" class="tab-icon">
+          <path fill="currentColor" d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/>
+        </svg>
+        <span class="tab-label" data-i18n="webapp_tab_portfolio">Portfolio</span>
+      </a>
+      <a class="tab" data-tab="yield" href="#/yield" aria-label="Yield">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" class="tab-icon">
+          <!-- Calculator glyph: rectangle with a screen and a 2x2 keypad.
+               Matches lucide's calculator at smaller-fidelity (we don't
+               carry the full lucide bundle). -->
+          <path fill="currentColor" d="M7 2h10a3 3 0 0 1 3 3v14a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V5a3 3 0 0 1 3-3zm0 2a1 1 0 0 0-1 1v3h12V5a1 1 0 0 0-1-1H7zm0 7v2h2v-2H7zm4 0v2h2v-2h-2zm4 0v2h2v-2h-2zm-8 4v2h2v-2H7zm4 0v2h2v-2h-2zm4 0v6h2v-6h-2zm-8 4v2h2v-2H7zm4 0v2h2v-2h-2z"/>
+        </svg>
+        <span class="tab-label" data-i18n="webapp_tab_yield">Yield</span>
+      </a>
+    </nav>
   </div>
 
   <template id="tpl-dashboard">
@@ -217,6 +241,47 @@
     <p class="muted small center" id="settings-status"></p>
   </template>
 
-  <script src="/app/app.js?v=20260510-2"></script>
+  <template id="tpl-yield">
+    <div class="hero">
+      <h2 class="hero-form-title" data-i18n="yield_title">Yield calculator</h2>
+      <p class="muted small" data-i18n="yield_intro">
+        Enter the current network APR to estimate annual / monthly / daily rewards across every tracked validator and delegator.
+      </p>
+    </div>
+
+    <div class="card form-card">
+      <label class="row-label">
+        <span data-i18n="apr_strk_label">STRK APR (%)</span>
+        <div class="input-with-suffix">
+          <input type="number" min="0" max="100" step="0.01" id="apr-strk-input" placeholder="8.39" />
+          <span class="suffix">%</span>
+        </div>
+      </label>
+      <label class="row-label">
+        <span data-i18n="apr_btc_label">BTC APR (%)</span>
+        <div class="input-with-suffix">
+          <input type="number" min="0" max="100" step="0.01" id="apr-btc-input" placeholder="3.55" />
+          <span class="suffix">%</span>
+        </div>
+      </label>
+      <p class="form-error" id="yield-apr-error" hidden></p>
+    </div>
+
+    <div id="yield-cards" class="yield-cards" data-bind="yieldCards">
+      <div class="placeholder" data-bind="yieldPlaceholder" data-i18n="webapp_loading">Loading…</div>
+    </div>
+
+    <div class="hero yield-grand-total" data-bind="yieldGrandTotal" hidden>
+      <div class="muted small" data-i18n="total_annual_yield">Total annual yield</div>
+      <div class="hero-value" data-bind="yieldYearTotal">—</div>
+      <div class="hero-sub muted small">
+        <span data-i18n="total_monthly_yield">Monthly</span>: <span data-bind="yieldMonthTotal">—</span>
+        &nbsp;·&nbsp;
+        <span data-i18n="total_daily_yield">Daily</span>: <span data-bind="yieldDayTotal">—</span>
+      </div>
+    </div>
+  </template>
+
+  <script src="/app/app.js?v=20260510-3"></script>
 </body>
 </html>

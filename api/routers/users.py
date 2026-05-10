@@ -593,6 +593,34 @@ async def typed_entries(user_id: int = Depends(_resolve_user_id)) -> list[dict]:
     ]
 
 
+@router.get(
+    "/yield-data",
+    summary="Per-validator/delegator pool breakdown for the Yield calculator tab",
+)
+async def yield_data(user_id: int = Depends(_resolve_user_id)) -> dict:
+    """Return raw pool stake amounts for the Yield Calculator.
+
+    The frontend reads this once when opening the Yield tab and runs
+    APR-driven math entirely client-side (so the cache key here doesn't
+    need APR — it stays per-user and lasts 60s). See
+    :mod:`services.yield_service` for the linear yield model the UI
+    applies.
+
+    Empty pools (own=0 AND delegated=0) are filtered out. Tokens whose
+    USD price is unknown serialize with ``price_usd: null`` instead of
+    failing — the UI then renders "—" in the USD column.
+    """
+    # Lazy import to avoid pulling RPC modules at API import time when
+    # the endpoint isn't being exercised (parity with the rest of this
+    # router's lazy patterns).
+    from services.yield_service import build_yield_payload
+
+    user = await get_account(str(user_id))
+    tracking = user.tracking_data if user else None
+    payload = await build_yield_payload(user_id=user_id, tracking_data=tracking)
+    return payload.model_dump(mode="json")
+
+
 # ---------------------------------------------------------------------------
 # Profile + language (Mini App i18n)
 # ---------------------------------------------------------------------------

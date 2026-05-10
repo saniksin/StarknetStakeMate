@@ -1246,3 +1246,164 @@ main {
   font-size: 13px;
   color: var(--header-fg);
 }
+
+/* ---------- Bottom tab-bar ----------
+   Two-tab native bottom navigation. Sticky, safe-area-aware, blurs the
+   background like the topbar. Active tab tints icon+label with --link
+   so the user can see the current section at a glance. Tabs are <a>
+   tags pointing at hash routes — the standard hashchange listener
+   handles the route swap. */
+.tabbar {
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-top: 0.5px solid var(--separator);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+.tabbar[hidden] { display: none; }
+
+.tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px 6px;
+  text-decoration: none;
+  color: var(--hint);
+  font-size: 11px;
+  font-weight: 500;
+  transition: color 120ms ease-out;
+}
+.tab .tab-icon { color: inherit; }
+.tab.active { color: var(--link); }
+.tab:active { opacity: 0.65; }
+
+/* Reserve space at the bottom of <main> when the tabbar is on so the
+   last card isn't covered by the bar. The body-level toggle keeps the
+   reservation off on detail/form views (where the tabbar is hidden). */
+body.with-tabbar main {
+  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0));
+}
+
+/* ---------- Yield calculator ----------
+   The Yield tab uses .card form-card for the APR inputs (matches
+   Settings) and a stack of .yield-card collapsibles for per-entity
+   breakdowns. .yield-grand-total reuses .hero so it visually sits at
+   the same priority level as the dashboard's Total Stake hero. */
+.yield-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+.yield-card {
+  /* ``.card`` provides the white background + rounded corners. We
+     just override padding/cursor here. */
+  padding: 0;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.yield-card-header {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s4);
+}
+
+.yield-card-title-block {
+  min-width: 0;
+}
+.yield-card-title {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.yield-card-summary {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.yield-card-year {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.yield-card-chevron {
+  color: var(--hint);
+  font-size: 12px;
+  transition: transform 200ms ease-out;
+}
+.yield-card[data-expanded="true"] .yield-card-chevron {
+  transform: rotate(180deg);
+}
+
+/* Smooth expand/collapse via grid-template-rows trick — animates from
+   0 to ``auto`` height without us having to measure the body. */
+.yield-card-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 240ms ease-out;
+  padding: 0 var(--s4);
+}
+.yield-card-body > * {
+  overflow: hidden;
+  min-height: 0;
+}
+.yield-card[data-expanded="true"] .yield-card-body {
+  grid-template-rows: 1fr;
+  padding: 0 var(--s4) var(--s4);
+  border-top: 0.5px solid var(--separator);
+}
+
+.yield-pool-row {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: var(--s3);
+  padding: var(--s3) 0;
+  border-bottom: 0.5px solid var(--separator);
+}
+.yield-pool-row:last-child {
+  border-bottom: 0;
+}
+.yield-pool-symbol {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--header-fg);
+}
+.yield-pool-figures {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+
+.yield-grand-total {
+  text-align: center;
+}
+.yield-grand-total .hero-value {
+  margin-top: 4px;
+  font-size: 28px;
+}
+
+/* Tablet+: yield cards in two columns when there's room. */
+@media (min-width: 720px) {
+  .yield-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--s4);
+  }
+}
