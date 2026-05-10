@@ -679,8 +679,8 @@ main {
    not pinned down — so this rule force-centers the card regardless of
    whether its parent uses block, flex, or grid layout. */
 .banner.banner-grid {
-  max-width: 480px !important;
-  width: 100%;
+  width: fit-content !important;
+  max-width: min(480px, calc(100% - var(--s4) * 2)) !important;
   margin-left: auto !important;
   margin-right: auto !important;
   align-self: center !important;
