@@ -2984,12 +2984,26 @@ function _renderYieldCard({ title, subtitleKey, subtitleFallback, subtitleAddon,
   `;
   card.appendChild(header);
 
-  // Breakdown (collapsed by default)
+  // Breakdown (collapsed by default).
+  //
+  // The grid-template-rows 0fr→1fr animation pattern requires the body to
+  // hold exactly ONE direct child — the inner wrapper. With multiple direct
+  // children the first one lands in the explicit `1fr` track while the
+  // others fall into implicit `auto` rows; combined with `min-height: 0` on
+  // every child the first child can collapse to 0 while the rest render
+  // normally. Visible symptom: the STRK pool row (which has 3 sublines —
+  // own / commission / subtotal) gets clipped while the next pool row
+  // (commission only) renders fine, so the user sees only the "STRK" label
+  // and "OWN STAKE" header before the WBTC block.
+  // Diagnosed 2026-05-10. Fix: single .yield-card-body-inner wrapper.
   const body = document.createElement("div");
   body.className = "yield-card-body";
+  const bodyInner = document.createElement("div");
+  bodyInner.className = "yield-card-body-inner";
+  body.appendChild(bodyInner);
 
   if (breakdown.length === 0) {
-    body.innerHTML = `<div class="muted small">${escapeHtml(t("yield_no_pools", "No active pools"))}</div>`;
+    bodyInner.innerHTML = `<div class="muted small">${escapeHtml(t("yield_no_pools", "No active pools"))}</div>`;
   } else {
     const rows = breakdown.map((p) => {
       // Reward unit is ALWAYS STRK in V2 — even for BTC pools. For STRK
@@ -3094,7 +3108,7 @@ function _renderYieldCard({ title, subtitleKey, subtitleFallback, subtitleAddon,
         </div>
       `;
     }).join("");
-    body.innerHTML = rows;
+    bodyInner.innerHTML = rows;
   }
   card.appendChild(body);
 

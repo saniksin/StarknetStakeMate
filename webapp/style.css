@@ -1378,14 +1378,21 @@ body.with-tabbar main {
 }
 
 /* Smooth expand/collapse via grid-template-rows trick — animates from
-   0 to ``auto`` height without us having to measure the body. */
+   0 to ``auto`` height without us having to measure the body. The pattern
+   requires exactly ONE direct child of the grid (the .yield-card-body-inner
+   wrapper) so the explicit ``1fr`` track owns the full content. Multiple
+   direct children would scatter into implicit ``auto`` rows and the first
+   one (which lands in the 1fr track) could collapse to 0 thanks to
+   ``min-height: 0`` while siblings stay visible — diagnosed 2026-05-10
+   when the validator's STRK pool row (3 sublines) was clipped while WBTC
+   below it rendered fine. */
 .yield-card-body {
   display: grid;
   grid-template-rows: 0fr;
   transition: grid-template-rows 240ms ease-out;
   padding: 0 var(--s4);
 }
-.yield-card-body > * {
+.yield-card-body-inner {
   overflow: hidden;
   min-height: 0;
 }
