@@ -12,7 +12,7 @@ A Starknet staking companion: Telegram bot + REST API + Telegram Mini App / loca
 | Delegator view (any pool, token-aware) | ✅ | ✅ | `pool_member_info_v1`; shows the staker's status banner too |
 | Multi-token pool support (STRK + WBTC + LBTC + tBTC + SolvBTC + strkBTC) | ✅ | ✅ | strkBTC (decimals=8) accepted as pool delegation token; price falls back to BTC spot until CoinGecko lists it |
 | Inline tag rename for tracked entries | — | ✅ | `✎` button on each card; in-place rename keyed by `(kind, address)` so a concurrent reorder can't shift the target row |
-| Yield calculator tab | — | ✅ | dedicated `Yield` tab — editable APR (defaults 8.39 % STRK / 3.55 % BTC, persisted in localStorage); per-validator/delegator breakdown (year / month / day, token + USD) and Grand Total hero |
+| Yield calculator tab | — | ✅ | dedicated `Yield` tab — editable APR (defaults 8.39 % STRK / 3.54 % BTC, persisted in localStorage); per-validator/delegator breakdown (year / month / day, token + USD) and Grand Total hero |
 | Total stake hero (own + delegations, USD-aggregated) | — | ✅ | per-token breakdown line below |
 | Extended attestation status (block-level) | ✅ | ✅ | waiting state shows `current_block` / `target_block` / sign window / time left; every state appends a "next epoch in N blocks (~M min)" tail |
 | Reward-threshold notifications (single-mode USD ⊻ token) | ✅ | ✅ | background notifier, wall-clock-aligned |

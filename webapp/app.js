@@ -2661,26 +2661,34 @@ function _renderTabbar(routeName) {
 // applying token decimals.
 // ---------------------------------------------------------------------------
 
-const _YIELD_DEFAULTS = { strk: 8.39, btc: 3.55 };
+const _YIELD_DEFAULTS = { strk: 8.39, btc: 3.54 };
 
 function _readApr(key, fallback) {
   // localStorage is per-origin; under the Mini App's HTTPS host the
   // value persists across sessions so the user's last-typed APR is
-  // restored next visit. Bad values (NaN, negative) fall back to default.
+  // restored next visit. Bad values (NaN, negative, OR zero) fall back
+  // to default.
   //
-  // Subtle bug we used to have here: ``Number(null) === 0`` and
-  // ``Number("") === 0``. On a fresh visit ``localStorage.getItem`` returns
-  // ``null`` and the old code coerced that to 0, which passed the
-  // ``n >= 0 && n <= 100`` range check — so the input value snapped to "0"
-  // instead of the default 8.39 / 3.55. The user perceived this as "no
-  // defaults". Now we explicitly reject the empty/null sentinel BEFORE
-  // running ``Number`` so the fallback wins.
+  // History of fixes here:
+  //   1. ``Number(null) === 0`` / ``Number("") === 0`` — fresh visits
+  //      coerced to 0 and passed the old ``n >= 0`` range check. Fixed
+  //      in 03a8578 by rejecting null/undefined/empty BEFORE Number().
+  //   2. Stored "0" — users who hit the bot before fix #1 had "0"
+  //      persisted to localStorage; the new code still accepted that as
+  //      valid (0 ≤ 0 ≤ 100) so the BTC input came back as "0" and all
+  //      BTC pool rows showed 0 STRK / $0.00 yields. Fixed here by
+  //      rejecting non-positive APRs at read time — APR = 0 means no
+  //      rewards, which makes the calculator a no-op; defaulting back
+  //      to a reasonable value is the only useful behaviour.
+  //
+  // Diagnosed 2026-05-10 from user report "BTC APR пустой при первом
+  // открытии вкладки → все BTC pools показывают 0".
   const raw = (() => {
     try { return localStorage.getItem(key); } catch (_) { return null; }
   })();
   if (raw === null || raw === undefined || raw === "") return fallback;
   const n = Number(raw);
-  if (!Number.isFinite(n) || n < 0 || n > 100) return fallback;
+  if (!Number.isFinite(n) || n <= 0 || n > 100) return fallback;
   return n;
 }
 
@@ -2872,20 +2880,30 @@ async function renderYieldView() {
   }
 
   function _renderAll() {
-    // Validate APRs before rendering. Out-of-range silently snaps back
-    // to the prior value — we don't want to nuke user intent on a
-    // mid-typing 100.5.
+    // Validate APRs before rendering. Out-of-range (>100, negative)
+    // shows the inline error and bails — that's a typing mistake we
+    // surface. Empty / 0 / NaN silently snap to the documented defaults
+    // (8.39 STRK / 3.54 BTC) instead of nuking the calculation: a user
+    // who clears the BTC input shouldn't see "0 STRK / $0.00" across
+    // every BTC pool row, they should see the default-APR yield. This
+    // mirrors how _readApr loads defaults on first visit.
     const sNum = Number(aprStrkInput.value);
     const bNum = Number(aprBtcInput.value);
-    const valid = (n) => Number.isFinite(n) && n >= 0 && n <= 100;
-    if (!valid(sNum) || !valid(bNum)) {
+    const inRange = (n) => Number.isFinite(n) && n >= 0 && n <= 100;
+    // Reject only the genuine out-of-range case (e.g. typed "150").
+    // Empty/NaN take the default path below.
+    const sBad = !Number.isNaN(sNum) && Number.isFinite(sNum) && (sNum < 0 || sNum > 100);
+    const bBad = !Number.isNaN(bNum) && Number.isFinite(bNum) && (bNum < 0 || bNum > 100);
+    if (sBad || bBad) {
       errorEl.hidden = false;
       errorEl.textContent = t("yield_apr_invalid", "APR must be between 0 and 100");
       return;
     }
     errorEl.hidden = true;
-    strkApr = sNum;
-    btcApr = bNum;
+    // NaN-safe + zero-safe: empty input or "0" rolls back to the default
+    // so BTC pool rows aren't dead-zeroed when the user clears the field.
+    strkApr = (inRange(sNum) && sNum > 0) ? sNum : _YIELD_DEFAULTS.strk;
+    btcApr = (inRange(bNum) && bNum > 0) ? bNum : _YIELD_DEFAULTS.btc;
     _writeApr("apr_strk", strkApr);
     _writeApr("apr_btc", btcApr);
 
