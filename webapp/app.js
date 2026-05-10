@@ -2663,6 +2663,35 @@ function _renderTabbar(routeName) {
 
 const _YIELD_DEFAULTS = { strk: 8.39, btc: 3.54 };
 
+// Version flag for forcing-migration of APR defaults across deployments.
+// When the underlying recommended APR moves (protocol-wide rate change,
+// or we refine our internal calibration), bumping this constant rewrites
+// stale localStorage values on the user's next visit — once. After the
+// flag matches, any value the user types post-migration is preserved
+// until the next bump.
+//
+// History:
+//   v2 (2026-05-10): force-migrate to 8.39 STRK / 3.54 BTC; older users
+//                    had 8.55 / 3.55 saved from earlier defaults.
+const _APR_DEFAULTS_VERSION = "v2";
+const _APR_DEFAULTS_VERSION_KEY = "apr_defaults_version";
+
+function _initAprDefaults() {
+  // One-shot localStorage rewrite: when the persisted version flag does
+  // not match the current build's _APR_DEFAULTS_VERSION, overwrite both
+  // apr_strk and apr_btc with the current defaults and bump the flag.
+  // Subsequent loads see the flag match and leave whatever the user
+  // entered post-migration alone.
+  let currentVersion = null;
+  try { currentVersion = localStorage.getItem(_APR_DEFAULTS_VERSION_KEY); } catch (_) { /* private mode */ }
+  if (currentVersion === _APR_DEFAULTS_VERSION) return;
+  try {
+    localStorage.setItem("apr_strk", String(_YIELD_DEFAULTS.strk));
+    localStorage.setItem("apr_btc", String(_YIELD_DEFAULTS.btc));
+    localStorage.setItem(_APR_DEFAULTS_VERSION_KEY, _APR_DEFAULTS_VERSION);
+  } catch (_) { /* private mode — skip silently */ }
+}
+
 function _readApr(key, fallback) {
   // localStorage is per-origin; under the Mini App's HTTPS host the
   // value persists across sessions so the user's last-typed APR is
@@ -2852,6 +2881,13 @@ async function renderYieldView() {
   const aprStrkInput = document.getElementById("apr-strk-input");
   const aprBtcInput = document.getElementById("apr-btc-input");
   const errorEl = document.getElementById("yield-apr-error");
+
+  // Force-migrate APR defaults from stale prior-build values (e.g. user's
+  // hand-typed 8.55 STRK / 3.55 BTC from earlier deploys) BEFORE the
+  // _readApr() restore below so the user sees the current recommended
+  // numbers on the first open of this deploy. After migration the version
+  // flag is set and subsequent visits keep whatever the user types.
+  _initAprDefaults();
 
   // Restore from localStorage (or defaults).
   let strkApr = _readApr("apr_strk", _YIELD_DEFAULTS.strk);
