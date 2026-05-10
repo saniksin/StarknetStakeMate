@@ -391,6 +391,11 @@
     "yield_apr_invalid": "El APR debe estar entre 0 y 100",
     "yield_no_pools": "Sin pools activos",
     "yield_via": "vía",
+    "yield_own_stake": "Stake propio",
+    "yield_commission_label": "Comisión ({pct}%)",
+    "yield_subtotal": "Subtotal",
+    "yield_strk_equiv": "≈ {amount} STRK",
+    "yield_paid_in_strk": "recompensas en STRK",
     "webapp_tab_portfolio": "Portafolio",
     "webapp_tab_yield": "Renta"
 }

@@ -400,6 +400,11 @@
     "yield_apr_invalid": "APR musi być pomiędzy 0 a 100",
     "yield_no_pools": "Brak aktywnych puli",
     "yield_via": "przez",
+    "yield_own_stake": "Własny stake",
+    "yield_commission_label": "Prowizja ({pct}%)",
+    "yield_subtotal": "Razem",
+    "yield_strk_equiv": "≈ {amount} STRK",
+    "yield_paid_in_strk": "nagrody w STRK",
     "webapp_tab_portfolio": "Portfolio",
     "webapp_tab_yield": "Dochód"
 }

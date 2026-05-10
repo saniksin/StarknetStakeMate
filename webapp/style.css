@@ -1405,10 +1405,23 @@ body.with-tabbar main {
 .yield-pool-row:last-child {
   border-bottom: 0;
 }
+.yield-pool-symbol-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
 .yield-pool-symbol {
   font-weight: 600;
   font-size: 14px;
   color: var(--header-fg);
+}
+/* Tiny line under non-STRK pool symbols telling the user that rewards
+   are denominated in STRK (V2 staking protocol invariant). 11px keeps
+   it visually subordinate to the bold symbol above. */
+.yield-pool-reward-hint {
+  font-size: 11px;
+  line-height: 1.2;
+  font-style: italic;
 }
 .yield-pool-figures {
   display: flex;
@@ -1416,6 +1429,39 @@ body.with-tabbar main {
   gap: 2px;
   font-variant-numeric: tabular-nums;
   font-size: 13px;
+}
+
+/* Validator pools split the right column into stacked sublines:
+   Own stake / Commission (rate%) / Subtotal. Each subline has a small
+   label above its figures so the user understands which slice they're
+   looking at. Subtotal is visually accented with a thin top border so
+   it reads as a sum line. */
+.yield-pool-row-validator {
+  align-items: start;
+}
+.yield-pool-sublines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.yield-pool-subline {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.yield-pool-subline-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--hint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.yield-pool-subline.yield-pool-subtotal {
+  padding-top: var(--s2);
+  border-top: 0.5px solid var(--separator);
+}
+.yield-pool-subline.yield-pool-subtotal .yield-pool-subline-label {
+  color: var(--fg);
 }
 
 .yield-grand-total {

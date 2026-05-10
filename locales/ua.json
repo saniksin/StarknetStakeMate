@@ -400,6 +400,11 @@
     "yield_apr_invalid": "APR має бути від 0 до 100",
     "yield_no_pools": "Немає активних пулів",
     "yield_via": "через",
+    "yield_own_stake": "Власний стейк",
+    "yield_commission_label": "Комісія ({pct}%)",
+    "yield_subtotal": "Разом",
+    "yield_strk_equiv": "≈ {amount} STRK",
+    "yield_paid_in_strk": "винагороди у STRK",
     "webapp_tab_portfolio": "Портфоліо",
     "webapp_tab_yield": "Дохід"
 }

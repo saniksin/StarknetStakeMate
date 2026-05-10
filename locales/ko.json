@@ -382,6 +382,11 @@
     "yield_apr_invalid": "APR은 0에서 100 사이여야 합니다",
     "yield_no_pools": "활성 풀 없음",
     "yield_via": "경유",
+    "yield_own_stake": "자체 스테이크",
+    "yield_commission_label": "수수료 ({pct}%)",
+    "yield_subtotal": "소계",
+    "yield_strk_equiv": "≈ {amount} STRK",
+    "yield_paid_in_strk": "STRK로 보상",
     "webapp_tab_portfolio": "포트폴리오",
     "webapp_tab_yield": "수익"
 }

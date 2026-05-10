@@ -2688,6 +2688,25 @@ function _writeApr(key, value) {
   try { localStorage.setItem(key, String(value)); } catch (_) { /* private mode */ }
 }
 
+/** Find a STRK USD price across all validator + delegator pool breakdowns
+ *  in the yield payload. Returns ``null`` if no STRK pool carries a price
+ *  (e.g. user only tracks BTC stakers, or upstream price service was
+ *  down). The Grand Total STRK equivalent silently disappears in that
+ *  case — better than showing a misleading 0.
+ */
+function _findStrkPriceUsd(validators, delegators) {
+  const allEntries = [...(validators || []), ...(delegators || [])];
+  for (const e of allEntries) {
+    for (const p of (e.pools || [])) {
+      if ((p.symbol || "").toUpperCase() === "STRK" && p.price_usd != null) {
+        const n = Number(p.price_usd);
+        if (Number.isFinite(n) && n > 0) return n;
+      }
+    }
+  }
+  return null;
+}
+
 function _aprForSymbol(symbol, strkApr, btcApr) {
   if (!symbol) return strkApr;
   const s = String(symbol).toUpperCase();
@@ -2725,23 +2744,73 @@ function _delegatorPoolYieldYear(delegatedNum, aprPct, commissionBps) {
 }
 
 /** Build a self-contained breakdown object for one entry — used for both
- *  validators and delegators. ``poolYieldFn`` chooses the formula. */
-function _buildEntryYield(entry, kind, strkApr, btcApr) {
+ *  validators and delegators.
+ *
+ *  For validators we keep ``own`` and ``commission`` slices SEPARATE (not
+ *  just the combined sum) so the UI can render three rows per pool:
+ *
+ *    Own stake:        own × APR / 100
+ *    Commission (X%):  delegated × APR × commission_bps / 10000 / 100
+ *    Subtotal:         sum of the two
+ *
+ *  Reward unit: in Starknet Staking V2 ALL pool rewards (STRK and BTC
+ *  pools alike) are paid out in STRK. The ``rewardSymbol`` field of each
+ *  breakdown entry is therefore always "STRK"; ``rewardYearToken`` is the
+ *  yearly reward expressed in STRK. For STRK pools that's just the
+ *  computed yield; for BTC pools we convert via USD: USD reward divided
+ *  by the STRK price. ``yieldYearUsd`` stays the canonical USD figure so
+ *  the dashboard math keeps working regardless of token.
+ *
+ *  The math previously summed both slices into one number AND displayed
+ *  BTC-pool rewards in BTC units (which is wrong — protocol pays STRK).
+ *  Diagnosed 2026-05-10. */
+function _buildEntryYield(entry, kind, strkApr, btcApr, strkPriceUsd) {
   const pools = entry.pools || [];
   const breakdown = [];
-  let yearTokenSum = 0; // unused (per-token totals stay separate)
   let yearUsdTotal = 0;
   for (const p of pools) {
     const ownNum = _baseToNumber(p.own || "0", p.decimals);
     const delegatedNum = _baseToNumber(p.delegated || "0", p.decimals);
     const apr = _aprForSymbol(p.symbol, strkApr, btcApr);
     const commission = entry.commission_bps || 0;
-    const yieldYearToken = (kind === "validator")
-      ? _validatorPoolYieldYear(ownNum, delegatedNum, apr, commission)
-      : _delegatorPoolYieldYear(delegatedNum, apr, commission);
     const price = (p.price_usd === null || p.price_usd === undefined) ? null : Number(p.price_usd);
+    const symUpper = (p.symbol || "").toUpperCase();
+    const isStrkPool = symUpper === "STRK";
+
+    // Compute the two slices for validators; delegators only have one.
+    // ``yieldYearToken`` is in the *pool's native* token here — we
+    // convert to STRK-denominated reward below.
+    let ownYieldYearToken = 0;
+    let commissionYieldYearToken = 0;
+    let yieldYearToken = 0;
+    if (kind === "validator") {
+      const aprFrac = apr / 100;
+      ownYieldYearToken = ownNum * aprFrac;
+      commissionYieldYearToken = delegatedNum * aprFrac * (commission / 10000);
+      yieldYearToken = ownYieldYearToken + commissionYieldYearToken;
+    } else {
+      yieldYearToken = _delegatorPoolYieldYear(delegatedNum, apr, commission);
+    }
+
     const yieldYearUsd = price !== null ? yieldYearToken * price : null;
+    const ownYieldYearUsd = price !== null ? ownYieldYearToken * price : null;
+    const commissionYieldYearUsd = price !== null ? commissionYieldYearToken * price : null;
     if (yieldYearUsd !== null) yearUsdTotal += yieldYearUsd;
+
+    // Reward is always paid in STRK by the protocol. For STRK pools the
+    // amount equals ``yieldYearToken`` directly. For BTC pools we go
+    // through USD: ``usd / strk_price``. If we don't have a STRK price
+    // (rare — upstream price service down) the reward token figure is
+    // null and the UI falls back to USD-only.
+    const usdToStrk = (usd) => {
+      if (usd === null || strkPriceUsd === null || strkPriceUsd <= 0) return null;
+      return usd / strkPriceUsd;
+    };
+    const rewardSymbol = "STRK";
+    const rewardYearToken = isStrkPool ? yieldYearToken : usdToStrk(yieldYearUsd);
+    const ownRewardYearToken = isStrkPool ? ownYieldYearToken : usdToStrk(ownYieldYearUsd);
+    const commissionRewardYearToken = isStrkPool ? commissionYieldYearToken : usdToStrk(commissionYieldYearUsd);
+
     breakdown.push({
       symbol: p.symbol,
       decimals: p.decimals,
@@ -2751,7 +2820,17 @@ function _buildEntryYield(entry, kind, strkApr, btcApr) {
       commission,
       yieldYearToken,
       yieldYearUsd,
+      ownYieldYearToken,
+      ownYieldYearUsd,
+      commissionYieldYearToken,
+      commissionYieldYearUsd,
       price,
+      // STRK-denominated reward fields (preferred for display).
+      rewardSymbol,
+      rewardYearToken,
+      ownRewardYearToken,
+      commissionRewardYearToken,
+      isStrkPool,
     });
   }
   return { breakdown, yearUsdTotal };
@@ -2810,12 +2889,18 @@ async function renderYieldView() {
     _writeApr("apr_strk", strkApr);
     _writeApr("apr_btc", btcApr);
 
-    // Render every entity card + Grand Total.
+    // Render every entity card + Grand Total. ``strkPriceUsd`` is the
+    // single conversion rate for the whole render — protocol pays all
+    // pool rewards in STRK, so non-STRK pools show their reward divided
+    // by this price. Looked up once per render to avoid recomputing it
+    // inside ``_buildEntryYield`` for every pool.
+    const strkPriceUsd = _findStrkPriceUsd(validators, delegators);
+
     $.yieldCards.innerHTML = "";
     let grandYearUsd = 0;
 
     for (const v of validators) {
-      const { breakdown, yearUsdTotal } = _buildEntryYield(v, "validator", strkApr, btcApr);
+      const { breakdown, yearUsdTotal } = _buildEntryYield(v, "validator", strkApr, btcApr, strkPriceUsd);
       grandYearUsd += yearUsdTotal;
       $.yieldCards.appendChild(_renderYieldCard({
         title: v.label || fmtAddr(v.address),
@@ -2828,7 +2913,7 @@ async function renderYieldView() {
       }));
     }
     for (const d of delegators) {
-      const { breakdown, yearUsdTotal } = _buildEntryYield(d, "delegator", strkApr, btcApr);
+      const { breakdown, yearUsdTotal } = _buildEntryYield(d, "delegator", strkApr, btcApr, strkPriceUsd);
       grandYearUsd += yearUsdTotal;
       const subtitleAddon = d.validator_label || (d.validator_address ? fmtAddr(d.validator_address) : "");
       $.yieldCards.appendChild(_renderYieldCard({
@@ -2843,11 +2928,19 @@ async function renderYieldView() {
       }));
     }
 
-    // Grand Total
+    // Grand Total — show STRK equivalent alongside the USD figure when we
+    // can find a STRK price in the payload. Users think in token amounts;
+    // USD-only forces them to mentally divide by the live price. Diagnosed
+    // 2026-05-10. Falls back to USD-only when no STRK pool is present in
+    // the user's tracking (rare — most validators run STRK).
+    const strkEquiv = (usd) => {
+      if (!strkPriceUsd || strkPriceUsd <= 0) return "";
+      return ` ${t("yield_strk_equiv", "≈ {amount} STRK", { amount: fmtAmount(usd / strkPriceUsd, "") })}`;
+    };
     $.yieldGrandTotal.hidden = false;
-    $.yieldYearTotal.textContent = fmtUsd(grandYearUsd);
-    $.yieldMonthTotal.textContent = fmtUsd(grandYearUsd / 12);
-    $.yieldDayTotal.textContent = fmtUsd(grandYearUsd / 365);
+    $.yieldYearTotal.textContent = fmtUsd(grandYearUsd) + strkEquiv(grandYearUsd);
+    $.yieldMonthTotal.textContent = fmtUsd(grandYearUsd / 12) + strkEquiv(grandYearUsd / 12);
+    $.yieldDayTotal.textContent = fmtUsd(grandYearUsd / 365) + strkEquiv(grandYearUsd / 365);
   }
 
   // Reactive recalc on input change. ``input`` event fires per keystroke
@@ -2899,20 +2992,105 @@ function _renderYieldCard({ title, subtitleKey, subtitleFallback, subtitleAddon,
     body.innerHTML = `<div class="muted small">${escapeHtml(t("yield_no_pools", "No active pools"))}</div>`;
   } else {
     const rows = breakdown.map((p) => {
-      const usdYear = p.yieldYearUsd !== null ? fmtUsd(p.yieldYearUsd) : `<span class="muted">${escapeHtml(t("yield_price_unavailable", "Price unavailable"))}</span>`;
-      const usdMonth = p.yieldYearUsd !== null ? fmtUsd(p.yieldYearUsd / 12) : "—";
-      const usdDay = p.yieldYearUsd !== null ? fmtUsd(p.yieldYearUsd / 365) : "—";
-      const tokenYear = fmtAmount(p.yieldYearToken, p.symbol);
-      const tokenMonth = fmtAmount(p.yieldYearToken / 12, p.symbol);
-      const tokenDay = fmtAmount(p.yieldYearToken / 365, p.symbol);
+      // Reward unit is ALWAYS STRK in V2 — even for BTC pools. For STRK
+      // pools ``rewardYearToken`` equals ``yieldYearToken`` directly; for
+      // BTC pools it's a USD-conversion (``usd / strk_price``). When the
+      // STRK price is unavailable ``rewardYearToken`` is null and the row
+      // shows USD-only without a token amount.
+      const renderFigures = (rewardYear, usdYear) => {
+        const usdYearStr = usdYear !== null ? fmtUsd(usdYear) : `<span class="muted">${escapeHtml(t("yield_price_unavailable", "Price unavailable"))}</span>`;
+        const usdMonthStr = usdYear !== null ? fmtUsd(usdYear / 12) : "—";
+        const usdDayStr = usdYear !== null ? fmtUsd(usdYear / 365) : "—";
+        const tokenYearStr = rewardYear !== null ? fmtAmount(rewardYear, p.rewardSymbol) : "—";
+        const tokenMonthStr = rewardYear !== null ? fmtAmount(rewardYear / 12, p.rewardSymbol) : "—";
+        const tokenDayStr = rewardYear !== null ? fmtAmount(rewardYear / 365, p.rewardSymbol) : "—";
+        return `
+          <div class="yield-pool-figures">
+            <div><span class="muted small">${escapeHtml(t("yearly", "Yearly"))}</span> ${escapeHtml(tokenYearStr)} <span class="muted small">/ ${usdYearStr}</span></div>
+            <div><span class="muted small">${escapeHtml(t("monthly", "Monthly"))}</span> ${escapeHtml(tokenMonthStr)} <span class="muted small">/ ${usdMonthStr}</span></div>
+            <div><span class="muted small">${escapeHtml(t("daily", "Daily"))}</span> ${escapeHtml(tokenDayStr)} <span class="muted small">/ ${usdDayStr}</span></div>
+          </div>
+        `;
+      };
+
+      // Pool symbol header. Non-STRK pools get a hint that rewards are
+      // paid in STRK (protocol invariant in V2 staking). Visually it
+      // sits as a small muted line below the pool symbol so the user
+      // immediately understands why a "WBTC pool" reports its yield in
+      // STRK.
+      const symbolHeader = `
+        <div class="yield-pool-symbol">${escapeHtml(p.symbol)}</div>
+        ${p.isStrkPool ? "" : `<div class="muted small yield-pool-reward-hint">${escapeHtml(t("yield_paid_in_strk", "rewards in STRK"))}</div>`}
+      `;
+
+      // Validator pools: split Own / Commission(rate%) / Subtotal so the
+      // user can tell that the validator only earns ``commission_bps`` of
+      // the delegated APR (not 100%). Diagnosed from user confusion
+      // 2026-05-10. Skip "Own" line if own=0, skip "Commission" line if
+      // delegated=0; skip the Subtotal too if there's only one slice.
+      if (kind === "validator") {
+        const hasOwn = p.ownNum > 0;
+        const hasComm = p.delegatedNum > 0 && p.commission > 0;
+        const showBoth = hasOwn && hasComm;
+        const commissionPct = (p.commission / 100).toFixed(p.commission % 100 === 0 ? 0 : 2);
+        const sublines = [];
+        if (hasOwn) {
+          sublines.push(`
+            <div class="yield-pool-subline">
+              <div class="yield-pool-subline-label">${escapeHtml(t("yield_own_stake", "Own stake"))}</div>
+              ${renderFigures(p.ownRewardYearToken, p.ownYieldYearUsd)}
+            </div>
+          `);
+        }
+        if (hasComm) {
+          const commLabel = t("yield_commission_label", "Commission ({pct}%)", { pct: commissionPct });
+          sublines.push(`
+            <div class="yield-pool-subline">
+              <div class="yield-pool-subline-label">${escapeHtml(commLabel)}</div>
+              ${renderFigures(p.commissionRewardYearToken, p.commissionYieldYearUsd)}
+            </div>
+          `);
+        }
+        if (showBoth) {
+          sublines.push(`
+            <div class="yield-pool-subline yield-pool-subtotal">
+              <div class="yield-pool-subline-label">${escapeHtml(t("yield_subtotal", "Subtotal"))}</div>
+              ${renderFigures(p.rewardYearToken, p.yieldYearUsd)}
+            </div>
+          `);
+        }
+        // Edge case: validator with delegated>0 but commission==0 (rare —
+        // e.g. a fully-altruistic validator). Show a single subtotal so
+        // the row isn't empty.
+        if (sublines.length === 0) {
+          sublines.push(`
+            <div class="yield-pool-subline">
+              <div class="yield-pool-subline-label">${escapeHtml(t("yield_subtotal", "Subtotal"))}</div>
+              ${renderFigures(p.rewardYearToken, p.yieldYearUsd)}
+            </div>
+          `);
+        }
+        return `
+          <div class="yield-pool-row yield-pool-row-validator">
+            <div class="yield-pool-symbol-block">
+              ${symbolHeader}
+            </div>
+            <div class="yield-pool-sublines">
+              ${sublines.join("")}
+            </div>
+          </div>
+        `;
+      }
+
+      // Delegator pools: single subtotal — no commission split needed
+      // because the formula already nets out commission from the user's
+      // perspective (they receive ``apr × (1 - commission_bps/10000)``).
       return `
         <div class="yield-pool-row">
-          <div class="yield-pool-symbol">${escapeHtml(p.symbol)}</div>
-          <div class="yield-pool-figures">
-            <div><span class="muted small">${escapeHtml(t("yearly", "Yearly"))}</span> ${escapeHtml(tokenYear)} <span class="muted small">/ ${usdYear}</span></div>
-            <div><span class="muted small">${escapeHtml(t("monthly", "Monthly"))}</span> ${escapeHtml(tokenMonth)} <span class="muted small">/ ${usdMonth}</span></div>
-            <div><span class="muted small">${escapeHtml(t("daily", "Daily"))}</span> ${escapeHtml(tokenDay)} <span class="muted small">/ ${usdDay}</span></div>
+          <div class="yield-pool-symbol-block">
+            ${symbolHeader}
           </div>
+          ${renderFigures(p.rewardYearToken, p.yieldYearUsd)}
         </div>
       `;
     }).join("");
