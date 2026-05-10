@@ -2130,7 +2130,15 @@ function attachRenameUI($, { kind, address, currentLabel, onRenamed }) {
     cancelBtn.className = "rename-cancel";
     cancelBtn.textContent = t("webapp_rename_cancel", "Cancel");
 
-    editor.append(input, saveBtn, cancelBtn);
+    // Wrap the action pair so they share one row 50/50 below the input.
+    // Without this container Cancel would wrap onto a new line under Save
+    // on narrow screens (flex-wrap on the editor). Pairing them in a row
+    // gives the user a clear "primary | secondary" choice mass.
+    const actions = document.createElement("div");
+    actions.className = "rename-actions";
+    actions.append(saveBtn, cancelBtn);
+
+    editor.append(input, actions);
 
     labelEl.style.display = "none";
     pencil.style.display = "none";

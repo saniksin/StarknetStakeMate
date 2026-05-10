@@ -436,18 +436,26 @@ main {
   background: color-mix(in srgb, var(--link) 12%, transparent);
   outline: none;
 }
+/* Editor takes the full row under the title; input on its own line, then
+   the action pair (Save | Cancel) below it sharing the row 50/50. This
+   keeps the buttons visually paired and prevents flex-wrap from stranding
+   Cancel on its own line on narrow phones (the previous look). */
 .rename-editor {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 8px;
-  align-items: center;
-  margin-top: 6px;
+  margin-top: 8px;
   width: 100%;
 }
+.rename-actions {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
 .rename-input {
-  flex: 1 1 160px;
+  width: 100%;
   min-width: 0;
-  padding: 8px 10px;
+  padding: 10px 12px;
   border-radius: var(--r-md);
   border: 1px solid var(--separator);
   background: var(--bg);
@@ -460,28 +468,47 @@ main {
   outline-offset: 1px;
   border-color: var(--link);
 }
+/* Equal-width primary/secondary pair sized for tap targets (44px tall).
+   Same padding/radius/font on both — the only differences are background
+   + border so the eye reads them as a Telegram-native action pair. */
 .rename-save,
 .rename-cancel {
   appearance: none;
-  border: 1px solid var(--separator);
-  background: var(--card-bg);
-  color: var(--fg);
-  font-size: 14px;
-  font-weight: 600;
-  padding: 8px 14px;
+  flex: 1;
+  min-height: 40px;
+  padding: 10px 16px;
   border-radius: var(--r-md);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
   cursor: pointer;
+  transition: opacity 120ms ease-out, transform 80ms ease-out;
 }
 .rename-save {
   background: var(--link);
-  border-color: var(--link);
+  border: 1px solid var(--link);
   color: white;
+}
+.rename-cancel {
+  background: transparent;
+  border: 1px solid var(--separator);
+  color: var(--fg);
+}
+.rename-save:hover,
+.rename-cancel:hover {
+  opacity: 0.9;
+}
+.rename-save:active,
+.rename-cancel:active {
+  transform: scale(0.98);
+  opacity: 0.85;
 }
 .rename-save:disabled,
 .rename-cancel:disabled,
 .rename-input:disabled {
   opacity: 0.5;
   cursor: progress;
+  transform: none;
 }
 .addr-mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, "Liberation Mono", monospace;
