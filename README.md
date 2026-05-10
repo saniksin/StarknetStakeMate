@@ -1,6 +1,6 @@
 # StarknetStakeMate
 
-A Starknet staking companion: Telegram bot + REST API + Telegram Mini App / local dashboard. Staking **V2 (v3.0.0)** aware — tracks STRK and BTC-wrapper (WBTC / LBTC / tBTC / SolvBTC) delegation pools, attestation health, and reward thresholds.
+A Starknet staking companion: Telegram bot + REST API + Telegram Mini App / local dashboard. Staking **V2 (v3.0.0)** aware — tracks STRK and BTC-wrapper (WBTC / LBTC / tBTC / SolvBTC / strkBTC) delegation pools, attestation health, and reward thresholds.
 
 ---
 
@@ -10,6 +10,9 @@ A Starknet staking companion: Telegram bot + REST API + Telegram Mini App / loca
 | --- | --- | --- | --- |
 | Validator view (STRK + BTC pools, attestation) | ✅ | ✅ | `staker_info_v1` + `staker_pool_info` |
 | Delegator view (any pool, token-aware) | ✅ | ✅ | `pool_member_info_v1`; shows the staker's status banner too |
+| Multi-token pool support (STRK + WBTC + LBTC + tBTC + SolvBTC + strkBTC) | ✅ | ✅ | strkBTC (decimals=8) accepted as pool delegation token; price falls back to BTC spot until CoinGecko lists it |
+| Inline tag rename for tracked entries | — | ✅ | `✎` button on each card; in-place rename keyed by `(kind, address)` so a concurrent reorder can't shift the target row |
+| Yield calculator tab | — | ✅ | dedicated `Yield` tab — editable APR (defaults 8.39 % STRK / 3.55 % BTC, persisted in localStorage); per-validator/delegator breakdown (year / month / day, token + USD) and Grand Total hero |
 | Total stake hero (own + delegations, USD-aggregated) | — | ✅ | per-token breakdown line below |
 | Extended attestation status (block-level) | ✅ | ✅ | waiting state shows `current_block` / `target_block` / sign window / time left; every state appends a "next epoch in N blocks (~M min)" tail |
 | Reward-threshold notifications (single-mode USD ⊻ token) | ✅ | ✅ | background notifier, wall-clock-aligned |
@@ -80,6 +83,8 @@ Caddy listens on 80/443 (and 443/udp for HTTP/3) and reverse-proxies to the `api
 
 Resource fences: each container caps at 1 CPU + 1 GB RAM. The bot needs the full gigabyte because it warms up starknet-py `Contract` objects across multiprocessing workers — 512 MB tripped the OOM killer (exit 137) and looped restarts every ~25 s.
 
+> **Already deployed?** See [Updating production](#updating-production-contabo-vps) below for the post-`git pull` rebuild cheatsheet.
+
 ### Mini App entry point
 
 The reliable entry on every Telegram client is the **Menu Button** (the blue button left of the message field), configured via `@BotFather → Bot Settings → Configure Mini App → Menu Button URL`. ReplyKeyboard `web_app` buttons are buggy on Telegram Desktop (initData isn't passed) — we don't ship those.
@@ -96,6 +101,51 @@ uv run ruff check .
 uv run ruff format .
 uv run mypy services api
 ```
+
+---
+
+## Updating production (Contabo VPS)
+
+After every `git push` from your dev machine, SSH into the server and run:
+
+```bash
+# 1. Pull the latest code
+cd /path/to/StarknetStakeMate
+git pull origin master
+
+# 2. Rebuild and restart containers (volumes — SQLite, logs, certs — are preserved)
+docker compose up -d --build
+
+# 3. Tail logs to make sure all three services come up clean
+docker compose logs -f --tail=100
+```
+
+Schema migrations are applied automatically on bot boot — see `migrations/` (idempotent `ALTER TABLE … ADD COLUMN` calls invoked from `main.py` after `initialize_db`). There is **no** alembic step.
+
+### Quick reference
+
+| Action | Command |
+| --- | --- |
+| Restart bot only (no rebuild) | `docker compose restart bot` |
+| Restart API only (no rebuild) | `docker compose restart api` |
+| Rebuild bot only | `docker compose up -d --build bot` |
+| Rebuild API only | `docker compose up -d --build api` |
+| Reload Caddy after editing `Caddyfile` | `docker compose restart caddy` |
+| Stop everything (volumes kept) | `docker compose down` |
+| Check service status + health | `docker compose ps` |
+| Tail bot logs | `docker compose logs -f bot` |
+| Tail API logs | `docker compose logs -f api` |
+| Tail Caddy logs | `docker compose logs -f caddy` |
+| Shell into bot container | `docker compose exec bot /bin/bash` |
+| SQLite shell | `docker compose exec bot sqlite3 /app/files/users.db` |
+| Force full rebuild (no cache) | `docker compose build --no-cache && docker compose up -d` |
+| **DANGER** — wipe DB volume | `docker compose down -v` |
+
+The same actions are wrapped in `make` targets — `make up`, `make logs`, `make ps`, `make rebuild`, `make sh-bot`, `make sh-api`, `make prune` (the wipe). Run `make help` for the full list.
+
+Service names in `docker-compose.yml` are **`bot`**, **`api`**, **`caddy`** (container names: `stakemate-bot`, `stakemate-api`, `stakemate-caddy`). The SQLite DB lives at `/app/files/users.db` inside the container, backed by the `stakemate-data` named volume on the host.
+
+> Note: this project requires the **Compose V2 plugin** (`docker compose …`, no hyphen). The legacy `docker-compose` v1 binary works for most commands but lacks the `--build` semantics on `up` we rely on for redeploys.
 
 ---
 
@@ -196,9 +246,12 @@ Key idea: every contract read and every user-visible string originates in `servi
 | GET | `/api/v1/delegators/{addr}?pool=…` | Delegator position in one pool |
 | GET | `/api/v1/users/me/tracking` | List tracked pairs |
 | PUT | `/api/v1/users/me/tracking` | Replace the tracking list |
+| PATCH | `/api/v1/users/me/tracking/{kind}/{address}` | Rename a single tracked entry in place (powers the Mini App's `✎` button); `kind ∈ {validator, delegator}`, body `{ "label": "<new tag>" }` |
+| PUT | `/api/v1/users/me/tracking/order` | Apply a new display order across both kinds |
 | GET | `/api/v1/users/me/digest?mode=full|reward` | Pre-rendered HTML digest |
 | PUT | `/api/v1/users/me/threshold` | Update STRK reward threshold |
 | GET | `/api/v1/users/me/entries` | Typed DTO entries (for JS renderers) |
+| GET | `/api/v1/users/me/yield-data` | Per-validator/delegator pool stake amounts for the Yield calculator tab; 60 s per-user cache, USD price falls back to `null` when CoinGecko has no listing |
 
 Every `/users/me/*` endpoint accepts either the `X-Telegram-Init-Data` header (Mini App mode) or a `?tg_id=<id>` query parameter (local dashboard mode), controlled by `API_AUTH_MODE`.
 
