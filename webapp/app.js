@@ -2667,9 +2667,18 @@ function _readApr(key, fallback) {
   // localStorage is per-origin; under the Mini App's HTTPS host the
   // value persists across sessions so the user's last-typed APR is
   // restored next visit. Bad values (NaN, negative) fall back to default.
+  //
+  // Subtle bug we used to have here: ``Number(null) === 0`` and
+  // ``Number("") === 0``. On a fresh visit ``localStorage.getItem`` returns
+  // ``null`` and the old code coerced that to 0, which passed the
+  // ``n >= 0 && n <= 100`` range check — so the input value snapped to "0"
+  // instead of the default 8.39 / 3.55. The user perceived this as "no
+  // defaults". Now we explicitly reject the empty/null sentinel BEFORE
+  // running ``Number`` so the fallback wins.
   const raw = (() => {
     try { return localStorage.getItem(key); } catch (_) { return null; }
   })();
+  if (raw === null || raw === undefined || raw === "") return fallback;
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 0 || n > 100) return fallback;
   return n;
