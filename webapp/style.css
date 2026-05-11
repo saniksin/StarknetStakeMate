@@ -1479,6 +1479,24 @@ body.with-tabbar main {
   font-size: 28px;
 }
 
+/* Compact price banner above the APR inputs on the Yield tab. Inline
+ * label + values on a single line; hidden when both prices are unknown.
+ * Added 2026-05-11 so the user can see which spot prices the USD figures
+ * below are calculated against. */
+.yield-prices {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 6px 12px 4px;
+}
+.yield-prices-label {
+  font-weight: 500;
+}
+.yield-prices-values {
+  font-variant-numeric: tabular-nums;
+}
+
 /* Tablet+: yield cards in two columns when there's room. */
 @media (min-width: 720px) {
   .yield-cards {

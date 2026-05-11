@@ -7,7 +7,7 @@
   <title>StakeMate</title>
   <link rel="preconnect" href="https://telegram.org" crossorigin />
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="stylesheet" href="/app/style.css?v=20260510-9" />
+  <link rel="stylesheet" href="/app/style.css?v=20260511-1" />
 </head>
 <body>
   <div id="app" data-view="dashboard">
@@ -249,6 +249,11 @@
       </p>
     </div>
 
+    <div class="yield-prices muted small" data-bind="yieldPrices" hidden>
+      <span class="yield-prices-label" data-i18n="yield_prices_label">Current prices</span>
+      <span class="yield-prices-values" data-bind="yieldPricesValues">—</span>
+    </div>
+
     <div class="card form-card">
       <label class="row-label">
         <span data-i18n="apr_strk_label">STRK APR (%)</span>
@@ -283,6 +288,6 @@
     </div>
   </template>
 
-  <script src="/app/app.js?v=20260510-9"></script>
+  <script src="/app/app.js?v=20260511-1"></script>
 </body>
 </html>

@@ -610,3 +610,147 @@ async def test_build_yield_payload_separate_users_have_separate_caches(monkeypat
     await yield_service.build_yield_payload(user_id=101, tracking_data=None)
     # Two distinct user_ids → two distinct fetches.
     assert call_count["n"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Top-level price snapshot fields (added 2026-05-11)
+#
+# Drives the Grand Total STRK stabilisation fix on the frontend: the UI
+# previously divided ``sum(USD) / strk_price`` to display Grand Total STRK,
+# which made the number jump 8k → 9k STRK/month every time the cached price
+# snapshot rolled over. The backend now exposes prices at the payload top
+# level so the frontend can either (a) sum STRK token counts directly without
+# round-tripping through USD, or (b) at minimum, look the rate up from one
+# canonical place.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_build_payload_attaches_top_level_strk_and_btc_prices(monkeypatch) -> None:
+    """The assembled YieldPayload carries ``strk_price_usd`` and
+    ``btc_price_usd`` lifted straight from the price snapshot."""
+
+    async def _fake_fetch_entries(_tracking_data):
+        return []
+
+    async def _fake_prices():
+        return {"STRK": Decimal("0.0524"), "WBTC": Decimal("81243")}
+
+    monkeypatch.setattr(yield_service, "fetch_tracking_entries", _fake_fetch_entries)
+    monkeypatch.setattr(yield_service, "get_usd_prices", _fake_prices)
+    yield_service.invalidate_cache(user_id=200)
+
+    payload = await yield_service.build_yield_payload(user_id=200, tracking_data=None)
+    assert payload.strk_price_usd == Decimal("0.0524")
+    assert payload.btc_price_usd == Decimal("81243")
+
+
+@pytest.mark.asyncio
+async def test_build_payload_prices_none_when_price_service_empty(monkeypatch) -> None:
+    """Empty price dict ⇒ both fields are ``None`` (serialise as JSON
+    null). Frontend uses this signal to render '—' rather than fake a
+    zero."""
+
+    async def _fake_fetch_entries(_tracking_data):
+        return []
+
+    async def _fake_prices():
+        return {}
+
+    monkeypatch.setattr(yield_service, "fetch_tracking_entries", _fake_fetch_entries)
+    monkeypatch.setattr(yield_service, "get_usd_prices", _fake_prices)
+    yield_service.invalidate_cache(user_id=201)
+
+    payload = await yield_service.build_yield_payload(user_id=201, tracking_data=None)
+    assert payload.strk_price_usd is None
+    assert payload.btc_price_usd is None
+
+
+@pytest.mark.asyncio
+async def test_build_payload_btc_price_falls_back_to_any_wrapper(monkeypatch) -> None:
+    """All BTC wrappers share one bitcoin spot price upstream. The
+    payload picks any of them — exercising LBTC-only here guards against
+    a future refactor that hardcodes WBTC."""
+
+    async def _fake_fetch_entries(_tracking_data):
+        return []
+
+    async def _fake_prices():
+        return {"LBTC": Decimal("80100")}
+
+    monkeypatch.setattr(yield_service, "fetch_tracking_entries", _fake_fetch_entries)
+    monkeypatch.setattr(yield_service, "get_usd_prices", _fake_prices)
+    yield_service.invalidate_cache(user_id=202)
+
+    payload = await yield_service.build_yield_payload(user_id=202, tracking_data=None)
+    assert payload.strk_price_usd is None
+    assert payload.btc_price_usd == Decimal("80100")
+
+
+@pytest.mark.asyncio
+async def test_build_payload_strk_pool_amounts_independent_of_price(monkeypatch) -> None:
+    """STRK pool ``own`` and ``delegated`` raw strings are token-count
+    snapshots; they MUST NOT change when only the price snapshot moves.
+
+    This is the backend half of the Grand Total STRK stabilisation: the
+    raw amounts the frontend uses to compute STRK rewards are price-
+    independent, so the displayed STRK count is fully determined by
+    stake × APR. Only the USD ⇄ STRK ratio for BTC pools floats with
+    price, and that slice is computed client-side."""
+    from services.staking_dto import PoolInfoDto, ValidatorInfo
+    from services.tracking_service import TrackingEntry
+
+    pool = PoolInfoDto(
+        pool_contract="0xPS",
+        token_address="0xSTRK",
+        token_symbol="STRK",
+        amount_raw=2968781 * 10**18,
+        amount_decimal=Decimal("2968781"),
+    )
+    info = ValidatorInfo(
+        staker_address="0xVAL",
+        reward_address="0xVAL",
+        operational_address="0xVAL",
+        amount_own_raw=101219 * 10**18,
+        amount_own_strk=Decimal("101219"),
+        unclaimed_rewards_own_raw=0,
+        unclaimed_rewards_own_strk=Decimal(0),
+        commission_bps=1500,
+        pools=[pool],
+        current_epoch=100,
+    )
+    entry = TrackingEntry(
+        index=0,
+        kind="validator",
+        address="0xVAL",
+        pool="0x0",
+        label="saniksin",
+        data=info,
+    )
+
+    async def _fake_fetch_entries(_tracking_data):
+        return [entry]
+
+    # First render: price at $0.05.
+    async def _prices_a():
+        return {"STRK": Decimal("0.05")}
+
+    monkeypatch.setattr(yield_service, "fetch_tracking_entries", _fake_fetch_entries)
+    monkeypatch.setattr(yield_service, "get_usd_prices", _prices_a)
+    yield_service.invalidate_cache(user_id=300)
+    p1 = await yield_service.build_yield_payload(user_id=300, tracking_data=None)
+
+    # Second render: price moved to $0.058 — token amounts should not.
+    async def _prices_b():
+        return {"STRK": Decimal("0.058")}
+
+    monkeypatch.setattr(yield_service, "get_usd_prices", _prices_b)
+    yield_service.invalidate_cache(user_id=300)
+    p2 = await yield_service.build_yield_payload(user_id=300, tracking_data=None)
+
+    # Raw token amounts identical between renders.
+    assert p1.validators[0].pools[0].own == p2.validators[0].pools[0].own
+    assert p1.validators[0].pools[0].delegated == p2.validators[0].pools[0].delegated
+    # Only the price snapshot changed.
+    assert p1.strk_price_usd == Decimal("0.05")
+    assert p2.strk_price_usd == Decimal("0.058")

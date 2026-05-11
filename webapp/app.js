@@ -2725,13 +2725,25 @@ function _writeApr(key, value) {
   try { localStorage.setItem(key, String(value)); } catch (_) { /* private mode */ }
 }
 
-/** Find a STRK USD price across all validator + delegator pool breakdowns
- *  in the yield payload. Returns ``null`` if no STRK pool carries a price
- *  (e.g. user only tracks BTC stakers, or upstream price service was
- *  down). The Grand Total STRK equivalent silently disappears in that
- *  case — better than showing a misleading 0.
+/** Pick a STRK USD price from the yield payload.
+ *
+ *  Priority: top-level ``payload.strk_price_usd`` (canonical, always set
+ *  whenever the price service has a quote) → fallback to the first STRK
+ *  pool's ``price_usd`` (legacy path for old cached payloads). Returns
+ *  ``null`` when neither source has a usable number.
+ *
+ *  Why the top-level field matters: it's the *single source of truth* for
+ *  USD ⇄ STRK conversion on this page. The old fallback-scan picked
+ *  whichever STRK pool happened to be first, which broke when the user
+ *  tracked BTC-only delegators (no STRK pools → strkPriceUsd became null
+ *  → Grand Total STRK equivalent silently disappeared). Diagnosed
+ *  2026-05-11 while stabilising the Grand Total STRK display.
  */
-function _findStrkPriceUsd(validators, delegators) {
+function _findStrkPriceUsd(payload, validators, delegators) {
+  if (payload && payload.strk_price_usd != null) {
+    const n = Number(payload.strk_price_usd);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
   const allEntries = [...(validators || []), ...(delegators || [])];
   for (const e of allEntries) {
     for (const p of (e.pools || [])) {
@@ -2740,6 +2752,21 @@ function _findStrkPriceUsd(validators, delegators) {
         if (Number.isFinite(n) && n > 0) return n;
       }
     }
+  }
+  return null;
+}
+
+/** Pick a BTC USD price from the payload (top-level field added 2026-05-11).
+ *
+ *  All BTC wrappers on Starknet (WBTC/LBTC/tBTC/SolvBTC/strkBTC) are
+ *  priced uniformly off bitcoin spot in the upstream price service — one
+ *  field captures the conversion rate for the whole category. Returns
+ *  ``null`` when the price service has no quote.
+ */
+function _findBtcPriceUsd(payload) {
+  if (payload && payload.btc_price_usd != null) {
+    const n = Number(payload.btc_price_usd);
+    if (Number.isFinite(n) && n > 0) return n;
   }
   return null;
 }
@@ -2805,6 +2832,19 @@ function _buildEntryYield(entry, kind, strkApr, btcApr, strkPriceUsd) {
   const pools = entry.pools || [];
   const breakdown = [];
   let yearUsdTotal = 0;
+  // STRK-denominated reward total for this entry. We accumulate STRK
+  // token counts directly (not via USD round-trip) so the Grand Total
+  // STRK display stays stable across renders when prices fluctuate. For
+  // STRK pools that's the native token yield (purely a function of stake
+  // and APR — no price dependency). For BTC pools we still go through
+  // USD because rewards there are paid in STRK but sized by the BTC
+  // collateral's USD value; that slice naturally floats with the BTC/STRK
+  // ratio, but it's a thin fraction of the total for most users.
+  // Diagnosed 2026-05-11: previously Grand Total STRK was
+  // ``sum(USD) / strk_price``, which made the displayed STRK count jump
+  // 8k → 9k when the cached STRK price snapshot rolled over even though
+  // the user's actual reward stream is fixed token-count.
+  let yearStrkTotal = 0;
   for (const p of pools) {
     const ownNum = _baseToNumber(p.own || "0", p.decimals);
     const delegatedNum = _baseToNumber(p.delegated || "0", p.decimals);
@@ -2847,6 +2887,9 @@ function _buildEntryYield(entry, kind, strkApr, btcApr, strkPriceUsd) {
     const rewardYearToken = isStrkPool ? yieldYearToken : usdToStrk(yieldYearUsd);
     const ownRewardYearToken = isStrkPool ? ownYieldYearToken : usdToStrk(ownYieldYearUsd);
     const commissionRewardYearToken = isStrkPool ? commissionYieldYearToken : usdToStrk(commissionYieldYearUsd);
+    if (rewardYearToken !== null && Number.isFinite(rewardYearToken)) {
+      yearStrkTotal += rewardYearToken;
+    }
 
     breakdown.push({
       symbol: p.symbol,
@@ -2870,7 +2913,7 @@ function _buildEntryYield(entry, kind, strkApr, btcApr, strkPriceUsd) {
       isStrkPool,
     });
   }
-  return { breakdown, yearUsdTotal };
+  return { breakdown, yearUsdTotal, yearStrkTotal };
 }
 
 async function renderYieldView() {
@@ -2908,6 +2951,40 @@ async function renderYieldView() {
 
   const validators = payload.validators || [];
   const delegators = payload.delegators || [];
+
+  // Render the live STRK / BTC price line above the APR inputs so the
+  // user can see which spot prices the USD figures below are based on.
+  // Added 2026-05-11 alongside the Grand Total STRK stabilisation —
+  // having the prices visible makes the (small) BTC-pool USD→STRK
+  // conversion slice's price dependency explainable rather than mystery
+  // drift. Falls back to "—" when the upstream price service has no
+  // quote; the whole block hides only when BOTH prices are unknown so
+  // the user still sees one number when only one is missing.
+  const strkPriceTop = _findStrkPriceUsd(payload, validators, delegators);
+  const btcPriceTop = _findBtcPriceUsd(payload);
+  if ($.yieldPrices && $.yieldPricesValues) {
+    const fmtStrkPrice = (n) => {
+      if (n === null || n === undefined || !Number.isFinite(n) || n <= 0) return "—";
+      // STRK is a sub-dollar token — 4 fraction digits keeps the visible
+      // precision without exposing the noisy 5th decimal that CoinGecko
+      // wiggles every refresh.
+      return "$" + n.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+    };
+    const fmtBtcPrice = (n) => {
+      if (n === null || n === undefined || !Number.isFinite(n) || n <= 0) return "—";
+      // BTC is a four/five-digit dollar token — comma-separated whole
+      // dollars is plenty.
+      return "$" + Math.round(n).toLocaleString("en-US");
+    };
+    const strkStr = fmtStrkPrice(strkPriceTop);
+    const btcStr = fmtBtcPrice(btcPriceTop);
+    if (strkStr === "—" && btcStr === "—") {
+      $.yieldPrices.hidden = true;
+    } else {
+      $.yieldPrices.hidden = false;
+      $.yieldPricesValues.textContent = `STRK ${strkStr} · BTC ${btcStr}`;
+    }
+  }
 
   if (validators.length === 0 && delegators.length === 0) {
     $.yieldCards.innerHTML = `<div class="placeholder">${escapeHtml(t("yield_no_data", "No tracked validators or delegators yet — add some on the Portfolio tab."))}</div>`;
@@ -2947,15 +3024,27 @@ async function renderYieldView() {
     // single conversion rate for the whole render — protocol pays all
     // pool rewards in STRK, so non-STRK pools show their reward divided
     // by this price. Looked up once per render to avoid recomputing it
-    // inside ``_buildEntryYield`` for every pool.
-    const strkPriceUsd = _findStrkPriceUsd(validators, delegators);
+    // inside ``_buildEntryYield`` for every pool. We now prefer the
+    // top-level ``payload.strk_price_usd`` (backend-provided single source
+    // of truth) over scanning pool entries.
+    const strkPriceUsd = _findStrkPriceUsd(payload, validators, delegators);
 
     $.yieldCards.innerHTML = "";
     let grandYearUsd = 0;
+    // STRK-denominated grand total: sum of per-entry STRK reward
+    // accumulators. For STRK pools this is the literal STRK count
+    // (independent of price); for BTC pools it's the small USD→STRK
+    // conversion slice. Computing this from token counts directly — not
+    // ``grandYearUsd / strkPriceUsd`` — is what makes the Grand Total
+    // STRK display stop jumping when the cached price snapshot rolls
+    // over. Diagnosed 2026-05-11 from user report "STRK Grand Total
+    // прыгает 8k → 9k STRK/мес при обновлении цены".
+    let grandYearStrk = 0;
 
     for (const v of validators) {
-      const { breakdown, yearUsdTotal } = _buildEntryYield(v, "validator", strkApr, btcApr, strkPriceUsd);
+      const { breakdown, yearUsdTotal, yearStrkTotal } = _buildEntryYield(v, "validator", strkApr, btcApr, strkPriceUsd);
       grandYearUsd += yearUsdTotal;
+      grandYearStrk += yearStrkTotal;
       $.yieldCards.appendChild(_renderYieldCard({
         title: v.label || fmtAddr(v.address),
         subtitleKey: "yield_validator_card_subtitle",
@@ -2967,8 +3056,9 @@ async function renderYieldView() {
       }));
     }
     for (const d of delegators) {
-      const { breakdown, yearUsdTotal } = _buildEntryYield(d, "delegator", strkApr, btcApr, strkPriceUsd);
+      const { breakdown, yearUsdTotal, yearStrkTotal } = _buildEntryYield(d, "delegator", strkApr, btcApr, strkPriceUsd);
       grandYearUsd += yearUsdTotal;
+      grandYearStrk += yearStrkTotal;
       const subtitleAddon = d.validator_label || (d.validator_address ? fmtAddr(d.validator_address) : "");
       $.yieldCards.appendChild(_renderYieldCard({
         title: d.label || fmtAddr(d.address),
@@ -2982,19 +3072,19 @@ async function renderYieldView() {
       }));
     }
 
-    // Grand Total — show STRK equivalent alongside the USD figure when we
-    // can find a STRK price in the payload. Users think in token amounts;
-    // USD-only forces them to mentally divide by the live price. Diagnosed
-    // 2026-05-10. Falls back to USD-only when no STRK pool is present in
-    // the user's tracking (rare — most validators run STRK).
-    const strkEquiv = (usd) => {
-      if (!strkPriceUsd || strkPriceUsd <= 0) return "";
-      return ` ${t("yield_strk_equiv", "≈ {amount} STRK", { amount: fmtAmount(usd / strkPriceUsd, "") })}`;
+    // Grand Total — STRK figures come straight from ``grandYearStrk`` (a
+    // sum of token counts), USD figures from ``grandYearUsd``. Both are
+    // independent; the STRK display no longer round-trips through USD,
+    // so a price refresh that bumps ``strkPriceUsd`` changes only the
+    // USD numbers — STRK stays anchored to the user's stake × APR.
+    const strkEquiv = (strkAmount) => {
+      if (strkAmount === null || strkAmount === undefined || !Number.isFinite(strkAmount) || strkAmount === 0) return "";
+      return ` ${t("yield_strk_equiv", "≈ {amount} STRK", { amount: fmtAmount(strkAmount, "") })}`;
     };
     $.yieldGrandTotal.hidden = false;
-    $.yieldYearTotal.textContent = fmtUsd(grandYearUsd) + strkEquiv(grandYearUsd);
-    $.yieldMonthTotal.textContent = fmtUsd(grandYearUsd / 12) + strkEquiv(grandYearUsd / 12);
-    $.yieldDayTotal.textContent = fmtUsd(grandYearUsd / 365) + strkEquiv(grandYearUsd / 365);
+    $.yieldYearTotal.textContent = fmtUsd(grandYearUsd) + strkEquiv(grandYearStrk);
+    $.yieldMonthTotal.textContent = fmtUsd(grandYearUsd / 12) + strkEquiv(grandYearStrk / 12);
+    $.yieldDayTotal.textContent = fmtUsd(grandYearUsd / 365) + strkEquiv(grandYearStrk / 365);
   }
 
   // Reactive recalc on input change. ``input`` event fires per keystroke

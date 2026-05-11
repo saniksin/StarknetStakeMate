@@ -395,6 +395,7 @@
     "yield_commission_label": "Commission ({pct}%)",
     "yield_subtotal": "Subtotal",
     "yield_strk_equiv": "≈ {amount} STRK",
+    "yield_prices_label": "Current prices",
     "yield_paid_in_strk": "rewards in STRK",
     "webapp_tab_portfolio": "Portfolio",
     "webapp_tab_yield": "Yield"

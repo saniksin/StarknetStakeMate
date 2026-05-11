@@ -386,6 +386,7 @@
     "yield_commission_label": "佣金 ({pct}%)",
     "yield_subtotal": "小计",
     "yield_strk_equiv": "≈ {amount} STRK",
+    "yield_prices_label": "当前价格",
     "yield_paid_in_strk": "以STRK奖励",
     "webapp_tab_portfolio": "投资组合",
     "webapp_tab_yield": "收益"

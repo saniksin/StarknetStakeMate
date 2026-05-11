@@ -404,6 +404,7 @@
     "yield_commission_label": "Prowizja ({pct}%)",
     "yield_subtotal": "Razem",
     "yield_strk_equiv": "≈ {amount} STRK",
+    "yield_prices_label": "Aktualne ceny",
     "yield_paid_in_strk": "nagrody w STRK",
     "webapp_tab_portfolio": "Portfolio",
     "webapp_tab_yield": "Dochód"

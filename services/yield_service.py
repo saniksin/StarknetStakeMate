@@ -225,6 +225,25 @@ class YieldPayload(BaseModel):
         default="",
         description="ISO-8601 UTC timestamp when this payload was assembled.",
     )
+    # Top-level price snapshot used by every pool in this payload. We
+    # expose them explicitly so the frontend has a single source of truth
+    # for USD ⇄ STRK conversion and isn't tempted to scan pool entries to
+    # discover the rate (which previously caused STRK reward amounts to
+    # silently fluctuate across renders when a STRK pool was missing). A
+    # ``None`` means the upstream price service has no quote and the UI
+    # should render "—" instead of fabricating a value.
+    strk_price_usd: Optional[Decimal] = Field(
+        default=None,
+        description="Latest CoinGecko USD price for STRK, or null when unknown.",
+    )
+    btc_price_usd: Optional[Decimal] = Field(
+        default=None,
+        description=(
+            "Latest CoinGecko USD price for BTC (used uniformly for "
+            "WBTC/LBTC/tBTC/SolvBTC/strkBTC — every wrapper is BTC-pegged "
+            "within UI noise). Null when unknown."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -427,11 +446,27 @@ async def _build_payload_uncached(tracking_data: Optional[str]) -> YieldPayload:
                 )
             )
 
+    # Expose the canonical price snapshot at the top level so the
+    # frontend doesn't have to scrape pool entries for STRK price (which
+    # silently breaks when the user tracks BTC-only delegators).
+    strk_price = prices.get("STRK") or prices.get("strk")
+    # All BTC wrappers share one bitcoin spot price in price_service —
+    # pick any of them. WBTC is always present when the dict is non-empty
+    # (see _SYMBOL_TO_CG_ID).
+    btc_price = (
+        prices.get("WBTC")
+        or prices.get("LBTC")
+        or prices.get("tBTC")
+        or prices.get("SolvBTC")
+        or prices.get("strkBTC")
+    )
     return YieldPayload(
         validators=validators,
         delegators=delegators,
         stale=False,
         fetched_at=_utc_now_iso(),
+        strk_price_usd=strk_price,
+        btc_price_usd=btc_price,
     )
 
 

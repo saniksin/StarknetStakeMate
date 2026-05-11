@@ -404,6 +404,7 @@
     "yield_commission_label": "Комісія ({pct}%)",
     "yield_subtotal": "Разом",
     "yield_strk_equiv": "≈ {amount} STRK",
+    "yield_prices_label": "Поточні ціни",
     "yield_paid_in_strk": "винагороди у STRK",
     "webapp_tab_portfolio": "Портфоліо",
     "webapp_tab_yield": "Дохід"

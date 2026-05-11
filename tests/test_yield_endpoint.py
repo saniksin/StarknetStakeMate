@@ -209,3 +209,84 @@ def test_yield_data_unknown_user_returns_empty(client, monkeypatch) -> None:
     body = res.json()
     assert body["validators"] == []
     assert body["delegators"] == []
+
+
+# ---------------------------------------------------------------------------
+# Top-level price fields (added 2026-05-11)
+#
+# The yield-data endpoint exposes ``strk_price_usd`` and ``btc_price_usd`` as
+# top-level fields so the frontend has a single source of truth for USD ⇄
+# token conversion. Before this, the UI scraped pool entries to discover the
+# STRK price, which silently failed when the user tracked BTC-only stakers.
+# ---------------------------------------------------------------------------
+
+
+def test_yield_data_exposes_top_level_prices(client, monkeypatch) -> None:
+    """Endpoint returns ``strk_price_usd`` + ``btc_price_usd`` from the
+    price service snapshot. Both should be present (as numbers) when the
+    price service has quotes."""
+    _patch_db(monkeypatch)
+    _patch_yield(
+        monkeypatch,
+        entries=[
+            _make_validator_entry(
+                addr="0xVAL",
+                label="v",
+                commission_bps=1500,
+                pools=[
+                    {
+                        "pool_contract": "0xPS",
+                        "token_address": "0xSTRK",
+                        "symbol": "STRK",
+                        "decimals": 18,
+                        "own": "1000000000000000000000",
+                        "delegated": "0",
+                    }
+                ],
+            )
+        ],
+        prices={"STRK": Decimal("0.0524"), "WBTC": Decimal("81243")},
+    )
+
+    res = client.get("/api/v1/users/me/yield-data?tg_id=999")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert "strk_price_usd" in body
+    assert "btc_price_usd" in body
+    assert Decimal(body["strk_price_usd"]) == Decimal("0.0524")
+    assert Decimal(body["btc_price_usd"]) == Decimal("81243")
+
+
+def test_yield_data_prices_null_when_unknown(client, monkeypatch) -> None:
+    """When the price service has no quote (empty dict), both top-level
+    price fields serialize as ``null`` so the frontend can render "—"
+    rather than fabricating a zero."""
+    _patch_db(monkeypatch)
+    _patch_yield(monkeypatch, entries=[], prices={})
+
+    res = client.get("/api/v1/users/me/yield-data?tg_id=999")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["strk_price_usd"] is None
+    assert body["btc_price_usd"] is None
+
+
+def test_yield_data_btc_price_picked_from_any_wrapper(client, monkeypatch) -> None:
+    """All BTC wrappers (WBTC/LBTC/tBTC/SolvBTC/strkBTC) share one
+    bitcoin spot price in the upstream service. The endpoint should
+    pick *any* of them — exercising the LBTC-only path here defends
+    against a future refactor that hardcodes WBTC."""
+    _patch_db(monkeypatch)
+    _patch_yield(
+        monkeypatch,
+        entries=[],
+        # Note: no STRK price → strk_price_usd should be null; LBTC
+        # alone provides the BTC quote.
+        prices={"LBTC": Decimal("80100")},
+    )
+
+    res = client.get("/api/v1/users/me/yield-data?tg_id=999")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["strk_price_usd"] is None
+    assert Decimal(body["btc_price_usd"]) == Decimal("80100")

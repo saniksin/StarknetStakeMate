@@ -395,6 +395,7 @@
     "yield_commission_label": "Provision ({pct}%)",
     "yield_subtotal": "Zwischensumme",
     "yield_strk_equiv": "≈ {amount} STRK",
+    "yield_prices_label": "Aktuelle Preise",
     "yield_paid_in_strk": "Belohnungen in STRK",
     "webapp_tab_portfolio": "Portfolio",
     "webapp_tab_yield": "Ertrag"
