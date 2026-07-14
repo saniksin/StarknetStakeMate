@@ -26,6 +26,27 @@ from data.contracts import STARKNET_RPC_URL
 T = TypeVar("T")
 
 
+class _LatestBlockClient(FullNodeClient):
+    """FullNodeClient that reads state at ``latest`` instead of ``pre_confirmed``.
+
+    starknet-py 0.30 defaults every ``call_contract`` to the
+    ``pre_confirmed`` block tag, but pathfinder refuses to serve
+    pre-confirmed data whenever it is even a few blocks behind the tip
+    ("-32603 … pre-confirmed data unavailable: syncing"), which used to
+    surface as 500s across the whole API during sync hiccups. ``latest``
+    is always available and at most one block stale — the right
+    trade-off for a read-only monitoring service. Explicit block
+    arguments still pass through untouched (see ``fetch_strk_balance``).
+    """
+
+    async def call_contract(self, call, block_hash=None, block_number=None):
+        if block_hash is None and block_number is None:
+            block_number = "latest"
+        return await super().call_contract(
+            call, block_hash=block_hash, block_number=block_number
+        )
+
+
 @lru_cache(maxsize=1)
 def get_client() -> FullNodeClient:
     """Return a process-wide singleton FullNodeClient.
@@ -34,7 +55,7 @@ def get_client() -> FullNodeClient:
     implied; an Account was only required because starknet-py 0.24 refuses
     to build a Contract without a provider that has a chain id.
     """
-    return FullNodeClient(node_url=STARKNET_RPC_URL)
+    return _LatestBlockClient(node_url=STARKNET_RPC_URL)
 
 
 async def with_retry(

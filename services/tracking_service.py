@@ -270,12 +270,21 @@ async def fetch_tracking_entries(tracking_data_json: str | None) -> list[Trackin
     async def _one(
         i: int, kind: str, a1: str, a2: str, label: str
     ) -> TrackingEntry:
-        if kind == "validator":
-            info: ValidatorInfo | DelegatorMultiPositions | None = await get_validator_info(a1)
-            return TrackingEntry(i, kind, a1, a2, label, info)  # type: ignore[arg-type]
-        # delegator: a1 = delegator address, a2 = staker address
-        multi = await get_delegator_positions(a2, a1) if a2 else None
-        return TrackingEntry(i, kind, a1, a2, label, multi)  # type: ignore[arg-type]
+        # One entry failing its RPC lookup (node lagging, transient
+        # -32603) must not take the whole list down — /users/me/entries
+        # used to 500 for every tracked address because gather()
+        # re-raised the first exception. Degrade to data=None instead;
+        # renderers already treat that as the "no data" branch.
+        try:
+            if kind == "validator":
+                info: ValidatorInfo | DelegatorMultiPositions | None = await get_validator_info(a1)
+                return TrackingEntry(i, kind, a1, a2, label, info)  # type: ignore[arg-type]
+            # delegator: a1 = delegator address, a2 = staker address
+            multi = await get_delegator_positions(a2, a1) if a2 else None
+            return TrackingEntry(i, kind, a1, a2, label, multi)  # type: ignore[arg-type]
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"entry lookup failed ({kind} {a1}): {exc}")
+            return TrackingEntry(i, kind, a1, a2, label, None)  # type: ignore[arg-type]
 
     if not jobs:
         return []
