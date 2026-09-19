@@ -21,8 +21,13 @@ from services import yield_service
 @pytest.fixture
 def client() -> TestClient:
     """One TestClient per test — lifecycle hooks fire on enter/exit so
-    the startup ABI warm-up is exercised in isolation."""
-    with TestClient(app) as c:
+    the startup ABI warm-up is exercised in isolation.
+
+    ``client=("127.0.0.1", ...)`` не косметика: запасной путь ?tg_id= принимается
+    только с самой машины, а TestClient по умолчанию представляется адресом
+    "testclient" и получил бы законный отказ.
+    """
+    with TestClient(app, client=("127.0.0.1", 50000)) as c:
         yield c
 
 

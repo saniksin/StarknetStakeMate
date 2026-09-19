@@ -20,17 +20,43 @@ from fastapi.staticfiles import StaticFiles
 
 from api.routers import delegators, locales, status, users, validators
 
+_AUTH_MODE = os.getenv("API_AUTH_MODE", "telegram")
+_LOCAL_ONLY = _AUTH_MODE == "local"
+
 app = FastAPI(
     title="StarknetStakeMate API",
     version="2.0.0",
     description="Service layer for the Telegram bot, the Mini App, and the local dashboard.",
+    # Interactive docs hand an attacker the full map of the API — every route,
+    # every parameter — for free. Useful while developing, pointless in public.
+    docs_url="/docs" if _LOCAL_ONLY else None,
+    redoc_url=None,
+    openapi_url="/openapi.json" if _LOCAL_ONLY else None,
 )
 
 # Telegram WebApp loads the page from a different origin than the API when you
-# use the WebAppInfo(url=...) pointer. Allow it to call us.
+# use the WebAppInfo(url=...) pointer, so some CORS is genuinely needed.
+#
+# It used to be ``allow_origins=["*"]`` together with ``allow_credentials=True``.
+# Starlette resolves that pair by echoing back whatever Origin asked, which
+# means any website on the internet could call this API with the visitor's
+# credentials attached. Today the damage is limited — auth travels in a header,
+# not a cookie, so a foreign page cannot obtain a victim's initData — but the
+# day anything cookie-based appears, that combination turns into a hole.
+#
+# Extra origins can be added through CORS_ORIGINS (comma separated).
+_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
+if not _ORIGINS:
+    _DOMAIN = os.getenv("DOMAIN", "").strip()
+    _ORIGINS = ["https://web.telegram.org"]
+    if _DOMAIN:
+        _ORIGINS.append(f"https://{_DOMAIN}")
+    if _LOCAL_ONLY:
+        _ORIGINS += ["http://127.0.0.1:8000", "http://localhost:8000"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten once the Mini App has a fixed host
+    allow_origins=_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],

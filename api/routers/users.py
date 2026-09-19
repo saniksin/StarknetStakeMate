@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, model_validator
 
 from api.auth import TelegramUser, telegram_user_from_header
@@ -195,15 +195,50 @@ class ReorderPayload(BaseModel):
         return self
 
 
+_LOOPBACK = {"127.0.0.1", "::1", "::ffff:127.0.0.1", "localhost"}
+
+
+def _is_loopback(request: Request) -> bool:
+    """True when the TCP peer is the machine itself.
+
+    Deliberately reads ``request.client``, not ``X-Forwarded-For``: the header
+    is attacker-controlled, the peer address is not. Behind the reverse proxy
+    the peer is the proxy container, so this is False — which is the point.
+    """
+    host = (request.client.host if request.client else "") or ""
+    return host in _LOOPBACK
+
+
 async def _resolve_user_id(
+    request: Request,
     tg_user: TelegramUser | None = Depends(telegram_user_from_header),
-    tg_id: int | None = Query(default=None, description="Explicit Telegram ID (local auth)"),
+    tg_id: int | None = Query(default=None, description="Explicit Telegram ID (local dashboard)"),
 ) -> int:
+    """Whose data the request is about.
+
+    Normally the answer comes from the signed Telegram ``initData`` and cannot
+    be forged. The ``tg_id`` query parameter exists only for the local
+    dashboard, where there is no Telegram context at all.
+
+    That fallback is now bound to the client address rather than to
+    ``API_AUTH_MODE``. Before, the only thing standing between the public
+    internet and every user's data was one word in ``.env``: switching the mode
+    to ``local`` or ``both`` for a moment would let anyone read AND modify any
+    account by passing ``?tg_id=<victim>``. Telegram IDs are not secret, so
+    that is a full account takeover behind a config typo. Tying the fallback to
+    the peer address makes the lapse impossible to commit: from the internet
+    the request never arrives from loopback.
+    """
     if tg_user is not None:
         return tg_user.id
     if tg_id is None:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, detail="tg_id query param required in local auth"
+        )
+    if not _is_loopback(request):
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            detail="tg_id fallback is accepted only from localhost; use Telegram initData",
         )
     return tg_id
 
