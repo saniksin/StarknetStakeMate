@@ -98,22 +98,10 @@ body {
   gap: 0;
   line-height: 1.15;
 }
-.topbar .subrow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-}
-
-/* Sync indicator: a dot plus the node's head block. Green — the node is at
-   the chain head. Red — it lags, and every number on screen lags with it. */
-.sync {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
+/* Sync chip: a dot plus the node's head block, sitting with the epoch and
+   counts chips. Quiet while the node is at the head; switches to the red
+   ``danger`` variant when it lags, because that is when you need to see it. */
+.sync-chip { font-variant-numeric: tabular-nums; }
 .sync-dot {
   width: 7px;
   height: 7px;
@@ -121,8 +109,7 @@ body {
   background: var(--green);
   flex: 0 0 auto;
 }
-.sync.is-lagging { color: var(--red); }
-.sync.is-lagging .sync-dot { background: var(--red); }
+.sync-chip.danger .sync-dot { background: var(--red); }
 
 .topbar .title strong { font-size: 17px; font-weight: 600; }
 .topbar .title .small { font-size: 12px; }

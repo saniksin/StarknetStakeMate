@@ -19,16 +19,7 @@
       </button>
       <div class="title">
         <strong id="topbar-title" data-i18n="webapp_topbar_portfolio">Portfolio</strong>
-        <span class="subrow">
-          <span id="topbar-sub" class="muted small"></span>
-          <!-- Sync indicator. Every figure in this app is only as fresh as
-               the node behind it, and a node that quietly lags shows
-               plausible-looking but stale balances — so the head block and
-               its state belong in the header, not in a settings screen. -->
-          <span id="topbar-sync" class="sync muted small" hidden>
-            <span class="sync-dot"></span><span id="topbar-sync-block"></span>
-          </span>
-        </span>
+        <span id="topbar-sub" class="muted small"></span>
       </div>
       <button class="textbtn" aria-label="Settings" data-action="settings">
         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
@@ -87,6 +78,13 @@
       <div class="hero-meta">
         <span class="chip" data-bind="epochChip">epoch —</span>
         <span class="chip" data-bind="countsChip">— validators · — delegations</span>
+        <!-- Sync state of the node behind every figure on this screen. Lives
+             in the chip row rather than the topbar: the header column is
+             narrow enough that a block number pushed the subtitle onto two
+             lines and crowded the Settings button. -->
+        <span class="chip sync-chip" data-bind="syncChip" hidden>
+          <span class="sync-dot"></span><span data-bind="syncBlock"></span>
+        </span>
       </div>
       <div class="epoch-progress" data-bind="epochProgress" hidden>
         <div class="epoch-progress-bar">

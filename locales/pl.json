@@ -263,6 +263,7 @@
     "webapp_op_balance_section": "Alert portfela operatora",
     "webapp_op_balance_explainer": "Otrzymaj DM, gdy portfel operatora śledzonego walidatora z włączonymi alertami atestacji spadnie poniżej tego salda STRK. 0 wyłącza.",
     "webapp_op_balance_min_label": "Minimalne saldo STRK",
+    "webapp_sync_block": "blok {block}",
     "webapp_attestation_section": "Alerty atestacji",
     "webapp_attestation_explainer": "Otrzymasz DM, gdy jeden z tych walidatorów pominie epokę. Dotknij walidatora, aby go przełączyć.",
     "webapp_attestation_enable_all": "Włącz wszystkie",

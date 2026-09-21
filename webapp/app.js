@@ -359,29 +359,30 @@ window.addEventListener("hashchange", renderRoute);
 
 const topbarTitle = document.getElementById("topbar-title");
 const topbarSub = document.getElementById("topbar-sub");
-const topbarSync = document.getElementById("topbar-sync");
-const topbarSyncBlock = document.getElementById("topbar-sync-block");
-
 // How often we re-probe the node. One cheap RPC call, so this can be
 // frequent; Starknet blocks land every few seconds anyway.
 const SYNC_POLL_MS = 20000;
 let syncPollTimer = null;
 
-// Renders the head block and its colour. ``null`` hides the indicator
-// entirely: we would rather show nothing than assert a state we could
-// not read.
+// Paints the sync chip in the dashboard hero. The chip only exists while
+// that view is mounted, so every call re-queries and quietly no-ops
+// elsewhere — the poller keeps running but has nothing to update.
 function renderSyncIndicator(nodeSync) {
+  const chip = document.querySelector('[data-bind="syncChip"]');
+  const blockEl = document.querySelector('[data-bind="syncBlock"]');
+  if (!chip || !blockEl) return;
   if (!nodeSync) {
-    topbarSync.hidden = true;
+    chip.hidden = true;
     return;
   }
-  topbarSync.hidden = false;
-  topbarSyncBlock.textContent = String(nodeSync.current_block).replace(
-    /\B(?=(\d{3})+(?!\d))/g,
-    "\u2009",
-  );
-  topbarSync.classList.toggle("is-lagging", !nodeSync.synced);
-  topbarSync.title = nodeSync.synced
+  chip.hidden = false;
+  // Thin spaces, not commas: the chip sits next to "epoch 13068" and a
+  // comma there reads as a decimal separator in several locales.
+  blockEl.textContent = t("webapp_sync_block", "block {block}", {
+    block: String(nodeSync.current_block).replace(/\B(?=(\d{3})+(?!\d))/g, "\u2009"),
+  });
+  chip.classList.toggle("danger", !nodeSync.synced);
+  chip.title = nodeSync.synced
     ? `Synced · block ${nodeSync.current_block}`
     : `Node is ${nodeSync.blocks_behind} blocks behind · head ${nodeSync.highest_block}`;
 }
@@ -561,8 +562,14 @@ async function renderDashboard() {
     state.prices !== null ? Promise.resolve(state.prices) : loadPrices().then((p) => (state.prices = p)),
   ]);
 
-  renderSyncIndicator(status.node_sync);
-  ensureSyncPolling();
+  // Wrapped: the dashboard is the point of this screen, the sync dot is a
+  // nicety. Nothing about it may abort the render below.
+  try {
+    renderSyncIndicator(status.node_sync);
+    ensureSyncPolling();
+  } catch (err) {
+    console.warn("sync indicator failed", err);
+  }
 
   $.epochChip.textContent = t("webapp_epoch_chip", `epoch ${status.current_epoch}`, { epoch: status.current_epoch });
   setTopbar(
