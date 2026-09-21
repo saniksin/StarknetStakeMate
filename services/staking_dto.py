@@ -269,6 +269,26 @@ class DelegatorMultiPositions(BaseModel):
         return {"STRK": total} if total else {}
 
 
+class NodeSync(BaseModel):
+    """Whether the RPC node we read from has caught up with the network.
+
+    Surfaced in the Mini App header as a block number plus a green/red
+    dot: every figure on screen is only as fresh as the node behind it,
+    and a node that silently lags shows plausible-looking but stale
+    balances and attestation states.
+
+    ``highest_block`` mirrors ``current_block`` once the node reports it
+    is done syncing — Starknet's ``starknet_syncing`` returns ``false``
+    at that point rather than a struct, so there is no separate network
+    head to compare against.
+    """
+
+    current_block: int
+    highest_block: int
+    blocks_behind: int
+    synced: bool
+
+
 class StakingSystemInfo(BaseModel):
     """Protocol-wide parameters; refreshed periodically."""
 
@@ -289,6 +309,13 @@ class StakingSystemInfo(BaseModel):
     epoch_timeline: "EpochTimeline | None" = Field(
         default=None,
         description="Chain head position relative to the current epoch.",
+    )
+
+    # ``None`` when the syncing probe itself failed — the header then omits
+    # the indicator instead of claiming a state it does not know.
+    node_sync: "NodeSync | None" = Field(
+        default=None,
+        description="Sync state of the RPC node serving this API.",
     )
 
 

@@ -16,6 +16,10 @@ from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 from bot.handlers.clear_state import finish_operation
 from data.languages import translate
 from db_api.database import Users, write_to_db
+from services.attestation_prefs import (
+    persist_subscriptions,
+    read_subscriptions,
+)
 from services.price_service import (
     ThresholdParseError,
     ThresholdParseErrorCode,
@@ -41,19 +45,9 @@ def _validator_label(v: dict) -> str:
 
 
 def _attestation_alerts_for(cfg: dict) -> set[str]:
-    """Read the per-validator opt-in set, with a tiny migration from the old
-    boolean flag to keep existing users' settings intact.
-
-    Old schema had ``attestation_alerts: bool`` (all-or-nothing). New schema
-    is ``attestation_alerts_for: list[str]`` of lower-cased staker addresses.
-    The bool, if present, is treated as "everything currently tracked".
-    """
-    raw = cfg.get("attestation_alerts_for")
-    if isinstance(raw, list):
-        return {str(a).lower() for a in raw if a}
-    if cfg.get("attestation_alerts"):
-        return {"*"}  # sentinel: legacy "all on" — resolved at use-site
-    return set()
+    """Thin alias — the rules live in ``services.attestation_prefs`` so the
+    Mini App settings screen edits the same set by the same rules."""
+    return read_subscriptions(cfg)
 
 
 def _attestation_summary_label(cfg: dict, validators: list[dict], locale: str) -> str:
@@ -236,18 +230,12 @@ async def _persist_attestation(
     new_set: set[str],
     old_set: set[str],
 ) -> None:
-    """Write ``attestation_alerts_for`` and reset state for newly-disabled
-    stakers so a re-enable later sees the missed-epoch counter as fresh."""
-    cfg["attestation_alerts_for"] = sorted(new_set)
-    cfg.pop("attestation_alerts", None)  # drop the legacy bool
-    state = dict(cfg.get("_attestation_state") or {})
-    # Trim cached state for stakers no longer subscribed.
-    for staker in list(state.keys()):
-        if staker.lower() not in new_set:
-            state.pop(staker, None)
-    cfg["_attestation_state"] = state
-    user_object.set_notification_config(cfg)
-    await write_to_db(user_object)
+    """Thin alias — see ``services.attestation_prefs.persist_subscriptions``.
+
+    ``old_set`` is kept in the signature for the existing call sites; the
+    trimming is derived from ``new_set`` alone.
+    """
+    await persist_subscriptions(user_object, cfg, new_set)
 
 
 # Kept for back-compat with handlers/__init__ exports — old callers tapped

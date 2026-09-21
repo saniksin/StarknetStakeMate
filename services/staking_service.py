@@ -18,6 +18,7 @@ from services.attestation_service import (
 )
 from services.rpc_client import get_client, is_domain_revert, with_retry
 from services.staking_dto import (
+    NodeSync,
     DelegatorInfo,
     DelegatorMultiPositions,
     EpochTimeline,
@@ -300,6 +301,45 @@ async def fetch_active_tokens() -> list[str]:
     return await with_retry(_call, description="get_active_tokens")
 
 
+# A node one or two blocks behind the head is normal operation, not a
+# problem worth painting red. Anything past this is a real lag.
+_SYNC_TOLERANCE_BLOCKS = 5
+
+
+async def fetch_node_sync() -> NodeSync | None:
+    """Ask the RPC node whether it has caught up with the network.
+
+    Never raises: the indicator is a nicety, and a failed probe must not
+    take down the whole status endpoint. Returns ``None`` on failure so
+    the UI can distinguish "not synced" from "could not tell".
+    """
+    client = get_client()
+    try:
+        status = await client.get_syncing_status()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"syncing probe failed: {exc}")
+        return None
+
+    # ``False`` means the node considers itself at the head.
+    if status is False or status is None:
+        try:
+            head = await client.get_block_number()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"block number probe failed: {exc}")
+            return None
+        return NodeSync(
+            current_block=head, highest_block=head, blocks_behind=0, synced=True
+        )
+
+    behind = max(0, status.highest_block_num - status.current_block_num)
+    return NodeSync(
+        current_block=status.current_block_num,
+        highest_block=status.highest_block_num,
+        blocks_behind=behind,
+        synced=behind <= _SYNC_TOLERANCE_BLOCKS,
+    )
+
+
 async def fetch_system_info() -> StakingSystemInfo:
     """Return protocol-wide parameters (min stake, exit window, epoch, tokens).
 
@@ -315,12 +355,13 @@ async def fetch_system_info() -> StakingSystemInfo:
         (res,) = await contract.functions["contract_parameters_v1"].call()
         return res
 
-    params, epoch, active_tokens, epoch_info, current_block = await asyncio.gather(
+    params, epoch, active_tokens, epoch_info, current_block, node_sync = await asyncio.gather(
         with_retry(_params, description="contract_parameters_v1"),
         fetch_current_epoch(),
         fetch_active_tokens(),
         fetch_epoch_info(),
         fetch_current_block_number(),
+        fetch_node_sync(),
     )
 
     timeline = _compute_epoch_timeline(
@@ -341,6 +382,7 @@ async def fetch_system_info() -> StakingSystemInfo:
         current_epoch=epoch,
         active_token_addresses=active_tokens,
         epoch_timeline=timeline,
+        node_sync=node_sync,
     )
 
 

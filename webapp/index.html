@@ -19,7 +19,16 @@
       </button>
       <div class="title">
         <strong id="topbar-title" data-i18n="webapp_topbar_portfolio">Portfolio</strong>
-        <span id="topbar-sub" class="muted small"></span>
+        <span class="subrow">
+          <span id="topbar-sub" class="muted small"></span>
+          <!-- Sync indicator. Every figure in this app is only as fresh as
+               the node behind it, and a node that quietly lags shows
+               plausible-looking but stale balances — so the head block and
+               its state belong in the header, not in a settings screen. -->
+          <span id="topbar-sync" class="sync muted small" hidden>
+            <span class="sync-dot"></span><span id="topbar-sync-block"></span>
+          </span>
+        </span>
       </div>
       <button class="textbtn" aria-label="Settings" data-action="settings">
         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
@@ -210,6 +219,21 @@
           </div>
         </label>
         <p class="muted small" data-bind="modeHint">—</p>
+      </div>
+    </div>
+
+    <!-- Attestation alerts sit above the operator-wallet block on purpose:
+         the latter only fires for validators subscribed here, so the
+         dependency reads top-to-bottom. -->
+    <h3 class="section-title" data-i18n="webapp_attestation_section">Attestation alerts</h3>
+    <div class="card form-card">
+      <p class="muted small" data-i18n="webapp_attestation_explainer">
+        Get a DM when one of these validators misses an epoch. Tap a validator to toggle it.
+      </p>
+      <div id="attestation-list" class="att-list"></div>
+      <div class="att-bulk">
+        <button type="button" class="section-cta" id="att-enable-all" data-i18n="webapp_attestation_enable_all">Enable all</button>
+        <button type="button" class="section-cta" id="att-disable-all" data-i18n="webapp_attestation_disable_all">Disable all</button>
       </div>
     </div>
 

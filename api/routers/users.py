@@ -20,6 +20,7 @@ from db_api.database import (
     update_label,
     write_to_db,
 )
+from services.attestation_prefs import persist_subscriptions
 from services.tracking_service import (
     AddTrackingError,
     MAX_RENAME_LABEL_LEN,
@@ -85,6 +86,20 @@ class NotificationConfigPayload(BaseModel):
     # least one validator is enrolled in attestation alerts).
     attestation_alerts_for: list[str] = Field(default_factory=list)
 
+
+
+class AttestationAlertsPayload(BaseModel):
+    """The full set of validators the user wants attestation alerts for.
+
+    Replace semantics: the Settings screen sends the whole picture it
+    loaded, so the last writer wins. The bot submenu edits the same set
+    but saves on every tap, which means a Save here can overwrite a bot
+    change made while the screen was open. Accepted deliberately — it
+    takes both surfaces open at once, and a diff-based payload would buy
+    little for a single-user setting.
+    """
+
+    addresses: list[str] = Field(default_factory=list)
 
 class LabelUpdate(BaseModel):
     kind: Literal["validator", "delegator"]
@@ -607,6 +622,42 @@ async def put_notification_config(
     user.claim_reward_msg = 0  # writes consolidate into the JSON config
     await write_to_db(user)
     return payload
+
+
+@router.put(
+    "/attestation-alerts",
+    summary="Replace the set of validators with attestation alerts enabled",
+)
+async def put_attestation_alerts(
+    payload: AttestationAlertsPayload, user_id: int = Depends(_resolve_user_id)
+) -> AttestationAlertsPayload:
+    """Mirror of the bot's per-validator submenu.
+
+    Only tracked validators may be subscribed: accepting an arbitrary
+    address would create a subscription the notifier never evaluates,
+    which surfaces as "I enabled it and nothing happens".
+    """
+    user = await get_account(str(user_id))
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="unknown user")
+
+    doc = load_tracking(user.tracking_data)
+    tracked = {
+        (v.get("address") or "").lower()
+        for v in doc.get("validators", [])
+        if v.get("address")
+    }
+    requested = {str(a).lower() for a in payload.addresses if a}
+    unknown = requested - tracked
+    if unknown:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=f"not a tracked validator: {', '.join(sorted(unknown))}",
+        )
+
+    cfg = user.get_notification_config()
+    await persist_subscriptions(user, cfg, requested)
+    return AttestationAlertsPayload(addresses=sorted(requested))
 
 
 @router.get("/entries", summary="Return typed entries (validator/delegator DTOs)")

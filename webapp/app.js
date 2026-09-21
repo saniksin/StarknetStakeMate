@@ -359,6 +359,55 @@ window.addEventListener("hashchange", renderRoute);
 
 const topbarTitle = document.getElementById("topbar-title");
 const topbarSub = document.getElementById("topbar-sub");
+const topbarSync = document.getElementById("topbar-sync");
+const topbarSyncBlock = document.getElementById("topbar-sync-block");
+
+// How often we re-probe the node. One cheap RPC call, so this can be
+// frequent; Starknet blocks land every few seconds anyway.
+const SYNC_POLL_MS = 20000;
+let syncPollTimer = null;
+
+// Renders the head block and its colour. ``null`` hides the indicator
+// entirely: we would rather show nothing than assert a state we could
+// not read.
+function renderSyncIndicator(nodeSync) {
+  if (!nodeSync) {
+    topbarSync.hidden = true;
+    return;
+  }
+  topbarSync.hidden = false;
+  topbarSyncBlock.textContent = String(nodeSync.current_block).replace(
+    /\B(?=(\d{3})+(?!\d))/g,
+    "\u2009",
+  );
+  topbarSync.classList.toggle("is-lagging", !nodeSync.synced);
+  topbarSync.title = nodeSync.synced
+    ? `Synced · block ${nodeSync.current_block}`
+    : `Node is ${nodeSync.blocks_behind} blocks behind · head ${nodeSync.highest_block}`;
+}
+
+async function refreshSyncIndicator() {
+  try {
+    renderSyncIndicator(await api("/api/v1/status/node"));
+  } catch {
+    // A failed probe is not worth a visible error: the rest of the app
+    // keeps working, and the next tick may well succeed.
+  }
+}
+
+// Started once, after the first successful status read (so it never races
+// auth). Paused while the Mini App is in the background — Telegram keeps
+// the webview alive, and polling a hidden page just burns the node.
+function ensureSyncPolling() {
+  if (syncPollTimer) return;
+  syncPollTimer = setInterval(() => {
+    if (!document.hidden) refreshSyncIndicator();
+  }, SYNC_POLL_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) refreshSyncIndicator();
+  });
+}
+
 
 document.querySelector("[data-action='back']").addEventListener("click", () => {
   if (history.length > 1 && location.hash !== "#/") history.back();
@@ -511,6 +560,9 @@ async function renderDashboard() {
     api("/api/v1/users/me/entries").then((e) => (state.entries = e)),
     state.prices !== null ? Promise.resolve(state.prices) : loadPrices().then((p) => (state.prices = p)),
   ]);
+
+  renderSyncIndicator(status.node_sync);
+  ensureSyncPolling();
 
   $.epochChip.textContent = t("webapp_epoch_chip", `epoch ${status.current_epoch}`, { epoch: status.current_epoch });
   setTopbar(
@@ -2287,6 +2339,71 @@ async function renderSettings() {
   const cfg = await api("/api/v1/users/me/notification-config");
   state.notification = cfg;
 
+  // --- Attestation alerts -------------------------------------------------
+  // Same set as the bot submenu, shared through
+  // ``services/attestation_prefs.py``. We send the whole picture on Save,
+  // so the last writer wins between the two surfaces.
+  const attListEl = document.getElementById("attestation-list");
+  const allEntries = state.entries
+    || (await api("/api/v1/users/me/entries").then((e) => (state.entries = e)));
+  const attValidators = (allEntries || []).filter((e) => e.kind === "validator");
+  const attTracked = attValidators.map((v) => String(v.address || "").toLowerCase());
+  const rawSubs = (cfg.attestation_alerts_for || []).map((a) => String(a).toLowerCase());
+  // "*" is the legacy "everything" sentinel. Resolve it before the user
+  // touches a row, or the first toggle would silently drop all the others.
+  const attSelected = new Set(rawSubs.includes("*") ? attTracked : rawSubs);
+
+  function renderAttList() {
+    attListEl.textContent = "";
+    if (!attValidators.length) {
+      const empty = document.createElement("p");
+      empty.className = "muted small att-empty";
+      empty.textContent = t("webapp_attestation_empty", "No validators tracked yet.");
+      attListEl.append(empty);
+      return;
+    }
+    for (const v of attValidators) {
+      const addr = String(v.address || "").toLowerCase();
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "att-row" + (attSelected.has(addr) ? " is-on" : "");
+      row.setAttribute("aria-pressed", attSelected.has(addr) ? "true" : "false");
+
+      const box = document.createElement("span");
+      box.className = "att-box";
+      box.textContent = "\u2713";
+
+      const text = document.createElement("span");
+      text.className = "att-text";
+      const name = document.createElement("span");
+      name.className = "att-name";
+      name.textContent = v.label || fmtAddr(v.address);
+      const sub = document.createElement("span");
+      sub.className = "muted small";
+      sub.textContent = fmtAddr(v.address);
+      text.append(name, sub);
+
+      row.append(box, text);
+      row.onclick = () => {
+        if (attSelected.has(addr)) attSelected.delete(addr);
+        else attSelected.add(addr);
+        renderAttList();
+        if (tg && tg.HapticFeedback) tg.HapticFeedback.selectionChanged();
+      };
+      attListEl.append(row);
+    }
+  }
+  renderAttList();
+
+  document.getElementById("att-enable-all").onclick = () => {
+    attTracked.forEach((a) => attSelected.add(a));
+    renderAttList();
+  };
+  document.getElementById("att-disable-all").onclick = () => {
+    attSelected.clear();
+    renderAttList();
+  };
+
   // Pick the active mode from the persisted config. The API still accepts
   // both shapes (USD aggregate AND per-token), but the UI now exposes a
   // single-choice toggle so users don't accidentally arm two competing
@@ -2445,6 +2562,13 @@ async function renderSettings() {
       // wiped if we omitted it.
       const opMinNew = Number(opBalanceInput?.value || 0);
       payload.operator_balance_min_strk = opMinNew > 0 ? opMinNew : 0;
+      // Subscriptions land first: notification-config refuses a positive
+      // operator-balance threshold while the set is empty, so enabling a
+      // validator and arming that alert in one save only works in this order.
+      await api("/api/v1/users/me/attestation-alerts", {
+        method: "PUT",
+        body: { addresses: [...attSelected] },
+      });
       await api("/api/v1/users/me/notification-config", { method: "PUT", body: payload });
       state.notification = payload;
       statusEl.textContent = t("webapp_saved", "Saved.");
