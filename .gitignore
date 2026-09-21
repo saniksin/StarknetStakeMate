@@ -7,4 +7,4 @@ logs/
 *.bak
 
 # Internal design / refactor plans — kept locally, not for the public repo.
-docs/superpowers/
+docs/superpowers/docker-compose.override.yml
