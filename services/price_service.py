@@ -1,8 +1,15 @@
 """Token-to-USD price lookups via CoinGecko.
 
-Public, key-less endpoint. We need only a handful of tokens (STRK + the BTC
-wrappers on Starknet), so one request answers the whole batch and gets
-cached for 5 minutes — well under CoinGecko's free-tier limits.
+We need only a handful of tokens (STRK + the BTC wrappers on Starknet), so
+one request answers the whole batch and gets cached for 5 minutes — well
+under CoinGecko's free-tier limits.
+
+Primary source is DefiLlama: it keys off the very same CoinGecko ids we
+already map below, answers the whole batch in one call and needs no key.
+CoinGecko stays as a fallback: it works from residential IPs, but blocks
+whole hosting ASNs (HTTP 403, error_code 20000) — which is exactly where
+this bot runs in production, and it no longer offers a free key. When both
+sources fail we simply degrade to "no quote".
 
 The price is a notification-helper, not consensus-critical: a stale or
 missing quote should never block alerts. ``get_usd_prices()`` therefore
@@ -44,6 +51,12 @@ _SYMBOL_TO_CG_ID: dict[str, str] = {
 
 _TTL = int(os.getenv("PRICE_CACHE_TTL", "300"))  # 5 min default
 
+# DefiLlama speaks ``coingecko:<id>``, so the map above serves both sources.
+# Quotes below this confidence are aggregated from thin liquidity and are not
+# worth showing next to a dollar sign.
+_LLAMA_URL = "https://coins.llama.fi/prices/current/"
+_MIN_CONFIDENCE = 0.8
+
 
 class PriceCache:
     """In-process snapshot of {symbol: USD price}.
@@ -67,7 +80,7 @@ class PriceCache:
             now = time.time()
             if self._snapshot and (now - self._fetched_at) < _TTL:
                 return dict(self._snapshot)
-            fresh = await _fetch_coingecko()
+            fresh = await _fetch_llama() or await _fetch_coingecko()
             if fresh:
                 self._snapshot = fresh
                 self._fetched_at = now
@@ -77,6 +90,38 @@ class PriceCache:
                 logger.warning("price cache exceeded staleness budget; clearing")
                 self._snapshot = {}
             return dict(self._snapshot)
+
+
+async def _fetch_llama() -> dict[str, Decimal]:
+    ids = sorted(set(_SYMBOL_TO_CG_ID.values()))
+    url = _LLAMA_URL + ",".join(f"coingecko:{i}" for i in ids)
+    try:
+        async with aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=10)
+        ) as session:
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    logger.warning(f"defillama HTTP {resp.status}: {await resp.text()}")
+                    return {}
+                payload = await resp.json()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"defillama fetch failed: {exc}")
+        return {}
+
+    coins = payload.get("coins") or {}
+    out: dict[str, Decimal] = {}
+    for symbol, cg_id in _SYMBOL_TO_CG_ID.items():
+        entry = coins.get(f"coingecko:{cg_id}")
+        if not entry:
+            continue
+        if entry.get("confidence", 1) < _MIN_CONFIDENCE:
+            logger.warning(f"defillama low confidence for {symbol}, skipping")
+            continue
+        try:
+            out[symbol] = Decimal(str(entry["price"]))
+        except (KeyError, TypeError, InvalidOperation):
+            continue
+    return out
 
 
 async def _fetch_coingecko() -> dict[str, Decimal]:
@@ -91,7 +136,13 @@ async def _fetch_coingecko() -> dict[str, Decimal]:
         ) as session:
             async with session.get(url) as resp:
                 if resp.status != 200:
-                    logger.warning(f"coingecko HTTP {resp.status}: {await resp.text()}")
+                    # A 403 here means the hosting ASN is blocked, not that the
+                    # request was malformed — say so, or the next person loses
+                    # an hour to it.
+                    hint = " (hosting IP ranges are blocked)" if resp.status == 403 else ""
+                    logger.warning(
+                        f"coingecko HTTP {resp.status}{hint}: {await resp.text()}"
+                    )
                     return {}
                 payload = await resp.json()
     except Exception as exc:  # noqa: BLE001
