@@ -313,6 +313,14 @@
         </div>
       </label>
       <p class="form-error" id="yield-apr-error" hidden></p>
+      <!-- Where the prefilled numbers came from, and how fresh they are.
+           Filled by renderYieldView; the reset button only appears once
+           the user has typed over a default. -->
+      <div class="apr-source-row">
+        <span class="muted small" data-bind="aprSource"></span>
+        <button type="button" class="section-cta" data-bind="aprReset" id="apr-reset" hidden
+                data-i18n="yield_apr_reset">Reset</button>
+      </div>
     </div>
 
     <div id="yield-cards" class="yield-cards" data-bind="yieldCards">

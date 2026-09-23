@@ -1,6 +1,8 @@
 .env
 __pycache__/
 users.db
+files/apr_last_good.json
+files/apr_last_good.json.tmp
 logs/
 .claude/
 *.png

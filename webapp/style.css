@@ -1687,3 +1687,22 @@ body.with-tabbar main {
 .uptime-unknown .hero-value {
   color: var(--hint);
 }
+
+/* ---------- APR source line (Yield tab) ----------
+   Sits under the two APR inputs: says where the prefilled numbers came
+   from and when, with a reset affordance that only appears once the user
+   has typed over them. */
+
+.apr-source-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  margin-top: var(--s1);
+}
+
+.apr-source-row .section-cta {
+  padding: 0;
+  white-space: nowrap;
+}

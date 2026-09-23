@@ -394,7 +394,7 @@
     "yield_delegator_card_subtitle": "als Delegator (nach Provision)",
     "yield_no_data": "Noch keine verfolgten Validatoren oder Delegatoren — fügen Sie welche im Portfolio-Tab hinzu.",
     "yield_price_unavailable": "Preis nicht verfügbar",
-    "yield_apr_invalid": "APR muss zwischen 0 und 100 liegen",
+    "yield_apr_invalid": "APR muss zwischen 0 und {max} liegen",
     "yield_no_pools": "Keine aktiven Pools",
     "yield_via": "über",
     "yield_own_stake": "Eigener Einsatz",
@@ -427,5 +427,13 @@
     "webapp_just_now": "gerade eben",
     "webapp_minutes_ago": "vor {n} Min.",
     "webapp_hours_ago": "vor {n} Std.",
-    "webapp_days_ago": "vor {n} T."
+    "webapp_days_ago": "vor {n} T.",
+    "yield_apr_reset": "Netzwerk-APR zurücksetzen",
+    "yield_apr_source": "Netzwerk-APR laut Endur",
+    "yield_apr_source_at": "Netzwerk-APR laut Endur, aktualisiert {ago}",
+    "yield_apr_source_stale": "Endur nicht erreichbar — letzter bekannter APR",
+    "yield_apr_source_stale_at": "Endur nicht erreichbar — letzter bekannter APR von {ago}",
+    "yield_apr_source_fallback": "Netzwerk-APR konnte nicht geladen werden — es gelten die eingebauten Standardwerte. Gib deinen eigenen ein, wenn du es genauer weißt.",
+    "yield_apr_zero_commission": "von Validatoren ohne Kommission",
+    "yield_apr_derived": "aus der Kommission eines Validators zurückgerechnet"
 }

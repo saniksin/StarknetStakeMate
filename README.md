@@ -29,6 +29,7 @@ A Starknet staking companion: Telegram bot + REST API + Telegram Mini App / loca
 | Asset cache-busting (`?v=<mtime>`) | — | ✅ | survives Telegram WebView's aggressive cache |
 | Mainnet / testnet switch | — | ✅ | optional second RPC endpoint; see [Networks](#networks) |
 | Validator uptime | — | ✅ | Endur's `liveliness`, shown on the validator and delegation cards; see [Validator uptime](#validator-uptime) |
+| Auto-filled network APR | — | ✅ | Yield inputs prefill from the live gross rate; manual override lasts the session |
 
 ---
 
@@ -108,6 +109,45 @@ to one browser session (IP + TLS fingerprint + user agent) that expires
 within hours. Replaying one from a server gets the interstitial back. A
 dependency that breaks on its own schedule is worse than no dependency, so
 we don't use it.
+
+---
+
+## Network APR (Yield calculator)
+
+The Yield inputs prefill from the live protocol rate instead of a
+hard-coded constant. `GET /api/v1/network-apr` reads it from the same
+Endur index as uptime.
+
+**Which validators' rate.** Endur quotes each validator's `apy` already
+net of that validator's commission, so the ones charging **0%** are
+quoting the gross figure — and the calculator needs gross, because it
+applies commission itself. Measured across all 15 commission tiers on
+mainnet, `apy == gross x (1 - commission)` reconstructs to four decimals,
+so this is exact rather than an approximation. If no zero-commission
+validator is active, the rate is back-calculated from one that charges
+and the response sets `derived: true`.
+
+**Three states, all visible in the UI:**
+
+| `status` | what the user sees |
+| --- | --- |
+| `ok` | the rate, plus "from Endur, updated N ago / from validators charging 0%" |
+| `stale` | the last figure we successfully read, plus "Endur is unreachable - using the last known APR from N ago" |
+| `unavailable` | built-in constants, plus "couldn't fetch the network APR" |
+
+The `stale` path is what makes an outage harmless: APR barely moves, so
+yesterday's real number is a far better default than a constant from last
+spring. Readings are persisted to `files/apr_last_good.json` - inside the
+data volume, so they survive a container rebuild.
+
+**Manual override still works, and now expires.** Typing your own rate
+recalculates as before, but the value lives in `sessionStorage` keyed per
+network rather than `localStorage`. It survives moving between tabs and is
+gone when the Mini App is reopened, so every launch starts from the live
+rate. Previously it persisted forever: two people looking at the same
+validator saw different yields - whatever each had typed months earlier -
+and neither ever picked up a protocol rate change. A "reset" button
+appears once a default has been typed over.
 
 ---
 
@@ -328,6 +368,7 @@ Key idea: every contract read and every user-visible string originates in `servi
 | GET | `/api/v1/status/node` | RPC node sync state (cheap; safe to poll) |
 | GET | `/api/v1/validators/{addr}` | Full validator view (multi-pool + attestation) |
 | GET | `/api/v1/validators/{addr}/uptime` | Attestation uptime from Endur; always 200, `status ∈ {ok, not_indexed, unavailable}` |
+| GET | `/api/v1/network-apr` | Gross staking APR for the Yield calculator; always 200, `status ∈ {ok, stale, unavailable}` |
 | GET | `/api/v1/delegators/{addr}?pool=…` | Delegator position in one pool |
 | GET | `/api/v1/users/me/tracking` | List tracked pairs |
 | PUT | `/api/v1/users/me/tracking` | Replace the tracking list |

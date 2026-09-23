@@ -3185,68 +3185,131 @@ function _renderTabbar(routeName) {
 // applying token decimals.
 // ---------------------------------------------------------------------------
 
-const _YIELD_DEFAULTS = { strk: 8.39, btc: 3.54 };
+// Last-resort APR, used only when the network figure can't be fetched.
+// These are constants baked at build time, so the UI says out loud when
+// it falls back to them — a stale number presented as live data is worse
+// than an obviously-labelled approximation.
+const _YIELD_FALLBACK = { strk: 8.39, btc: 3.54 };
 
-// Version flag for forcing-migration of APR defaults across deployments.
-// When the underlying recommended APR moves (protocol-wide rate change,
-// or we refine our internal calibration), bumping this constant rewrites
-// stale localStorage values on the user's next visit — once. After the
-// flag matches, any value the user types post-migration is preserved
-// until the next bump.
-//
-// History:
-//   v2 (2026-05-10): force-migrate to 8.39 STRK / 3.54 BTC; older users
-//                    had 8.55 / 3.55 saved from earlier defaults.
-const _APR_DEFAULTS_VERSION = "v2";
-const _APR_DEFAULTS_VERSION_KEY = "apr_defaults_version";
-
-function _initAprDefaults() {
-  // One-shot localStorage rewrite: when the persisted version flag does
-  // not match the current build's _APR_DEFAULTS_VERSION, overwrite both
-  // apr_strk and apr_btc with the current defaults and bump the flag.
-  // Subsequent loads see the flag match and leave whatever the user
-  // entered post-migration alone.
-  let currentVersion = null;
-  try { currentVersion = localStorage.getItem(_APR_DEFAULTS_VERSION_KEY); } catch (_) { /* private mode */ }
-  if (currentVersion === _APR_DEFAULTS_VERSION) return;
-  try {
-    localStorage.setItem("apr_strk", String(_YIELD_DEFAULTS.strk));
-    localStorage.setItem("apr_btc", String(_YIELD_DEFAULTS.btc));
-    localStorage.setItem(_APR_DEFAULTS_VERSION_KEY, _APR_DEFAULTS_VERSION);
-  } catch (_) { /* private mode — skip silently */ }
+// A rate arrives as a raw float ("7.482503941663894") and goes straight
+// into a number input the user is expected to edit. Round it to what a
+// person would type — but keep precision on the small ones: Sepolia's
+// BTC rate is 0.0084, and two decimals would turn it into 0.01, a 20%
+// error. The rounded value becomes THE default, so "did the user change
+// it" stays a simple comparison.
+function _roundApr(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= 0) return v;
+  if (v >= 1) return Math.round(v * 100) / 100;
+  if (v >= 0.01) return Math.round(v * 1000) / 1000;
+  return Number(v.toPrecision(2));
 }
 
-function _readApr(key, fallback) {
-  // localStorage is per-origin; under the Mini App's HTTPS host the
-  // value persists across sessions so the user's last-typed APR is
-  // restored next visit. Bad values (NaN, negative, OR zero) fall back
-  // to default.
-  //
-  // History of fixes here:
-  //   1. ``Number(null) === 0`` / ``Number("") === 0`` — fresh visits
-  //      coerced to 0 and passed the old ``n >= 0`` range check. Fixed
-  //      in 03a8578 by rejecting null/undefined/empty BEFORE Number().
-  //   2. Stored "0" — users who hit the bot before fix #1 had "0"
-  //      persisted to localStorage; the new code still accepted that as
-  //      valid (0 ≤ 0 ≤ 100) so the BTC input came back as "0" and all
-  //      BTC pool rows showed 0 STRK / $0.00 yields. Fixed here by
-  //      rejecting non-positive APRs at read time — APR = 0 means no
-  //      rewards, which makes the calculator a no-op; defaulting back
-  //      to a reasonable value is the only useful behaviour.
-  //
-  // Diagnosed 2026-05-10 from user report "BTC APR пустой при первом
-  // открытии вкладки → все BTC pools показывают 0".
-  const raw = (() => {
-    try { return localStorage.getItem(key); } catch (_) { return null; }
-  })();
-  if (raw === null || raw === undefined || raw === "") return fallback;
+// Per-network cache of GET /api/v1/network-apr for this page load.
+const _aprInfoCache = {};
+
+async function loadNetworkApr(network) {
+  if (_aprInfoCache[network]) return _aprInfoCache[network];
+  let info;
+  try {
+    info = await api("/api/v1/network-apr");
+  } catch (err) {
+    // The endpoint answers 200 even when Endur is down, so landing here
+    // means our own API failed. Same visible outcome either way.
+    console.warn("network APR fetch failed", err);
+    info = { status: "unavailable", detail: String((err && err.message) || err) };
+  }
+  _aprInfoCache[network] = info;
+  return info;
+}
+
+// Manual APR overrides live in sessionStorage, NOT localStorage.
+//
+// They used to persist forever, which meant two people looking at the
+// same validator could see different yields — whatever each had typed
+// months ago — and neither would ever pick up a protocol rate change.
+// Session scope keeps the edit alive while you move between tabs and
+// drops it when the Mini App is reopened, so every launch starts from
+// the live network rate. Keyed per network: mainnet ~7% and testnet ~44%
+// are not interchangeable.
+function _aprSessionKey(which, network) {
+  return `apr_${which}_${network}`;
+}
+
+function _readSessionApr(which, network) {
+  let raw = null;
+  try {
+    raw = sessionStorage.getItem(_aprSessionKey(which, network));
+  } catch (_) {
+    return null;  // private mode / blocked storage
+  }
+  if (raw === null || raw === "") return null;
   const n = Number(raw);
-  if (!Number.isFinite(n) || n <= 0 || n > 100) return fallback;
+  // Zero is rejected along with NaN and negatives: an APR of 0 turns the
+  // calculator into a no-op, and it used to arrive here from
+  // ``Number(null)`` on a fresh visit.
+  if (!Number.isFinite(n) || n <= 0 || n > 1000) return null;
   return n;
 }
 
-function _writeApr(key, value) {
-  try { localStorage.setItem(key, String(value)); } catch (_) { /* private mode */ }
+function _writeSessionApr(which, network, value) {
+  try {
+    sessionStorage.setItem(_aprSessionKey(which, network), String(value));
+  } catch (_) { /* private mode — the edit just won't survive a tab switch */ }
+}
+
+function _clearSessionAprKey(which, network) {
+  try {
+    sessionStorage.removeItem(_aprSessionKey(which, network));
+  } catch (_) { /* nothing to clear */ }
+}
+
+function _clearSessionApr(network) {
+  try {
+    sessionStorage.removeItem(_aprSessionKey("strk", network));
+    sessionStorage.removeItem(_aprSessionKey("btc", network));
+  } catch (_) { /* nothing to clear */ }
+}
+
+// One-shot cleanup of the old forever-persisted values so a returning
+// user doesn't keep seeing last spring's hand-typed rate.
+function _dropLegacyAprStorage() {
+  try {
+    for (const k of ["apr_strk", "apr_btc", "apr_defaults_version"]) {
+      localStorage.removeItem(k);
+    }
+  } catch (_) { /* private mode */ }
+}
+
+// The line under the inputs: what the defaults are and where they came
+// from. Written so a failure is visible rather than silently swapped for
+// a constant.
+function renderAprSource(info) {
+  // No figure at all — neither live nor remembered. The inputs hold
+  // build-time constants, and saying so is the honest thing.
+  if (!info || !info.strk_percent || (info.status !== "ok" && info.status !== "stale")) {
+    return t(
+      "yield_apr_source_fallback",
+      "Couldn't fetch the network APR — showing built-in defaults. Type your own if you know better.",
+    );
+  }
+  const ago = timeAgo(info.measured_at);
+  if (info.status === "stale") {
+    // Last reading that actually succeeded, kept on the server so it
+    // survives a restart. APR barely moves, so yesterday's real number
+    // beats a constant — as long as the age is on screen.
+    return ago
+      ? t("yield_apr_source_stale_at",
+          "Endur is unreachable — using the last known APR from {ago}", { ago })
+      : t("yield_apr_source_stale", "Endur is unreachable — using the last known APR");
+  }
+  const base = ago
+    ? t("yield_apr_source_at", "Network APR from Endur, updated {ago}", { ago })
+    : t("yield_apr_source", "Network APR from Endur");
+  const how = info.derived
+    ? t("yield_apr_derived", "back-calculated from a validator's commission")
+    : t("yield_apr_zero_commission", "from validators charging 0% commission");
+  return `${base} · ${how}`;
 }
 
 /** Pick a STRK USD price from the yield payload.
@@ -3456,18 +3519,65 @@ async function renderYieldView() {
   const aprBtcInput = document.getElementById("apr-btc-input");
   const errorEl = document.getElementById("yield-apr-error");
 
-  // Force-migrate APR defaults from stale prior-build values (e.g. user's
-  // hand-typed 8.55 STRK / 3.55 BTC from earlier deploys) BEFORE the
-  // _readApr() restore below so the user sees the current recommended
-  // numbers on the first open of this deploy. After migration the version
-  // flag is set and subsequent visits keep whatever the user types.
-  _initAprDefaults();
+  // Defaults come from the chain, not from this browser. The old
+  // behaviour persisted whatever each person had typed, forever — so two
+  // people looking at the same validator saw different yields and nobody
+  // ever picked up a protocol rate change. Drop those leftovers.
+  _dropLegacyAprStorage();
 
-  // Restore from localStorage (or defaults).
-  let strkApr = _readApr("apr_strk", _YIELD_DEFAULTS.strk);
-  let btcApr = _readApr("apr_btc", _YIELD_DEFAULTS.btc);
+  const aprNetwork = currentNetwork();
+  const aprInfo = await loadNetworkApr(aprNetwork);
+  // ``stale`` counts as a real default: it is a figure Endur actually
+  // published, just not in the last few minutes.
+  const aprUsable = aprInfo
+    && (aprInfo.status === "ok" || aprInfo.status === "stale")
+    && aprInfo.strk_percent;
+  const aprDefaults = aprUsable
+    ? {
+        strk: _roundApr(aprInfo.strk_percent),
+        // btc_percent can legitimately be 0 on a network with no BTC
+        // pools; only fall back when it's missing entirely.
+        btc: aprInfo.btc_percent === null || aprInfo.btc_percent === undefined
+          ? _YIELD_FALLBACK.btc
+          : _roundApr(aprInfo.btc_percent),
+      }
+    : { ..._YIELD_FALLBACK };
+
+  // A manual edit outranks the default for this session only.
+  let strkApr = _readSessionApr("strk", aprNetwork) ?? aprDefaults.strk;
+  let btcApr = _readSessionApr("btc", aprNetwork) ?? aprDefaults.btc;
   aprStrkInput.value = String(strkApr);
   aprBtcInput.value = String(btcApr);
+
+  // Upper bound for the typo guard. Anchored to the live rate so our own
+  // prefill can never trip it — testnet runs at ~44%, and nothing says a
+  // future network can't run higher.
+  const aprMax = Math.max(100, Math.ceil(aprDefaults.strk * 2), Math.ceil(aprDefaults.btc * 2));
+
+  if ($.aprSource) $.aprSource.textContent = renderAprSource(aprInfo);
+
+  // The reset affordance only makes sense once a default has been typed
+  // over, so it is shown and hidden by ``_syncAprReset``.
+  function _isOverridden() {
+    return _readSessionApr("strk", aprNetwork) !== null
+      || _readSessionApr("btc", aprNetwork) !== null;
+  }
+  function _syncAprReset() {
+    if ($.aprReset) $.aprReset.hidden = !_isOverridden();
+  }
+  _syncAprReset();
+  if ($.aprReset) {
+    $.aprReset.onclick = () => {
+      _clearSessionApr(aprNetwork);
+      strkApr = aprDefaults.strk;
+      btcApr = aprDefaults.btc;
+      aprStrkInput.value = String(strkApr);
+      aprBtcInput.value = String(btcApr);
+      _syncAprReset();
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.selectionChanged();
+      _renderAll();
+    };
+  }
 
   // Fetch yield-data + prices in parallel. The server-side endpoint
   // already attaches per-pool prices, so we don't need a separate
@@ -3533,23 +3643,28 @@ async function renderYieldView() {
     // mirrors how _readApr loads defaults on first visit.
     const sNum = Number(aprStrkInput.value);
     const bNum = Number(aprBtcInput.value);
-    const inRange = (n) => Number.isFinite(n) && n >= 0 && n <= 100;
-    // Reject only the genuine out-of-range case (e.g. typed "150").
-    // Empty/NaN take the default path below.
-    const sBad = !Number.isNaN(sNum) && Number.isFinite(sNum) && (sNum < 0 || sNum > 100);
-    const bBad = !Number.isNaN(bNum) && Number.isFinite(bNum) && (bNum < 0 || bNum > 100);
+    const inRange = (n) => Number.isFinite(n) && n >= 0 && n <= aprMax;
+    // Reject only the genuine out-of-range case (e.g. typed "150" on a
+    // network running at 7%). Empty/NaN take the default path below.
+    const sBad = !Number.isNaN(sNum) && Number.isFinite(sNum) && (sNum < 0 || sNum > aprMax);
+    const bBad = !Number.isNaN(bNum) && Number.isFinite(bNum) && (bNum < 0 || bNum > aprMax);
     if (sBad || bBad) {
       errorEl.hidden = false;
-      errorEl.textContent = t("yield_apr_invalid", "APR must be between 0 and 100");
+      errorEl.textContent = t("yield_apr_invalid", "APR must be between 0 and {max}", { max: aprMax });
       return;
     }
     errorEl.hidden = true;
-    // NaN-safe + zero-safe: empty input or "0" rolls back to the default
-    // so BTC pool rows aren't dead-zeroed when the user clears the field.
-    strkApr = (inRange(sNum) && sNum > 0) ? sNum : _YIELD_DEFAULTS.strk;
-    btcApr = (inRange(bNum) && bNum > 0) ? bNum : _YIELD_DEFAULTS.btc;
-    _writeApr("apr_strk", strkApr);
-    _writeApr("apr_btc", btcApr);
+    // NaN-safe + zero-safe: empty input or "0" rolls back to the network
+    // default so BTC pool rows aren't dead-zeroed when the field is cleared.
+    strkApr = (inRange(sNum) && sNum > 0) ? sNum : aprDefaults.strk;
+    btcApr = (inRange(bNum) && bNum > 0) ? bNum : aprDefaults.btc;
+    // Only a real deviation from the network figure is remembered, so
+    // reopening the tab after clearing a field doesn't look "overridden".
+    if (strkApr !== aprDefaults.strk) _writeSessionApr("strk", aprNetwork, strkApr);
+    else _clearSessionAprKey("strk", aprNetwork);
+    if (btcApr !== aprDefaults.btc) _writeSessionApr("btc", aprNetwork, btcApr);
+    else _clearSessionAprKey("btc", aprNetwork);
+    _syncAprReset();
 
     // Render every entity card + Grand Total. ``strkPriceUsd`` is the
     // single conversion rate for the whole render — protocol pays all

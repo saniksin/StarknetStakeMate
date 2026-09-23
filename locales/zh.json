@@ -385,7 +385,7 @@
     "yield_delegator_card_subtitle": "作为委托者(扣除佣金后)",
     "yield_no_data": "暂无跟踪的验证者或委托者 — 在投资组合标签中添加。",
     "yield_price_unavailable": "价格不可用",
-    "yield_apr_invalid": "APR必须在0到100之间",
+    "yield_apr_invalid": "APR 必须在 0 到 {max} 之间",
     "yield_no_pools": "无活跃池",
     "yield_via": "通过",
     "yield_own_stake": "自有质押",
@@ -418,5 +418,13 @@
     "webapp_just_now": "刚刚",
     "webapp_minutes_ago": "{n} 分钟前",
     "webapp_hours_ago": "{n} 小时前",
-    "webapp_days_ago": "{n} 天前"
+    "webapp_days_ago": "{n} 天前",
+    "yield_apr_reset": "恢复网络 APR",
+    "yield_apr_source": "网络 APR（来自 Endur）",
+    "yield_apr_source_at": "网络 APR（来自 Endur），更新于{ago}",
+    "yield_apr_source_stale": "Endur 无法访问——显示最后一次获取的 APR",
+    "yield_apr_source_stale_at": "Endur 无法访问——显示 {ago} 获取的 APR",
+    "yield_apr_source_fallback": "无法获取网络 APR，显示内置默认值。如果你知道更准确的数值，可以手动填写。",
+    "yield_apr_zero_commission": "取自 0% 佣金的验证者",
+    "yield_apr_derived": "由验证者佣金反推得出"
 }

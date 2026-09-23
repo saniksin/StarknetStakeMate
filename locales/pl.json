@@ -403,7 +403,7 @@
     "yield_delegator_card_subtitle": "jako delegator (po odliczeniu prowizji)",
     "yield_no_data": "Brak śledzonych walidatorów lub delegatorów — dodaj ich w zakładce Portfolio.",
     "yield_price_unavailable": "Cena niedostępna",
-    "yield_apr_invalid": "APR musi być pomiędzy 0 a 100",
+    "yield_apr_invalid": "APR musi mieścić się między 0 a {max}",
     "yield_no_pools": "Brak aktywnych puli",
     "yield_via": "przez",
     "yield_own_stake": "Własny stake",
@@ -436,5 +436,13 @@
     "webapp_just_now": "przed chwilą",
     "webapp_minutes_ago": "{n} min temu",
     "webapp_hours_ago": "{n} godz. temu",
-    "webapp_days_ago": "{n} dni temu"
+    "webapp_days_ago": "{n} dni temu",
+    "yield_apr_reset": "Przywróć APR sieci",
+    "yield_apr_source": "APR sieci według Endur",
+    "yield_apr_source_at": "APR sieci według Endur, zaktualizowano {ago}",
+    "yield_apr_source_stale": "Endur niedostępny — pokazujemy ostatni znany APR",
+    "yield_apr_source_stale_at": "Endur niedostępny — pokazujemy ostatni znany APR z {ago}",
+    "yield_apr_source_fallback": "Nie udało się pobrać APR sieci — pokazane są wartości domyślne. Wpisz własną, jeśli znasz dokładniejszą.",
+    "yield_apr_zero_commission": "z walidatorów bez prowizji",
+    "yield_apr_derived": "przeliczony z prowizji walidatora"
 }

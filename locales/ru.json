@@ -403,7 +403,7 @@
     "yield_delegator_card_subtitle": "как делегатор (за вычетом комиссии)",
     "yield_no_data": "Пока нет отслеживаемых валидаторов или делегаторов — добавьте их на вкладке Портфолио.",
     "yield_price_unavailable": "Цена недоступна",
-    "yield_apr_invalid": "APR должен быть от 0 до 100",
+    "yield_apr_invalid": "APR должен быть от 0 до {max}",
     "yield_no_pools": "Нет активных пулов",
     "yield_via": "через",
     "yield_own_stake": "Собственный стейк",
@@ -436,5 +436,13 @@
     "webapp_just_now": "только что",
     "webapp_minutes_ago": "{n} мин назад",
     "webapp_hours_ago": "{n} ч назад",
-    "webapp_days_ago": "{n} д назад"
+    "webapp_days_ago": "{n} д назад",
+    "yield_apr_reset": "Вернуть APR сети",
+    "yield_apr_source": "APR сети по данным Endur",
+    "yield_apr_source_at": "APR сети по данным Endur, обновлено {ago}",
+    "yield_apr_source_stale": "Endur недоступен — показан последний известный APR",
+    "yield_apr_source_stale_at": "Endur недоступен — показан последний известный APR от {ago}",
+    "yield_apr_source_fallback": "Не удалось получить APR сети — показаны встроенные значения. Впиши своё, если знаешь точнее.",
+    "yield_apr_zero_commission": "с валидаторов без комиссии",
+    "yield_apr_derived": "пересчитан с комиссии валидатора"
 }

@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field
 
 from api.deps import network_param
 from data.contracts import DEFAULT_NETWORK, Network, available_networks
-from services.staking_dto import NodeSync, StakingSystemInfo
+from services.apr_service import fetch_network_apr
+from services.staking_dto import NetworkApr, NodeSync, StakingSystemInfo
 from services.staking_service import fetch_node_sync, fetch_system_info
 
 router = APIRouter(prefix="/api/v1", tags=["status"])
@@ -53,3 +54,22 @@ async def node_sync_endpoint(
     Each network has its own node, so the dot follows the selected tab.
     """
     return await fetch_node_sync(network=network)
+
+
+@router.get(
+    "/network-apr",
+    response_model=NetworkApr,
+    summary="Protocol-wide staking APR, before validator commission",
+)
+async def network_apr_endpoint(
+    network: Network = Depends(network_param),
+) -> NetworkApr:
+    """The gross rate the Yield calculator prefills its inputs with.
+
+    Always 200 with a body: ``status`` is ``ok`` or ``unavailable``, so
+    the Mini App can fall back to its built-in numbers *and say it did*
+    rather than passing a stale constant off as live data. See
+    :mod:`services.apr_service` for why the zero-commission validators
+    are the ones quoting the gross figure.
+    """
+    return await fetch_network_apr(network)
