@@ -10,7 +10,9 @@ from __future__ import annotations
 import json
 
 import pytest
+from fastapi.testclient import TestClient
 
+from api.app import app
 from data.contracts import (
     DEFAULT_NETWORK,
     UnknownNetworkError,
@@ -27,6 +29,12 @@ from services.tracking_service import (
     store_tracking,
     total_tracked,
 )
+
+@pytest.fixture
+def client() -> TestClient:
+    with TestClient(app, client=("127.0.0.1", 50000)) as c:
+        yield c
+
 
 ADDR_A = "0x" + "a" * 63
 ADDR_B = "0x" + "b" * 63
@@ -379,3 +387,23 @@ async def test_testnet_thresholds_do_not_fire_from_mainnet_config() -> None:
         await notifier.start_parse_and_send_notification(user, {}, "sepolia")
 
     assert mock_send.await_count == 0
+
+
+def test_html_shell_is_never_cached(client) -> None:
+    """A stale HTML shell keeps pointing at the previous ``?v=`` asset
+    version, so a deploy lands on the server while the user keeps running
+    the old bundle. Observed in the wild: the Yield tab showing build-time
+    APR constants hours after the on-chain source shipped."""
+    for path in ("/", "/app/"):
+        r = client.get(path)
+        assert r.status_code == 200, path
+        assert "text/html" in r.headers.get("content-type", ""), path
+        assert "no-store" in r.headers.get("cache-control", ""), path
+
+
+def test_versioned_assets_stay_cacheable(client) -> None:
+    """Only the shell is no-store — versioning the assets would be
+    pointless if they were uncacheable too."""
+    r = client.get("/app/app.js")
+    assert r.status_code == 200
+    assert "no-store" not in r.headers.get("cache-control", "")

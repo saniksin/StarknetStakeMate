@@ -62,6 +62,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def _no_store_html(request, call_next):
+    """Never let a client cache the HTML shell.
+
+    Assets are cache-busted with ``?v=<mtime>``, which works only while
+    the page referencing them is fresh. Without a ``Cache-Control`` header
+    the Telegram WebView caches the shell heuristically, and a stale shell
+    keeps pointing at the previous asset version — so a deploy lands on
+    the server and the user keeps running last week's bundle until they
+    clear Telegram's cache by hand. Observed in the wild: the Yield tab
+    showing build-time APR constants hours after the on-chain source
+    shipped.
+
+    Only the HTML is marked no-store; the versioned assets stay
+    cacheable, which is the entire point of versioning them.
+    """
+    response = await call_next(request)
+    content_type = response.headers.get("content-type", "")
+    if content_type.startswith("text/html"):
+        response.headers["Cache-Control"] = "no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
+
 app.include_router(status.router)
 app.include_router(validators.router)
 app.include_router(delegators.router)
