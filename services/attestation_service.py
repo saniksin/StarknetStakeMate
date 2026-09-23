@@ -27,23 +27,32 @@ from functools import lru_cache
 from starknet_py.contract import Contract
 from starknet_py.net.client_errors import ClientError
 
-from data.contracts import get_network_addresses, load_abi
+from data.contracts import DEFAULT_NETWORK, Network, get_network_addresses, load_abi
 from services.rpc_client import get_client, with_retry
 from services.staking_dto import AttestationStatus
 
 
-@lru_cache(maxsize=1)
-def _attestation_contract() -> Contract:
-    addrs = get_network_addresses()
+@lru_cache(maxsize=None)
+def _attestation_contract(network: Network | None = None) -> Contract:
+    """Cached attestation Contract, one per network.
+
+    The ABI parse is expensive (seconds), so the cache matters; the key
+    is the *resolved* network so ``None`` and ``"mainnet"`` share one
+    entry instead of parsing the same ABI twice.
+    """
+    net: Network = network or DEFAULT_NETWORK
+    addrs = get_network_addresses(net)
     return Contract(
         address=int(addrs.attestation_contract, 16),
         abi=load_abi("l2_attestation_contract"),
-        provider=get_client(),
+        provider=get_client(net),
     )
 
 
-async def fetch_last_epoch_attested(staker_address: str) -> int:
-    contract = _attestation_contract()
+async def fetch_last_epoch_attested(
+    staker_address: str, *, network: Network | None = None
+) -> int:
+    contract = _attestation_contract(network or DEFAULT_NETWORK)
 
     async def _call() -> int:
         (result,) = await contract.functions["get_last_epoch_attestation_done"].call(
@@ -61,8 +70,10 @@ async def fetch_last_epoch_attested(staker_address: str) -> int:
         return 0
 
 
-async def fetch_is_attesting_this_epoch(staker_address: str) -> bool:
-    contract = _attestation_contract()
+async def fetch_is_attesting_this_epoch(
+    staker_address: str, *, network: Network | None = None
+) -> bool:
+    contract = _attestation_contract(network or DEFAULT_NETWORK)
 
     async def _call() -> bool:
         (result,) = await contract.functions["is_attestation_done_in_curr_epoch"].call(
@@ -91,13 +102,13 @@ _ATTESTATION_WINDOW_TTL_SECONDS = 3600
 _attestation_window_cache: dict[str, tuple[int, float]] = {}
 
 
-async def fetch_attestation_window() -> int | None:
+async def fetch_attestation_window(*, network: Network | None = None) -> int | None:
     """Return the current attestation window length, in blocks.
 
     Cached for an hour. ``None`` if the RPC call fails — callers should
     fall back to a no-block-info banner rather than crashing.
     """
-    contract = _attestation_contract()
+    contract = _attestation_contract(network or DEFAULT_NETWORK)
     cache_key = str(getattr(contract.client, "url", "default"))
     now = time.monotonic()
     cached = _attestation_window_cache.get(cache_key)
@@ -121,7 +132,9 @@ async def fetch_attestation_window() -> int | None:
     return window
 
 
-async def fetch_target_attestation_block(operational_address: str) -> int | None:
+async def fetch_target_attestation_block(
+    operational_address: str, *, network: Network | None = None
+) -> int | None:
     """Return the assigned block for the validator's operator wallet in
     the current epoch.
 
@@ -131,7 +144,7 @@ async def fetch_target_attestation_block(operational_address: str) -> int | None
     target hasn't been computed yet (very early in the epoch) or the
     operator isn't registered as an attester.
     """
-    contract = _attestation_contract()
+    contract = _attestation_contract(network or DEFAULT_NETWORK)
 
     async def _call() -> int:
         (result,) = await contract.functions[
@@ -154,9 +167,9 @@ async def fetch_target_attestation_block(operational_address: str) -> int | None
     return target
 
 
-async def fetch_current_block_number() -> int | None:
+async def fetch_current_block_number(*, network: Network | None = None) -> int | None:
     """Latest block number on the configured RPC. ``None`` on RPC failure."""
-    client = get_client()
+    client = get_client(network or DEFAULT_NETWORK)
 
     async def _call() -> int:
         return int(await client.get_block_number())
@@ -177,6 +190,7 @@ async def fetch_attestation_status(
     *,
     current_epoch: int,
     operational_address: str | None = None,
+    network: Network | None = None,
 ) -> AttestationStatus:
     """Compose :class:`AttestationStatus` for the staker.
 
@@ -191,16 +205,17 @@ async def fetch_attestation_status(
     to compute the epoch-tail "next epoch in N blocks" line that's shown
     in every status state, not just waiting.
     """
-    last_done_t = fetch_last_epoch_attested(staker_address)
-    attested_now_t = fetch_is_attesting_this_epoch(staker_address)
+    net: Network = network or DEFAULT_NETWORK
+    last_done_t = fetch_last_epoch_attested(staker_address, network=net)
+    attested_now_t = fetch_is_attesting_this_epoch(staker_address, network=net)
     if operational_address and operational_address != "0x0":
-        target_t = fetch_target_attestation_block(operational_address)
+        target_t = fetch_target_attestation_block(operational_address, network=net)
     else:
         async def _none() -> None:
             return None
         target_t = _none()
-    window_t = fetch_attestation_window()
-    current_block_t = fetch_current_block_number()
+    window_t = fetch_attestation_window(network=net)
+    current_block_t = fetch_current_block_number(network=net)
 
     last_done, attested_now, target_block, window, current_block = await asyncio.gather(
         last_done_t,

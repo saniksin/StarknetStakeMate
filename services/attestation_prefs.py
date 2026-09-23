@@ -37,12 +37,18 @@ def resolve(subscribed: set[str], tracked: set[str]) -> set[str]:
     return set(subscribed)
 
 
-async def persist_subscriptions(user: Users, cfg: dict, new_set: set[str]) -> None:
+async def persist_subscriptions(
+    user: Users, cfg: dict, new_set: set[str], network: str | None = None
+) -> None:
     """Write the subscription set and forget state for dropped stakers.
 
     Clearing ``_attestation_state`` for someone the user just unsubscribed
     from means a later re-enable starts with a fresh missed-epoch counter
     instead of firing on a gap that accumulated while alerts were off.
+
+    ``cfg`` must be the config for ``network`` (i.e. what
+    ``user.get_notification_config(network)`` returned) — the two travel
+    together so a testnet save can never be written into the mainnet slot.
     """
     cfg["attestation_alerts_for"] = sorted(new_set)
     cfg.pop("attestation_alerts", None)  # drop the legacy bool
@@ -51,5 +57,5 @@ async def persist_subscriptions(user: Users, cfg: dict, new_set: set[str]) -> No
         if staker.lower() not in new_set:
             state.pop(staker, None)
     cfg["_attestation_state"] = state
-    user.set_notification_config(cfg)
+    user.set_notification_config(cfg, network)
     await write_to_db(user)

@@ -44,17 +44,26 @@ class Users(Base, AutoRepr):
         self.request_queue = None
         self.notification_config = None
 
-    def get_tracking_data(self) -> dict:
-        """Return the user's tracking_data doc.
+    def get_tracking_data(self, network: str | None = None) -> dict:
+        """Return the user's tracking_data doc for ``network``.
 
         Schema::
 
             {"validators":  [{"address": "0x…", "label": "…"}, …],
-             "delegations": [{"delegator": "0x…", "staker": "0x…", "label": "…"}, …]}
+             "delegations": [{"delegator": "0x…", "staker": "0x…", "label": "…"}, …],
+             "networks":    {"sepolia": {"validators": […], "delegations": […]}}}
+
+        The default network keeps the top level (that's what the bot has
+        always read); any other network is a sub-document under
+        ``networks``. Passing ``None`` means the default network, so
+        every pre-existing call site is unaffected.
 
         No migration from the older ``data_pair`` / pool-keyed format is
-        performed — the project chose to wipe the DB on that breaking change.
+        performed — the project chose to wipe the DB on that breaking
+        change.
         """
+        from data.contracts import DEFAULT_NETWORK
+
         empty = {"validators": [], "delegations": []}
         if not self.tracking_data:
             return empty
@@ -62,14 +71,30 @@ class Users(Base, AutoRepr):
             data = json.loads(self.tracking_data)
         except json.JSONDecodeError:
             return empty
+        if not isinstance(data, dict):
+            return empty
+        if network is not None and network != DEFAULT_NETWORK:
+            sub = (data.get("networks") or {}).get(network)
+            data = sub if isinstance(sub, dict) else {}
         data.setdefault("validators", [])
         data.setdefault("delegations", [])
         return data
 
-    def get_notification_config(self) -> dict:
-        """Return the full notification config dict.
+    # Keys that are tracked separately for every network. Reward thresholds
+    # (``usd_threshold`` / ``token_thresholds``) deliberately stay global and
+    # mainnet-only: testnet STRK has no price, so a "you earned $5" DM about
+    # it would be pure noise.
+    _PER_NETWORK_KEYS = (
+        "attestation_alerts_for",
+        "_attestation_state",
+        "operator_balance_min_strk",
+        "_operator_balance_was_below",
+    )
 
-        Schema::
+    def get_notification_config(self, network: str | None = None) -> dict:
+        """Return the notification config dict for ``network``.
+
+        Schema (default network — the top level of the column)::
 
             {
               "usd_threshold": float,
@@ -77,12 +102,24 @@ class Users(Base, AutoRepr):
               "attestation_alerts_for": [staker_addr, …],  # Bug 5: per-validator opt-in
               "attestation_alerts": bool,                  # legacy global flag (read-only)
               "_attestation_state": {staker: int},         # last-seen missed_epochs
+              "operator_balance_min_strk": float,
+              "_operator_balance_was_below": {staker: True},
+              "networks": {"sepolia": {…the four per-network keys…}},
             }
+
+        For a non-default network the same key names are returned, read
+        out of ``networks[<name>]``, with the reward thresholds forced to
+        "off" — see :data:`_PER_NETWORK_KEYS`.
 
         Falls back to the legacy ``claim_reward_msg`` (treated as STRK
         threshold) when no explicit config is stored. Always returns a fresh
         dict — mutating it does NOT persist anything.
         """
+        from data.contracts import DEFAULT_NETWORK
+
+        if network is not None and network != DEFAULT_NETWORK:
+            return self._network_notification_config(network)
+
         if self.notification_config:
             try:
                 cfg = json.loads(self.notification_config)
@@ -127,8 +164,52 @@ class Users(Base, AutoRepr):
             "_operator_balance_was_below": {},
         }
 
-    def set_notification_config(self, cfg: dict) -> None:
-        """Persist a new config. Pass ``{}`` to disable everything."""
+    def _raw_notification_config(self) -> dict:
+        """The stored JSON as-is (``{}`` when absent or corrupt)."""
+        if not self.notification_config:
+            return {}
+        try:
+            raw = json.loads(self.notification_config)
+        except (TypeError, ValueError):
+            return {}
+        return raw if isinstance(raw, dict) else {}
+
+    def _network_notification_config(self, network: str) -> dict:
+        """Read the per-network slice, shaped like the top-level config."""
+        sub = (self._raw_notification_config().get("networks") or {}).get(network)
+        sub = sub if isinstance(sub, dict) else {}
+        return {
+            # Reward alerts never run off mainnet — report them as off so
+            # the Mini App's Settings screen can't arm something the
+            # notifier will ignore.
+            "usd_threshold": 0.0,
+            "token_thresholds": {},
+            "attestation_alerts_for": list(sub.get("attestation_alerts_for") or []),
+            "attestation_alerts": False,
+            "_attestation_state": dict(sub.get("_attestation_state") or {}),
+            "operator_balance_min_strk": float(
+                sub.get("operator_balance_min_strk") or 0.0
+            ),
+            "_operator_balance_was_below": {
+                str(k): True
+                for k, v in (sub.get("_operator_balance_was_below") or {}).items()
+                if v
+            },
+        }
+
+    def set_notification_config(self, cfg: dict, network: str | None = None) -> None:
+        """Persist a new config. Pass ``{}`` to disable everything.
+
+        With a non-default ``network`` only that network's slice is
+        rewritten; the mainnet settings and the other networks are read
+        back off the column and preserved.
+        """
+        from data.contracts import DEFAULT_NETWORK
+
+        if network is not None and network != DEFAULT_NETWORK:
+            self._set_network_notification_config(network, cfg)
+            return
+
         attestation_for = sorted({
             str(a).lower()
             for a in (cfg.get("attestation_alerts_for") or [])
@@ -160,6 +241,21 @@ class Users(Base, AutoRepr):
                 if v
             },
         }
+        # Other networks are edited through their own code path; carry
+        # whatever is already stored so a mainnet save can't wipe the
+        # testnet subscriptions.
+        networks = cfg.get("networks")
+        if not isinstance(networks, dict):
+            networks = self._raw_notification_config().get("networks")
+        networks = {
+            str(name): self._clean_network_slice(sub)
+            for name, sub in (networks or {}).items()
+            if isinstance(sub, dict)
+        }
+        networks = {name: sub for name, sub in networks.items() if sub}
+        if networks:
+            clean["networks"] = networks
+
         # If everything is off and no state is being tracked, store NULL so
         # a future migration to a typed column doesn't have to filter out
         # empty dicts.
@@ -170,7 +266,54 @@ class Users(Base, AutoRepr):
             and not clean["_attestation_state"]
             and clean["operator_balance_min_strk"] <= 0
             and not clean["_operator_balance_was_below"]
+            and not networks
         ):
             self.notification_config = None
         else:
             self.notification_config = json.dumps(clean)
+
+    @staticmethod
+    def _clean_network_slice(sub: dict) -> dict:
+        """Normalize one per-network slice; ``{}`` when nothing is set."""
+        out = {
+            "attestation_alerts_for": sorted({
+                str(a).lower() for a in (sub.get("attestation_alerts_for") or []) if a
+            }),
+            "_attestation_state": {
+                str(k): int(v)
+                for k, v in (sub.get("_attestation_state") or {}).items()
+            },
+            "operator_balance_min_strk": float(
+                sub.get("operator_balance_min_strk") or 0.0
+            ),
+            "_operator_balance_was_below": {
+                str(k): True
+                for k, v in (sub.get("_operator_balance_was_below") or {}).items()
+                if v
+            },
+        }
+        if (
+            not out["attestation_alerts_for"]
+            and not out["_attestation_state"]
+            and out["operator_balance_min_strk"] <= 0
+            and not out["_operator_balance_was_below"]
+        ):
+            return {}
+        return out
+
+    def _set_network_notification_config(self, network: str, cfg: dict) -> None:
+        """Replace one network's slice, leaving every other setting alone."""
+        raw = self._raw_notification_config()
+        networks = dict(raw.get("networks") or {})
+        slice_ = self._clean_network_slice(cfg)
+        if slice_:
+            networks[network] = slice_
+        else:
+            networks.pop(network, None)
+
+        # Re-serialize through the default-network path so the top-level
+        # shape stays canonical and the "everything off → NULL" rule is
+        # applied in exactly one place.
+        base = self.get_notification_config()
+        base["networks"] = networks
+        self.set_notification_config(base)

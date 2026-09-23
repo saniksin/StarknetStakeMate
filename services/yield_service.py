@@ -257,25 +257,32 @@ class YieldPayload(BaseModel):
 # without burning RPC budget.
 _CACHE_TTL_SECONDS = 60
 
-# Module-level dict keyed by user_id. Each entry is ``(payload, fetched_at_unix)``.
-# Async-safe via the per-user lock dict below.
-_CACHE: dict[int, tuple[YieldPayload, float]] = {}
-_CACHE_LOCKS: dict[int, asyncio.Lock] = {}
+# Module-level dict keyed by ``(user_id, network)``. Each entry is
+# ``(payload, fetched_at_unix)``. The network is part of the key because the
+# Mini App can flip tabs inside the TTL window, and serving mainnet numbers
+# under the testnet heading is exactly the bug this feature must not have.
+# Async-safe via the per-key lock dict below.
+_CACHE: dict[tuple[int, str], tuple[YieldPayload, float]] = {}
+_CACHE_LOCKS: dict[tuple[int, str], asyncio.Lock] = {}
 
 
-def invalidate_cache(*, user_id: Optional[int] = None) -> None:
+def invalidate_cache(
+    *, user_id: Optional[int] = None, network: Optional[str] = None
+) -> None:
     """Drop the cached payload for one user (or all of them).
 
     Used by tests and by mutation paths in the future (e.g. removing a
     tracked validator should reset the user's cached yield-data so the
-    next read sees the new shape).
+    next read sees the new shape). With ``user_id`` and no ``network``,
+    every network's entry for that user is dropped.
     """
     if user_id is None:
         _CACHE.clear()
         _CACHE_LOCKS.clear()
         return
-    _CACHE.pop(user_id, None)
-    _CACHE_LOCKS.pop(user_id, None)
+    for key in [k for k in _CACHE if k[0] == user_id and (network is None or k[1] == network)]:
+        _CACHE.pop(key, None)
+        _CACHE_LOCKS.pop(key, None)
 
 
 def _utc_now_iso() -> str:
@@ -396,14 +403,23 @@ def _label_for_validator_lookup(validators: list[YieldValidatorEntry], staker_ad
     return ""
 
 
-async def _build_payload_uncached(tracking_data: Optional[str]) -> YieldPayload:
+async def _build_payload_uncached(
+    tracking_data: Optional[str], network: Optional[str] = None
+) -> YieldPayload:
     """Assemble the yield payload from scratch — no cache lookup."""
-    entries: list[TrackingEntry] = await fetch_tracking_entries(tracking_data)
-    try:
-        prices = await get_usd_prices()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(f"yield_service: price fetch failed: {exc}")
+    entries: list[TrackingEntry] = await fetch_tracking_entries(tracking_data, network)
+    # Testnet tokens have no market. Quoting the mainnet STRK price against
+    # a Sepolia balance would invent a portfolio value — and an annual USD
+    # yield — that doesn't exist. Ship the token amounts with no prices and
+    # let the UI render "—" in the USD columns.
+    if network is not None and network != "mainnet":
         prices = {}
+    else:
+        try:
+            prices = await get_usd_prices()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"yield_service: price fetch failed: {exc}")
+            prices = {}
 
     validators: list[YieldValidatorEntry] = []
     delegators: list[YieldDelegatorEntry] = []
@@ -471,40 +487,46 @@ async def _build_payload_uncached(tracking_data: Optional[str]) -> YieldPayload:
 
 
 async def build_yield_payload(
-    *, user_id: int, tracking_data: Optional[str]
+    *, user_id: int, tracking_data: Optional[str], network: Optional[str] = None
 ) -> YieldPayload:
     """Cached wrapper around :func:`_build_payload_uncached`.
 
-    Per-user cache with a 60s TTL. Concurrent requests for the same
-    user behind a fresh cache miss share a single fetch via
+    Per-(user, network) cache with a 60s TTL. Concurrent requests for the
+    same key behind a fresh cache miss share a single fetch via
     :class:`asyncio.Lock` (otherwise opening the Yield tab twice in the
     same second would fire two parallel RPC fan-outs).
     """
+    from data.contracts import DEFAULT_NETWORK
+
+    key = (user_id, network or DEFAULT_NETWORK)
     now = time.time()
-    cached = _CACHE.get(user_id)
+    cached = _CACHE.get(key)
     if cached is not None and (now - cached[1]) < _CACHE_TTL_SECONDS:
         return cached[0]
 
-    lock = _CACHE_LOCKS.setdefault(user_id, asyncio.Lock())
+    lock = _CACHE_LOCKS.setdefault(key, asyncio.Lock())
     async with lock:
         # Double-check inside the lock — another coroutine may have
         # populated the cache while we were waiting.
-        cached = _CACHE.get(user_id)
+        cached = _CACHE.get(key)
         now = time.time()
         if cached is not None and (now - cached[1]) < _CACHE_TTL_SECONDS:
             return cached[0]
 
         try:
-            payload = await _build_payload_uncached(tracking_data)
+            payload = await _build_payload_uncached(tracking_data, key[1])
         except Exception as exc:  # noqa: BLE001
             # If we have a stale cache, mark it stale and serve it. If
             # not, re-raise so the endpoint surfaces a 500 — that's
             # actionable; silent empty payloads are not.
-            logger.error(f"yield_service: build failed for user_id={user_id}: {exc}")
+            logger.error(
+                f"yield_service: build failed for user_id={user_id} "
+                f"network={key[1]}: {exc}"
+            )
             if cached is not None:
                 stale_payload = cached[0].model_copy(update={"stale": True})
                 return stale_payload
             raise
 
-        _CACHE[user_id] = (payload, now)
+        _CACHE[key] = (payload, now)
         return payload

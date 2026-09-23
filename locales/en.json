@@ -404,5 +404,11 @@
     "yield_prices_label": "Current prices",
     "yield_paid_in_strk": "rewards in STRK",
     "webapp_tab_portfolio": "Portfolio",
-    "webapp_tab_yield": "Yield"
+    "webapp_tab_yield": "Yield",
+    "webapp_network_mainnet": "Mainnet",
+    "webapp_network_testnet": "Testnet",
+    "webapp_network_switch_aria": "Network",
+    "webapp_settings_network_scope": "These alerts apply to {network} only — the other network is configured separately.",
+    "network_testnet_badge": "🧪 Testnet (Sepolia)",
+    "webapp_settings_hero_testnet": "On testnet we watch attestations and the operator wallet. Reward alerts are mainnet-only — testnet tokens have no price."
 }

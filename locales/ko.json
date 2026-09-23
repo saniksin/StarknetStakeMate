@@ -395,5 +395,11 @@
     "yield_prices_label": "현재 가격",
     "yield_paid_in_strk": "STRK로 보상",
     "webapp_tab_portfolio": "포트폴리오",
-    "webapp_tab_yield": "수익"
+    "webapp_tab_yield": "수익",
+    "webapp_network_mainnet": "메인넷",
+    "webapp_network_testnet": "테스트넷",
+    "webapp_network_switch_aria": "네트워크",
+    "webapp_settings_network_scope": "이 알림은 {network}에만 적용됩니다. 다른 네트워크는 별도로 설정합니다.",
+    "network_testnet_badge": "🧪 테스트넷 (Sepolia)",
+    "webapp_settings_hero_testnet": "테스트넷에서는 어테스테이션과 오퍼레이터 지갑을 모니터링합니다. 보상 알림은 메인넷 전용입니다 — 테스트넷 토큰에는 가격이 없습니다."
 }

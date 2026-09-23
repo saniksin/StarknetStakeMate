@@ -94,12 +94,14 @@ async def _warm_contracts() -> None:
             # Off-load the blocking ABI parses; we're inside startup but the
             # event loop is already running, so pure sync calls would freeze
             # the whole API for the duration.
+            from data.contracts import available_networks
             from services.attestation_service import _attestation_contract
             from services.staking_service import _staking_contract, warm_pool_abi
 
-            await asyncio.to_thread(_staking_contract)
-            await asyncio.to_thread(_attestation_contract)
-            await asyncio.to_thread(warm_pool_abi)
+            for net in available_networks():
+                await asyncio.to_thread(_staking_contract, net)
+                await asyncio.to_thread(_attestation_contract, net)
+                await asyncio.to_thread(warm_pool_abi, net)
             logger.info("API: contract ABIs warmed up")
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"API: contract warm-up skipped: {exc}")

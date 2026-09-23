@@ -4,8 +4,18 @@ Storage schema (in the ``users.tracking_data`` JSON column)::
 
     {
       "validators":  [{"address": "0x…", "label": "Karnot"}],
-      "delegations": [{"delegator": "0x…", "staker": "0x…", "label": "My stake"}]
+      "delegations": [{"delegator": "0x…", "staker": "0x…", "label": "My stake"}],
+      "display_order": ["validator:0x…", …],
+      "networks": {
+        "sepolia": {"validators": […], "delegations": […], "display_order": […]}
+      }
     }
+
+Mainnet deliberately keeps the **top level** of the document: the bot has
+only ever known about mainnet and reads these keys directly, so nothing
+had to be migrated when testnet support landed. Every non-default network
+gets its own sub-document under ``networks``. ``load_tracking`` /
+``store_tracking`` are the only two functions that know this layout.
 
 Note on the delegation model: Staking V2 allows one validator to run
 multiple token pools (STRK plus BTC wrappers). Instead of asking users for
@@ -22,6 +32,7 @@ from typing import Literal
 
 from loguru import logger
 
+from data.contracts import DEFAULT_NETWORK, Network
 from services.formatting import (
     DIVIDER,
     _fmt_amount,
@@ -40,6 +51,10 @@ Mode = Literal["full", "reward"]
 
 def _empty() -> dict:
     return {"validators": [], "delegations": []}
+
+
+def _is_default(network: Network | None) -> bool:
+    return (network or DEFAULT_NETWORK) == DEFAULT_NETWORK
 
 
 def _normalize(doc: dict | None) -> dict:
@@ -69,10 +84,30 @@ def _normalize(doc: dict | None) -> dict:
     raw_order = doc.get("display_order")
     if isinstance(raw_order, list) and all(isinstance(k, str) for k in raw_order):
         out["display_order"] = raw_order
+    # Non-default networks live in their own sub-documents. Preserved
+    # verbatim so the mainnet write paths (which all round-trip through
+    # here) can't wipe the testnet list as a side effect.
+    nets = doc.get("networks")
+    if isinstance(nets, dict) and nets:
+        out["networks"] = {
+            str(name): {
+                "validators": list(sub.get("validators") or []),
+                "delegations": list(sub.get("delegations") or []),
+                **(
+                    {"display_order": list(sub["display_order"])}
+                    if isinstance(sub.get("display_order"), list)
+                    and all(isinstance(k, str) for k in sub["display_order"])
+                    else {}
+                ),
+            }
+            for name, sub in nets.items()
+            if isinstance(sub, dict)
+        }
     return out
 
 
-def load_tracking(tracking_data_json: str | None) -> dict:
+def _parse_full(tracking_data_json: str | None) -> dict:
+    """Decode the whole column into a normalized document."""
     if not tracking_data_json:
         return _empty()
     try:
@@ -81,7 +116,68 @@ def load_tracking(tracking_data_json: str | None) -> dict:
         return _empty()
 
 
+def load_tracking(
+    tracking_data_json: str | None, network: Network | None = None
+) -> dict:
+    """Return the tracking sub-document for ``network``.
+
+    For the default network this is the whole (normalized) document — the
+    legacy shape, including the ``networks`` key, so a mutate-then-store
+    round trip keeps the other networks intact. For any other network it
+    is a standalone ``{validators, delegations, display_order?}`` doc.
+    """
+    full = _parse_full(tracking_data_json)
+    if _is_default(network):
+        return full
+    sub = (full.get("networks") or {}).get(network or DEFAULT_NETWORK)
+    return _normalize(sub if isinstance(sub, dict) else None)
+
+
+def store_tracking(
+    tracking_data_json: str | None, doc: dict, network: Network | None = None
+) -> str:
+    """Merge ``doc`` back into the full column and return the new JSON.
+
+    The merge is what keeps the two networks from clobbering each other:
+    writing a testnet document must not touch mainnet, and vice-versa.
+    An empty non-default sub-document is dropped entirely so users who
+    never open the testnet tab keep a lean row.
+    """
+    if _is_default(network):
+        merged = _normalize(dict(doc))
+        # A caller that loaded the mainnet view and dropped the key (e.g.
+        # "delete everything" in the bot) would otherwise silently erase
+        # the testnet list too. Re-attach what's on disk unless the
+        # caller explicitly carried it.
+        if "networks" not in merged:
+            existing = _parse_full(tracking_data_json)
+            if existing.get("networks"):
+                merged["networks"] = existing["networks"]
+        return json.dumps(merged)
+
+    net = network or DEFAULT_NETWORK
+    full = _parse_full(tracking_data_json)
+    nets = dict(full.get("networks") or {})
+    sub = _normalize(dict(doc))
+    sub.pop("networks", None)  # no nesting inside a sub-document
+    if sub["validators"] or sub["delegations"] or sub.get("display_order"):
+        nets[net] = sub
+    else:
+        nets.pop(net, None)
+    if nets:
+        full["networks"] = nets
+    else:
+        full.pop("networks", None)
+    return json.dumps(full)
+
+
 def dump_tracking(doc: dict) -> str:
+    """Serialize a *default-network* document.
+
+    Kept for the bot and the legacy call sites. ``_normalize`` preserves
+    the ``networks`` key, so as long as the caller passes the doc it got
+    from ``load_tracking`` the other networks survive the round trip.
+    """
     return json.dumps(_normalize(doc))
 
 
@@ -206,8 +302,11 @@ class TrackingEntry:
     data: ValidatorInfo | DelegatorMultiPositions | None
 
 
-async def fetch_tracking_entries(tracking_data_json: str | None) -> list[TrackingEntry]:
-    doc = load_tracking(tracking_data_json)
+async def fetch_tracking_entries(
+    tracking_data_json: str | None, network: Network | None = None
+) -> list[TrackingEntry]:
+    net: Network = network or DEFAULT_NETWORK
+    doc = load_tracking(tracking_data_json, net)
 
     # Build the canonical "natural order" job list (validators first,
     # delegations second) — same order this function used to produce
@@ -277,10 +376,14 @@ async def fetch_tracking_entries(tracking_data_json: str | None) -> list[Trackin
         # renderers already treat that as the "no data" branch.
         try:
             if kind == "validator":
-                info: ValidatorInfo | DelegatorMultiPositions | None = await get_validator_info(a1)
+                info: ValidatorInfo | DelegatorMultiPositions | None = await get_validator_info(
+                    a1, network=net
+                )
                 return TrackingEntry(i, kind, a1, a2, label, info)  # type: ignore[arg-type]
             # delegator: a1 = delegator address, a2 = staker address
-            multi = await get_delegator_positions(a2, a1) if a2 else None
+            multi = (
+                await get_delegator_positions(a2, a1, network=net) if a2 else None
+            )
             return TrackingEntry(i, kind, a1, a2, label, multi)  # type: ignore[arg-type]
         except Exception as exc:  # noqa: BLE001
             logger.error(f"entry lookup failed ({kind} {a1}): {exc}")
@@ -435,7 +538,10 @@ def _split_into_chunks(parts: list[str], glue: str = "\n\n") -> list[str]:
 
 
 async def render_user_tracking_chunks(
-    tracking_data_json: str | None, locale: str, mode: Mode = "full"
+    tracking_data_json: str | None,
+    locale: str,
+    mode: Mode = "full",
+    network: Network | None = None,
 ) -> list[str]:
     """Render ``render_user_tracking``-style content as Telegram-sized chunks.
 
@@ -452,12 +558,18 @@ async def render_user_tracking_chunks(
     from data.languages import translate
     from services.price_service import get_usd_prices
 
-    entries = await fetch_tracking_entries(tracking_data_json)
+    entries = await fetch_tracking_entries(tracking_data_json, network)
     if not entries:
         return [translate("no_addresses_to_parse", locale)]
 
     try:
-        prices = await get_usd_prices()
+        # Off mainnet the tokens have no market — see the same guard in
+        # ``services.yield_service``. Empty prices make every renderer
+        # fall back to the plain token amount.
+        prices = (
+            {} if (network is not None and network != "mainnet")
+            else await get_usd_prices()
+        )
 
         if mode == "reward":
             from decimal import Decimal as _D
@@ -525,7 +637,10 @@ async def render_user_tracking_chunks(
 
 
 async def render_user_tracking(
-    tracking_data_json: str | None, locale: str, mode: Mode = "full"
+    tracking_data_json: str | None,
+    locale: str,
+    mode: Mode = "full",
+    network: Network | None = None,
 ) -> str:
     """Back-compat shim that joins chunks for callers expecting a single string.
 
@@ -533,7 +648,9 @@ async def render_user_tracking(
     ``render_user_tracking_chunks`` directly so each chunk goes out as
     its own Telegram message and stays under the 4096-char cap.
     """
-    chunks = await render_user_tracking_chunks(tracking_data_json, locale, mode)
+    chunks = await render_user_tracking_chunks(
+        tracking_data_json, locale, mode, network
+    )
     return "\n\n".join(chunks)
 
 
@@ -720,6 +837,7 @@ async def add_validator_to_tracking(
     *,
     address: str,
     label: str = "",
+    network: Network | None = None,
 ) -> tuple[dict, dict]:
     """Validate + insert a validator entry into ``doc``.
 
@@ -757,7 +875,9 @@ async def add_validator_to_tracking(
     # On-chain check — same as the bot's confirm-step. Skipping attestation
     # avoids two extra RPC reads on the add-path; the dashboard pulls them
     # later once the row is saved.
-    info = await get_validator_info(address, with_attestation=False)
+    info = await get_validator_info(
+        address, with_attestation=False, network=network or DEFAULT_NETWORK
+    )
     if info is None:
         raise AddTrackingError(
             "not_a_staker", f"address is not a staker on-chain: {address}"
@@ -779,6 +899,7 @@ async def add_delegator_to_tracking(
     delegator: str,
     staker: str,
     label: str = "",
+    network: Network | None = None,
 ) -> tuple[dict, dict]:
     """Validate + insert a delegation entry into ``doc``.
 
@@ -816,7 +937,9 @@ async def add_delegator_to_tracking(
             "duplicate", "delegation already in your tracking list"
         )
 
-    multi = await get_delegator_positions(staker, delegator)
+    multi = await get_delegator_positions(
+        staker, delegator, network=network or DEFAULT_NETWORK
+    )
     if multi is None or not multi.has_any:
         raise AddTrackingError(
             "not_a_delegator",

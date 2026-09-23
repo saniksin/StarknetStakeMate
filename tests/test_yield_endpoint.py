@@ -58,7 +58,7 @@ def _patch_db(monkeypatch, *, tracking_data: str | None = None) -> None:
 def _patch_yield(monkeypatch, *, entries: list, prices: dict) -> None:
     """Stub the yield service's two upstream dependencies."""
 
-    async def _fake_fetch_entries(_tracking_data):
+    async def _fake_fetch_entries(_tracking_data, _network=None):
         return entries
 
     async def _fake_prices():
@@ -181,7 +181,7 @@ def test_yield_data_uses_cache_within_ttl(client, monkeypatch) -> None:
 
     call_count = {"n": 0}
 
-    async def _fake_fetch_entries(_tracking_data):
+    async def _fake_fetch_entries(_tracking_data, _network=None):
         call_count["n"] += 1
         return []
 

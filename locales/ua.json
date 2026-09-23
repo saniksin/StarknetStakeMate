@@ -413,5 +413,11 @@
     "yield_prices_label": "Поточні ціни",
     "yield_paid_in_strk": "винагороди у STRK",
     "webapp_tab_portfolio": "Портфоліо",
-    "webapp_tab_yield": "Дохід"
+    "webapp_tab_yield": "Дохід",
+    "webapp_network_mainnet": "Основна",
+    "webapp_network_testnet": "Тестова",
+    "webapp_network_switch_aria": "Мережа",
+    "webapp_settings_network_scope": "Ці сповіщення стосуються лише мережі «{network}» — інша мережа налаштовується окремо.",
+    "network_testnet_badge": "🧪 Тестова мережа (Sepolia)",
+    "webapp_settings_hero_testnet": "У тестовій мережі відстежуються атестації та баланс гаманця оператора. Сповіщення про винагороди працюють лише в основній мережі — тестові токени не мають ціни."
 }

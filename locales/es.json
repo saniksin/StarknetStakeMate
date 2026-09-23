@@ -404,5 +404,11 @@
     "yield_prices_label": "Precios actuales",
     "yield_paid_in_strk": "recompensas en STRK",
     "webapp_tab_portfolio": "Portafolio",
-    "webapp_tab_yield": "Renta"
+    "webapp_tab_yield": "Renta",
+    "webapp_network_mainnet": "Mainnet",
+    "webapp_network_testnet": "Testnet",
+    "webapp_network_switch_aria": "Red",
+    "webapp_settings_network_scope": "Estas alertas solo se aplican a {network}; la otra red se configura por separado.",
+    "network_testnet_badge": "🧪 Testnet (Sepolia)",
+    "webapp_settings_hero_testnet": "En testnet vigilamos las atestaciones y la cartera del operador. Las alertas de recompensas son solo de mainnet: los tokens de testnet no tienen precio."
 }

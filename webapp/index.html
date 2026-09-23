@@ -7,7 +7,7 @@
   <title>StakeMate</title>
   <link rel="preconnect" href="https://telegram.org" crossorigin />
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="stylesheet" href="/app/style.css?v=20260511-1" />
+  <link rel="stylesheet" href="/app/style.css?v=20260923-1" />
 </head>
 <body>
   <div id="app" data-view="dashboard">
@@ -30,6 +30,17 @@
         <span data-i18n="webapp_settings_btn">Settings</span>
       </button>
     </header>
+
+    <!--
+      Network switch — Mainnet / Testnet. Rendered hidden and only revealed
+      once /api/v1/networks reports more than one configured chain, so a
+      mainnet-only deployment looks exactly as it did before. Sits above
+      the view (not in the tab-bar) because it scopes EVERY screen:
+      portfolio, yield and the alert settings all follow it.
+    -->
+    <nav class="netbar" data-bind="netbar" aria-label="Network" hidden>
+      <div class="netbar-inner seg-control" role="tablist"></div>
+    </nav>
 
     <main id="main">
       <!-- Views render here -->
@@ -196,11 +207,15 @@
 
   <template id="tpl-settings">
     <div class="hero">
-      <div class="muted small" data-i18n="webapp_settings_hero">Get notified when your unclaimed rewards cross the threshold below. Pick one mode — STRK amount or USD value.</div>
+      <div class="muted small" data-bind="settingsHero" data-i18n="webapp_settings_hero">Get notified when your unclaimed rewards cross the threshold below. Pick one mode — STRK amount or USD value.</div>
     </div>
 
-    <h3 class="section-title" data-i18n="webapp_notification_mode_section">Notification mode</h3>
-    <div class="card form-card">
+    <!-- Reward thresholds are mainnet-only: testnet tokens have no price,
+         so the notifier never evaluates them. renderSettings hides this
+         whole block off mainnet rather than offering a control that
+         silently does nothing. -->
+    <h3 class="section-title" data-bind="rewardSection" data-i18n="webapp_notification_mode_section">Notification mode</h3>
+    <div class="card form-card" data-bind="rewardCard">
       <div class="seg-control" role="tablist" id="mode-segment">
         <button type="button" class="seg-option" data-mode="off" role="tab" data-i18n="webapp_mode_off">Off</button>
         <button type="button" class="seg-option" data-mode="strk" role="tab" data-i18n="webapp_mode_strk">STRK</button>
@@ -310,6 +325,6 @@
     </div>
   </template>
 
-  <script src="/app/app.js?v=20260511-1"></script>
+  <script src="/app/app.js?v=20260923-1"></script>
 </body>
 </html>

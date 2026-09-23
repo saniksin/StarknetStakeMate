@@ -21,7 +21,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from data.contracts import STARKNET_RPC_URL
+from data.contracts import DEFAULT_NETWORK, Network, get_rpc_url
 
 T = TypeVar("T")
 
@@ -47,15 +47,27 @@ class _LatestBlockClient(FullNodeClient):
         )
 
 
-@lru_cache(maxsize=1)
-def get_client() -> FullNodeClient:
-    """Return a process-wide singleton FullNodeClient.
+@lru_cache(maxsize=None)
+def _client_for(network: Network) -> FullNodeClient:
+    """Cached client per *resolved* network name."""
+    return _LatestBlockClient(node_url=get_rpc_url(network))
+
+
+def get_client(network: Network | None = None) -> FullNodeClient:
+    """Return a process-wide singleton FullNodeClient for ``network``.
 
     Read-only calls do not need an Account, despite what the legacy code
     implied; an Account was only required because starknet-py 0.24 refuses
     to build a Contract without a provider that has a chain id.
+
+    One client per network, cached: the Mini App can flip between mainnet
+    and Sepolia on every request, and rebuilding the HTTP session each
+    time would throw away connection reuse for no reason. ``None`` keeps
+    the legacy meaning — the network from .env — so the bot and every
+    pre-existing call site are unaffected. We resolve ``None`` *before*
+    the cache so it doesn't get its own duplicate entry.
     """
-    return _LatestBlockClient(node_url=STARKNET_RPC_URL)
+    return _client_for(network or DEFAULT_NETWORK)
 
 
 async def with_retry(

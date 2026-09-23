@@ -74,7 +74,7 @@ async def test_fetch_entries_isolates_failing_entry(monkeypatch) -> None:
             "Internal error. Data: {'error': 'pre-confirmed data unavailable: syncing'}"
         )
 
-    async def _ok(staker, delegator):  # noqa: ARG001
+    async def _ok(staker, delegator, **kwargs):  # noqa: ARG001
         return sentinel
 
     monkeypatch.setattr(tracking_service, "get_validator_info", _boom, raising=True)

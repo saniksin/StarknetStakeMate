@@ -7,6 +7,11 @@ import os
 os.environ.setdefault("BOT_TOKEN", "12345:fake-test-token")
 os.environ.setdefault("STARKNET_RPC_URL", "https://rpc.starknet.lava.build")
 os.environ.setdefault("STARKNET_NETWORK", "mainnet")
+# A second endpoint so ``available_networks()`` reports both chains under
+# test. It is never dialled — every test that touches Sepolia stubs the
+# service layer — but its presence is what unlocks the network-aware code
+# paths (the Mini App switch, the per-network alert cycle).
+os.environ.setdefault("STARKNET_TESTNET_RPC_URL", "https://sepolia.invalid/rpc")
 os.environ.setdefault("API_AUTH_MODE", "local")
 
 import pytest  # noqa: E402

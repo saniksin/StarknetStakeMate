@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 from decimal import Decimal
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -249,3 +250,108 @@ async def test_legacy_state_migrates_on_read() -> None:
     cfg = user.get_notification_config()
     assert cfg["_operator_balance_was_below"] == {STAKER: True}
     assert "_operator_balance_state" not in cfg
+
+
+# ---------------------------------------------------------------------------
+# Multi-network watcher
+#
+# Testnet validators get the same alerts as mainnet ones, but out of a
+# separate subscription set and with a badge so a DM can never be mistaken
+# for a mainnet incident.
+# ---------------------------------------------------------------------------
+
+
+TESTNET_STAKER = "0x" + "d" * 64
+
+
+def _make_dual_network_user() -> Users:
+    """One row, one validator per network, alerts on for both."""
+    from services.tracking_service import store_tracking
+
+    user = Users(
+        user_id=43, user_name="bob", user_language="en", registration_data=None
+    )
+    doc = store_tracking(
+        None, {"validators": [{"address": STAKER, "label": "Main"}], "delegations": []}
+    )
+    user.tracking_data = store_tracking(
+        doc,
+        {"validators": [{"address": TESTNET_STAKER, "label": "Test"}], "delegations": []},
+        "sepolia",
+    )
+    user.set_notification_config(
+        {"attestation_alerts_for": [STAKER], "_attestation_state": {}}
+    )
+    user.set_notification_config(
+        {"attestation_alerts_for": [TESTNET_STAKER], "_attestation_state": {}},
+        "sepolia",
+    )
+    return user
+
+
+@pytest.mark.asyncio
+async def test_testnet_check_reads_the_testnet_validator() -> None:
+    """The testnet cycle must query the testnet staker on the testnet
+    chain — not the mainnet one that shares the same row."""
+    user = _make_dual_network_user()
+    status = SimpleNamespace(missed_epochs=2, current_epoch=100)
+
+    with (
+        patch(
+            "tasks.attestation_alerts.fetch_attestation_status",
+            new=AsyncMock(return_value=status),
+        ) as mock_status,
+        patch("tasks.attestation_alerts._send", new=AsyncMock()) as mock_send,
+    ):
+        att, _bal = await _check_user(
+            user, current_epoch=100, epoch_changed=False, network="sepolia"
+        )
+
+    assert mock_status.await_args.args[0] == TESTNET_STAKER
+    assert mock_status.await_args.kwargs["network"] == "sepolia"
+    assert att == {TESTNET_STAKER: 2}
+    # The badge is the whole point: a testnet DM announces itself first.
+    assert mock_send.await_args.args[1].startswith("🧪")
+
+
+@pytest.mark.asyncio
+async def test_mainnet_alerts_carry_no_network_badge() -> None:
+    """Mainnet DMs keep their exact previous shape."""
+    user = _make_dual_network_user()
+    status = SimpleNamespace(missed_epochs=1, current_epoch=9590)
+
+    with (
+        patch(
+            "tasks.attestation_alerts.fetch_attestation_status",
+            new=AsyncMock(return_value=status),
+        ) as mock_status,
+        patch("tasks.attestation_alerts._send", new=AsyncMock()) as mock_send,
+    ):
+        await _check_user(user, current_epoch=9590, epoch_changed=False)
+
+    assert mock_status.await_args.args[0] == STAKER
+    assert not mock_send.await_args.args[1].startswith("🧪")
+
+
+@pytest.mark.asyncio
+async def test_testnet_state_is_written_to_its_own_slice() -> None:
+    """A missed epoch on testnet must not move the mainnet counter."""
+    user = _make_dual_network_user()
+    user.set_notification_config(
+        {"attestation_alerts_for": [STAKER], "_attestation_state": {STAKER: 4}}
+    )
+    status = SimpleNamespace(missed_epochs=9, current_epoch=100)
+
+    with (
+        patch(
+            "tasks.attestation_alerts.fetch_attestation_status",
+            new=AsyncMock(return_value=status),
+        ),
+        patch("tasks.attestation_alerts._send", new=AsyncMock()),
+    ):
+        att, _ = await _check_user(
+            user, current_epoch=100, epoch_changed=False, network="sepolia"
+        )
+
+    assert att == {TESTNET_STAKER: 9}
+    assert user.get_notification_config()["_attestation_state"] == {STAKER: 4}

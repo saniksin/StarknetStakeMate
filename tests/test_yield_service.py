@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 
+from data.contracts import DEFAULT_NETWORK
 from services import yield_service
 from services.yield_service import (
     YieldPoolBreakdown,
@@ -319,7 +320,7 @@ async def test_build_yield_payload_validator_only(monkeypatch) -> None:
         )
     ]
 
-    async def _fake_fetch_entries(_tracking_data):
+    async def _fake_fetch_entries(_tracking_data, _network=None):
         return entries
 
     async def _fake_prices():
@@ -387,7 +388,7 @@ async def test_build_yield_payload_skips_empty_pools(monkeypatch) -> None:
     # has neither own (own only applies to the first STRK pool by convention)
     # nor delegated, so it should be filtered.
 
-    async def _fake_fetch_entries(_tracking_data):
+    async def _fake_fetch_entries(_tracking_data, _network=None):
         return entries
 
     async def _fake_prices():
@@ -432,7 +433,7 @@ async def test_build_yield_payload_delegator(monkeypatch) -> None:
         )
     ]
 
-    async def _fake_fetch_entries(_tracking_data):
+    async def _fake_fetch_entries(_tracking_data, _network=None):
         return entries
 
     async def _fake_prices():
@@ -482,7 +483,7 @@ async def test_build_yield_payload_missing_price(monkeypatch) -> None:
         )
     ]
 
-    async def _fake_fetch_entries(_tracking_data):
+    async def _fake_fetch_entries(_tracking_data, _network=None):
         return entries
 
     async def _fake_prices():
@@ -523,7 +524,7 @@ async def test_build_yield_payload_missing_commission_warns(monkeypatch, caplog)
     # simulate the RPC returning a missing commission.
     entries[0].data.commission_bps = None
 
-    async def _fake_fetch_entries(_tracking_data):
+    async def _fake_fetch_entries(_tracking_data, _network=None):
         return entries
 
     async def _fake_prices():
@@ -543,7 +544,7 @@ async def test_build_yield_payload_cached(monkeypatch) -> None:
     without hitting fetch_tracking_entries again."""
     call_count = {"n": 0}
 
-    async def _fake_fetch_entries(_tracking_data):
+    async def _fake_fetch_entries(_tracking_data, _network=None):
         call_count["n"] += 1
         return []
 
@@ -569,7 +570,7 @@ async def test_build_yield_payload_cache_expires(monkeypatch) -> None:
     timestamp instead of sleeping)."""
     call_count = {"n": 0}
 
-    async def _fake_fetch_entries(_tracking_data):
+    async def _fake_fetch_entries(_tracking_data, _network=None):
         call_count["n"] += 1
         return []
 
@@ -581,9 +582,11 @@ async def test_build_yield_payload_cache_expires(monkeypatch) -> None:
     yield_service.invalidate_cache(user_id=48)
 
     await yield_service.build_yield_payload(user_id=48, tracking_data=None)
-    # Backdate the cache entry past the TTL.
-    yield_service._CACHE[48] = (
-        yield_service._CACHE[48][0],
+    # Backdate the cache entry past the TTL. The key is (user_id, network)
+    # since the Mini App can ask for either chain.
+    key = (48, DEFAULT_NETWORK)
+    yield_service._CACHE[key] = (
+        yield_service._CACHE[key][0],
         time.time() - yield_service._CACHE_TTL_SECONDS - 1,
     )
     await yield_service.build_yield_payload(user_id=48, tracking_data=None)
@@ -594,7 +597,7 @@ async def test_build_yield_payload_cache_expires(monkeypatch) -> None:
 async def test_build_yield_payload_separate_users_have_separate_caches(monkeypatch) -> None:
     call_count = {"n": 0}
 
-    async def _fake_fetch_entries(_tracking_data):
+    async def _fake_fetch_entries(_tracking_data, _network=None):
         call_count["n"] += 1
         return []
 
@@ -630,7 +633,7 @@ async def test_build_payload_attaches_top_level_strk_and_btc_prices(monkeypatch)
     """The assembled YieldPayload carries ``strk_price_usd`` and
     ``btc_price_usd`` lifted straight from the price snapshot."""
 
-    async def _fake_fetch_entries(_tracking_data):
+    async def _fake_fetch_entries(_tracking_data, _network=None):
         return []
 
     async def _fake_prices():
@@ -651,7 +654,7 @@ async def test_build_payload_prices_none_when_price_service_empty(monkeypatch) -
     null). Frontend uses this signal to render '—' rather than fake a
     zero."""
 
-    async def _fake_fetch_entries(_tracking_data):
+    async def _fake_fetch_entries(_tracking_data, _network=None):
         return []
 
     async def _fake_prices():
@@ -672,7 +675,7 @@ async def test_build_payload_btc_price_falls_back_to_any_wrapper(monkeypatch) ->
     payload picks any of them — exercising LBTC-only here guards against
     a future refactor that hardcodes WBTC."""
 
-    async def _fake_fetch_entries(_tracking_data):
+    async def _fake_fetch_entries(_tracking_data, _network=None):
         return []
 
     async def _fake_prices():
@@ -728,7 +731,7 @@ async def test_build_payload_strk_pool_amounts_independent_of_price(monkeypatch)
         data=info,
     )
 
-    async def _fake_fetch_entries(_tracking_data):
+    async def _fake_fetch_entries(_tracking_data, _network=None):
         return [entry]
 
     # First render: price at $0.05.

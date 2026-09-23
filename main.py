@@ -57,12 +57,14 @@ async def _warm_contracts() -> None:
     for several seconds the first time, so we pay it during startup instead
     of on the first user request."""
     try:
+        from data.contracts import available_networks
         from services.attestation_service import _attestation_contract
         from services.staking_service import _staking_contract, warm_pool_abi
 
-        _staking_contract()
-        _attestation_contract()
-        warm_pool_abi()
+        for net in available_networks():
+            _staking_contract(net)
+            _attestation_contract(net)
+            warm_pool_abi(net)
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"worker contract warm-up skipped: {exc}")
 

@@ -86,7 +86,9 @@ async def write_to_db(user: Users):
         await session.commit()
 
 
-async def update_attestation_state(user_id: int, state: dict) -> None:
+async def update_attestation_state(
+    user_id: int, state: dict, *, network: str | None = None
+) -> None:
     """Atomically refresh ``notification_config["_attestation_state"]``.
 
     The notifier loop holds a stale Users snapshot for the whole cycle
@@ -109,9 +111,9 @@ async def update_attestation_state(user_id: int, state: dict) -> None:
         user = result.scalars().first()
         if user is None:
             return
-        cfg = user.get_notification_config()
+        cfg = user.get_notification_config(network)
         cfg["_attestation_state"] = {str(k): int(v) for k, v in state.items()}
-        user.set_notification_config(cfg)
+        user.set_notification_config(cfg, network)
         await session.execute(
             update(Users)
             .where(Users.user_id == user_id)
@@ -121,7 +123,7 @@ async def update_attestation_state(user_id: int, state: dict) -> None:
 
 
 async def update_operator_balance_was_below(
-    user_id: int, was_below: dict[str, bool]
+    user_id: int, was_below: dict[str, bool], *, network: str | None = None
 ) -> None:
     """Atomically refresh ``notification_config["_operator_balance_was_below"]``.
 
@@ -146,11 +148,11 @@ async def update_operator_balance_was_below(
         user = result.scalars().first()
         if user is None:
             return
-        cfg = user.get_notification_config()
+        cfg = user.get_notification_config(network)
         cfg["_operator_balance_was_below"] = {
             str(k): bool(v) for k, v in was_below.items() if v
         }
-        user.set_notification_config(cfg)
+        user.set_notification_config(cfg, network)
         await session.execute(
             update(Users)
             .where(Users.user_id == user_id)
@@ -169,6 +171,7 @@ async def add_tracking_entry(
     *,
     kind: str,
     payload: dict,
+    network: str | None = None,
 ) -> dict:
     """Atomically append a new entry to ``users.tracking_data``.
 
@@ -187,8 +190,8 @@ async def add_tracking_entry(
         AddTrackingError,
         MAX_TRACKED_ENTRIES,
         _normalize,
-        dump_tracking,
         load_tracking,
+        store_tracking,
     )
 
     if kind not in ("validator", "delegator"):
@@ -204,7 +207,7 @@ async def add_tracking_entry(
         if user is None:
             raise ValueError(f"user {user_id} not found")
 
-        doc = _normalize(load_tracking(user.tracking_data))
+        doc = _normalize(load_tracking(user.tracking_data, network))
 
         # Re-validate inside the transaction. Capacity + duplicate
         # checks live here too because the snapshot the service layer
@@ -238,7 +241,7 @@ async def add_tracking_entry(
                 )
 
         doc[list_key].append(payload)
-        new_json = dump_tracking(doc)
+        new_json = store_tracking(user.tracking_data, doc, network)
 
         await session.execute(
             update(Users)
@@ -255,6 +258,7 @@ async def update_label(
     kind: str,
     address: str,
     label: str,
+    network: str | None = None,
 ) -> dict:
     """Atomically rename a single tracked entry's label.
 
@@ -272,9 +276,9 @@ async def update_label(
     surface a localized message via the ``code`` JSON field.
     """
     from services.tracking_service import (
-        dump_tracking,
         load_tracking,
         rename_tracking_entry,
+        store_tracking,
     )
 
     async with AsyncSession(db.engine) as session:
@@ -285,14 +289,14 @@ async def update_label(
         if user is None:
             raise ValueError(f"user {user_id} not found")
 
-        doc = load_tracking(user.tracking_data)
+        doc = load_tracking(user.tracking_data, network)
         # Service-layer mutates ``doc`` in place + raises on bad input.
         # We propagate ``RenameTrackingError`` to the caller (API layer
         # maps the ``code`` to the right HTTP status).
         new_doc, _entry = rename_tracking_entry(
             doc, kind=kind, address=address, label=label
         )
-        new_json = dump_tracking(new_doc)
+        new_json = store_tracking(user.tracking_data, new_doc, network)
 
         await session.execute(
             update(Users)
@@ -309,6 +313,7 @@ async def reorder_tracking_entries(
     order: list[str] | None = None,
     validators_order: list[str] | None = None,
     delegations_order: list[tuple[str, str]] | None = None,
+    network: str | None = None,
 ) -> dict:
     """Atomically update the user's display_order.
 
@@ -332,10 +337,10 @@ async def reorder_tracking_entries(
     user row doesn't exist.
     """
     from services.tracking_service import (
-        dump_tracking,
         load_tracking,
         reorder_tracking_doc,
         reorder_tracking_doc_v2,
+        store_tracking,
     )
 
     async with AsyncSession(db.engine) as session:
@@ -346,11 +351,11 @@ async def reorder_tracking_entries(
         if user is None:
             raise ValueError(f"user {user_id} not found")
 
-        doc = load_tracking(user.tracking_data)
+        doc = load_tracking(user.tracking_data, network)
         if order is not None:
             new_doc = reorder_tracking_doc_v2(doc, order=order)
         else:
-            # Either both are None (no-op — write through dump_tracking
+            # Either both are None (no-op — write through store_tracking
             # which still preserves display_order if any) or one of
             # validators_order/delegations_order is set; the shim handles
             # both paths.
@@ -359,7 +364,7 @@ async def reorder_tracking_entries(
                 validators_order=validators_order,
                 delegations_order=delegations_order,
             )
-        new_json = dump_tracking(new_doc)
+        new_json = store_tracking(user.tracking_data, new_doc, network)
 
         await session.execute(
             update(Users)
@@ -416,9 +421,15 @@ async def clear_notifications_if_empty(user_id: int) -> Optional[str]:
         user = result.scalars().first()
         if user is None:
             return None
-        doc = user.get_tracking_data()
-        if doc.get("validators") or doc.get("delegations"):
-            return None
+        # "Empty" has to mean empty on *every* network, otherwise clearing
+        # a user's mainnet list would silently disable the testnet
+        # attestation alerts they still have configured.
+        from data.contracts import available_networks
+
+        for net in available_networks():
+            doc = user.get_tracking_data(net)
+            if doc.get("validators") or doc.get("delegations"):
+                return None
         await session.execute(
             update(Users)
             .where(Users.user_id == user_id)

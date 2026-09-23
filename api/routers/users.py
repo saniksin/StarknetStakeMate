@@ -12,7 +12,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, model_validator
 
 from api.auth import TelegramUser, telegram_user_from_header
-from data.contracts import get_network_addresses
+from api.deps import network_param
+from data.contracts import DEFAULT_NETWORK, Network
 from db_api.database import (
     add_tracking_entry,
     get_account,
@@ -28,11 +29,11 @@ from services.tracking_service import (
     TrackingEntry,
     add_delegator_to_tracking,
     add_validator_to_tracking,
-    dump_tracking,
     fetch_tracking_entries,
     load_tracking,
     render_dashboard_summary,
     render_user_tracking,
+    store_tracking,
 )
 from utils.cache import clear_user_cache
 from utils.check_valid_addresses import is_valid_starknet_address
@@ -275,17 +276,22 @@ def _tracking_doc_from_dict(doc: dict) -> TrackingDoc:
 
 
 @router.get("/tracking", summary="List tracked validators and delegator positions")
-async def list_tracking(user_id: int = Depends(_resolve_user_id)) -> TrackingDoc:
+async def list_tracking(
+    user_id: int = Depends(_resolve_user_id),
+    network: Network = Depends(network_param),
+) -> TrackingDoc:
     user = await get_account(str(user_id))
     if user is None:
         return TrackingDoc()
-    doc = load_tracking(user.tracking_data)
+    doc = load_tracking(user.tracking_data, network)
     return _tracking_doc_from_dict(doc)
 
 
 @router.put("/tracking", summary="Replace the user's tracking list")
 async def put_tracking(
-    payload: TrackingDoc, user_id: int = Depends(_resolve_user_id)
+    payload: TrackingDoc,
+    user_id: int = Depends(_resolve_user_id),
+    network: Network = Depends(network_param),
 ) -> TrackingDoc:
     for v in payload.validators:
         if not is_valid_starknet_address(v.address):
@@ -305,7 +311,7 @@ async def put_tracking(
     from services.tracking_service import _prune_display_order
     doc = payload.model_dump()
     _prune_display_order(doc)
-    user.tracking_data = dump_tracking(doc)
+    user.tracking_data = store_tracking(user.tracking_data, doc, network)
     await write_to_db(user)
     await clear_user_cache(user_id)
     return _tracking_doc_from_dict(doc)
@@ -339,7 +345,9 @@ def _add_error_to_http(exc: AddTrackingError) -> HTTPException:
     summary="Add a validator to the user's tracking list",
 )
 async def post_validator(
-    payload: ValidatorPayload, user_id: int = Depends(_resolve_user_id)
+    payload: ValidatorPayload,
+    user_id: int = Depends(_resolve_user_id),
+    network: Network = Depends(network_param),
 ) -> ValidatorPayload:
     """Append a validator entry. Validates format + on-chain presence,
     enforces the 10-entry cap, rejects duplicates (case-insensitive on
@@ -354,10 +362,10 @@ async def post_validator(
     # Pre-flight at the service layer: format + on-chain + capacity +
     # duplicate against the current snapshot. Cheaper than going to the
     # DB just to bounce on a malformed address.
-    doc = load_tracking(user.tracking_data)
+    doc = load_tracking(user.tracking_data, network)
     try:
         _, entry = await add_validator_to_tracking(
-            doc, address=payload.address, label=payload.label
+            doc, address=payload.address, label=payload.label, network=network
         )
     except AddTrackingError as exc:
         raise _add_error_to_http(exc) from exc
@@ -365,7 +373,9 @@ async def post_validator(
     # Atomic DB write — re-validates capacity + duplicate inside the
     # transaction so we don't lose a race against another tab.
     try:
-        await add_tracking_entry(user_id, kind="validator", payload=entry)
+        await add_tracking_entry(
+            user_id, kind="validator", payload=entry, network=network
+        )
     except AddTrackingError as exc:
         raise _add_error_to_http(exc) from exc
     except ValueError as exc:
@@ -381,7 +391,9 @@ async def post_validator(
     summary="Add a delegation to the user's tracking list",
 )
 async def post_delegation(
-    payload: DelegationPayload, user_id: int = Depends(_resolve_user_id)
+    payload: DelegationPayload,
+    user_id: int = Depends(_resolve_user_id),
+    network: Network = Depends(network_param),
 ) -> DelegationPayload:
     """Append a delegation entry. Validates both addresses, requires the
     delegator to actually have a position in at least one of the staker's
@@ -392,19 +404,22 @@ async def post_delegation(
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="unknown user")
 
-    doc = load_tracking(user.tracking_data)
+    doc = load_tracking(user.tracking_data, network)
     try:
         _, entry = await add_delegator_to_tracking(
             doc,
             delegator=payload.delegator,
             staker=payload.staker,
             label=payload.label,
+            network=network,
         )
     except AddTrackingError as exc:
         raise _add_error_to_http(exc) from exc
 
     try:
-        await add_tracking_entry(user_id, kind="delegator", payload=entry)
+        await add_tracking_entry(
+            user_id, kind="delegator", payload=entry, network=network
+        )
     except AddTrackingError as exc:
         raise _add_error_to_http(exc) from exc
     except ValueError as exc:
@@ -419,7 +434,9 @@ async def post_delegation(
     summary="Reorder tracked entries (cross-group via flat ``order`` list)",
 )
 async def put_tracking_order(
-    payload: ReorderPayload, user_id: int = Depends(_resolve_user_id)
+    payload: ReorderPayload,
+    user_id: int = Depends(_resolve_user_id),
+    network: Network = Depends(network_param),
 ) -> TrackingDoc:
     """Apply a new display order to the user's tracking_data.
 
@@ -435,6 +452,7 @@ async def put_tracking_order(
             order=payload.order,
             validators_order=payload.validators,
             delegations_order=payload.delegations,
+            network=network,
         )
     except ValueError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -445,7 +463,9 @@ async def put_tracking_order(
 
 @router.patch("/tracking/label", summary="Rename a single tracked entry (legacy index-based)")
 async def patch_label(
-    update: LabelUpdate, user_id: int = Depends(_resolve_user_id)
+    update: LabelUpdate,
+    user_id: int = Depends(_resolve_user_id),
+    network: Network = Depends(network_param),
 ) -> TrackingDoc:
     """Legacy index-based rename. Kept for cached PWA clients still
     pointing at this URL — the new in-place rename UX uses the address-
@@ -455,13 +475,13 @@ async def patch_label(
     user = await get_account(str(user_id))
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="unknown user")
-    doc = load_tracking(user.tracking_data)
+    doc = load_tracking(user.tracking_data, network)
     lst_key = "validators" if update.kind == "validator" else "delegations"
     try:
         doc[lst_key][update.index]["label"] = update.label
     except (IndexError, KeyError) as exc:
         raise HTTPException(404, detail="entry not found") from exc
-    user.tracking_data = dump_tracking(doc)
+    user.tracking_data = store_tracking(user.tracking_data, doc, network)
     await write_to_db(user)
     await clear_user_cache(user_id)
     return _tracking_doc_from_dict(doc)
@@ -499,6 +519,7 @@ async def patch_tracking_label(
     address: str,
     payload: RenamePayload,
     user_id: int = Depends(_resolve_user_id),
+    network: Network = Depends(network_param),
 ) -> TrackingDoc:
     """In-place rename used by the Mini App's edit-tag UX.
 
@@ -520,7 +541,7 @@ async def patch_tracking_label(
 
     try:
         new_doc = await update_label(
-            user_id, kind=kind, address=address, label=payload.label
+            user_id, kind=kind, address=address, label=payload.label, network=network
         )
     except RenameTrackingError as exc:
         raise _rename_error_to_http(exc) from exc
@@ -535,20 +556,24 @@ async def patch_tracking_label(
 async def user_digest(
     mode: Literal["full", "reward"] = Query("full"),
     user_id: int = Depends(_resolve_user_id),
+    network: Network = Depends(network_param),
 ) -> dict[str, str]:
     user = await get_account(str(user_id))
     locale = user.user_language if user else "en"
     tracking = user.tracking_data if user else None
-    html = await render_user_tracking(tracking, locale, mode=mode)
-    return {"html": html, "mode": mode, "locale": locale}
+    html = await render_user_tracking(tracking, locale, mode, network)
+    return {"html": html, "mode": mode, "locale": locale, "network": network}
 
 
 @router.get("/dashboard", summary="Compact summary suitable for a header card")
-async def user_dashboard(user_id: int = Depends(_resolve_user_id)) -> dict:
+async def user_dashboard(
+    user_id: int = Depends(_resolve_user_id),
+    network: Network = Depends(network_param),
+) -> dict:
     user = await get_account(str(user_id))
     locale = user.user_language if user else "en"
     tracking = user.tracking_data if user else None
-    entries = await fetch_tracking_entries(tracking)
+    entries = await fetch_tracking_entries(tracking, network)
     html = render_dashboard_summary(entries, locale)
     return {
         "html": html,
@@ -574,11 +599,12 @@ async def set_threshold(
 @router.get("/notification-config", summary="Get USD/per-token notification thresholds")
 async def get_notification_config(
     user_id: int = Depends(_resolve_user_id),
+    network: Network = Depends(network_param),
 ) -> NotificationConfigPayload:
     user = await get_account(str(user_id))
     if user is None:
         return NotificationConfigPayload()
-    cfg = user.get_notification_config()
+    cfg = user.get_notification_config(network)
     return NotificationConfigPayload(
         usd_threshold=cfg.get("usd_threshold", 0.0),
         token_thresholds=cfg.get("token_thresholds", {}),
@@ -589,7 +615,9 @@ async def get_notification_config(
 
 @router.put("/notification-config", summary="Replace USD/per-token notification thresholds")
 async def put_notification_config(
-    payload: NotificationConfigPayload, user_id: int = Depends(_resolve_user_id)
+    payload: NotificationConfigPayload,
+    user_id: int = Depends(_resolve_user_id),
+    network: Network = Depends(network_param),
 ) -> NotificationConfigPayload:
     user = await get_account(str(user_id))
     if user is None:
@@ -600,7 +628,7 @@ async def put_notification_config(
     # this endpoint — that's a separate per-validator opt-in flow). If
     # we let the empty default propagate we'd silently disable every
     # attestation subscription on every Settings save.
-    existing = user.get_notification_config()
+    existing = user.get_notification_config(network)
     incoming = payload.model_dump()
     existing_subs = existing.get("attestation_alerts_for") or []
     incoming["attestation_alerts_for"] = existing_subs
@@ -618,8 +646,9 @@ async def put_notification_config(
                 "The operator-wallet alert is part of the same per-validator subscription set."
             ),
         )
-    user.set_notification_config(incoming)
-    user.claim_reward_msg = 0  # writes consolidate into the JSON config
+    user.set_notification_config(incoming, network)
+    if network == DEFAULT_NETWORK:
+        user.claim_reward_msg = 0  # writes consolidate into the JSON config
     await write_to_db(user)
     return payload
 
@@ -629,7 +658,9 @@ async def put_notification_config(
     summary="Replace the set of validators with attestation alerts enabled",
 )
 async def put_attestation_alerts(
-    payload: AttestationAlertsPayload, user_id: int = Depends(_resolve_user_id)
+    payload: AttestationAlertsPayload,
+    user_id: int = Depends(_resolve_user_id),
+    network: Network = Depends(network_param),
 ) -> AttestationAlertsPayload:
     """Mirror of the bot's per-validator submenu.
 
@@ -641,7 +672,7 @@ async def put_attestation_alerts(
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="unknown user")
 
-    doc = load_tracking(user.tracking_data)
+    doc = load_tracking(user.tracking_data, network)
     tracked = {
         (v.get("address") or "").lower()
         for v in doc.get("validators", [])
@@ -655,17 +686,22 @@ async def put_attestation_alerts(
             detail=f"not a tracked validator: {', '.join(sorted(unknown))}",
         )
 
-    cfg = user.get_notification_config()
-    await persist_subscriptions(user, cfg, requested)
+    cfg = user.get_notification_config(network)
+    await persist_subscriptions(user, cfg, requested, network)
     return AttestationAlertsPayload(addresses=sorted(requested))
 
 
 @router.get("/entries", summary="Return typed entries (validator/delegator DTOs)")
-async def typed_entries(user_id: int = Depends(_resolve_user_id)) -> list[dict]:
+async def typed_entries(
+    user_id: int = Depends(_resolve_user_id),
+    network: Network = Depends(network_param),
+) -> list[dict]:
     user = await get_account(str(user_id))
     if user is None:
         return []
-    entries: list[TrackingEntry] = await fetch_tracking_entries(user.tracking_data)
+    entries: list[TrackingEntry] = await fetch_tracking_entries(
+        user.tracking_data, network
+    )
     return [
         {
             "index": e.index,
@@ -683,7 +719,10 @@ async def typed_entries(user_id: int = Depends(_resolve_user_id)) -> list[dict]:
     "/yield-data",
     summary="Per-validator/delegator pool breakdown for the Yield calculator tab",
 )
-async def yield_data(user_id: int = Depends(_resolve_user_id)) -> dict:
+async def yield_data(
+    user_id: int = Depends(_resolve_user_id),
+    network: Network = Depends(network_param),
+) -> dict:
     """Return raw pool stake amounts for the Yield Calculator.
 
     The frontend reads this once when opening the Yield tab and runs
@@ -703,7 +742,9 @@ async def yield_data(user_id: int = Depends(_resolve_user_id)) -> dict:
 
     user = await get_account(str(user_id))
     tracking = user.tracking_data if user else None
-    payload = await build_yield_payload(user_id=user_id, tracking_data=tracking)
+    payload = await build_yield_payload(
+        user_id=user_id, tracking_data=tracking, network=network
+    )
     return payload.model_dump(mode="json")
 
 

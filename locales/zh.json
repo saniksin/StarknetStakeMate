@@ -395,5 +395,11 @@
     "yield_prices_label": "当前价格",
     "yield_paid_in_strk": "以STRK奖励",
     "webapp_tab_portfolio": "投资组合",
-    "webapp_tab_yield": "收益"
+    "webapp_tab_yield": "收益",
+    "webapp_network_mainnet": "主网",
+    "webapp_network_testnet": "测试网",
+    "webapp_network_switch_aria": "网络",
+    "webapp_settings_network_scope": "这些提醒仅适用于{network}，另一个网络需要单独设置。",
+    "network_testnet_badge": "🧪 测试网 (Sepolia)",
+    "webapp_settings_hero_testnet": "在测试网中，我们监控证明和操作员钱包。奖励提醒仅适用于主网——测试网代币没有价格。"
 }

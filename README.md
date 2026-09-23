@@ -27,6 +27,44 @@ A Starknet staking companion: Telegram bot + REST API + Telegram Mini App / loca
 | Telegram WebApp HMAC auth | — | ✅ | standard `initData` validation |
 | Local dashboard mode | — | ✅ | no HMAC, uses `?tg_id=` |
 | Asset cache-busting (`?v=<mtime>`) | — | ✅ | survives Telegram WebView's aggressive cache |
+| Mainnet / testnet switch | — | ✅ | optional second RPC endpoint; see [Networks](#networks) |
+
+---
+
+## Networks
+
+Mainnet is the default and the only network the **bot** knows about. Set
+`STARKNET_TESTNET_RPC_URL` to a Sepolia node and the **Mini App** grows a
+Mainnet / Testnet switch above the view; leave it blank and nothing about
+the app changes.
+
+What the switch scopes:
+
+- **tracking lists** — separate per network, each with its own 10-entry
+  cap. Storage keeps mainnet at the top level of `users.tracking_data`
+  (which is what the bot reads) and nests other networks under
+  `networks.<name>`, so nothing had to be migrated.
+- **alert subscriptions** — likewise separate. Enabling attestation
+  alerts for a validator on mainnet does *not* enable them for the same
+  address on testnet; the Settings screen says so.
+- **every API read** — endpoints take `?network=mainnet|testnet`
+  (`sepolia` is accepted as the canonical spelling). An unknown name is a
+  400; a valid one with no endpoint configured is a 503 that lists what
+  *is* served, so the Mini App can hide the tab instead of retrying.
+
+What stays mainnet-only, deliberately:
+
+- **reward-threshold notifications** and every USD figure. Testnet tokens
+  have no market, so pricing them would invent a portfolio value that
+  doesn't exist. The Yield tab on testnet shows token amounts and `—` in
+  the USD columns.
+
+Testnet alerts (missed attestation, operator wallet balance) are sent
+with a `🧪 Testnet (Sepolia)` badge on the first line, so a DM can never
+be mistaken for a mainnet incident.
+
+The watcher runs one cycle per configured network per minute,
+concurrently — a slow testnet node can't delay the mainnet alert.
 
 ---
 
@@ -46,6 +84,7 @@ A Starknet staking companion: Telegram bot + REST API + Telegram Mini App / loca
 git clone https://github.com/saniksin/StarknetStakeMate.git
 cd StarknetStakeMate
 cp .env.example .env          # then fill BOT_TOKEN / STARKNET_RPC_URL / ADMINS_ID
+                              # (STARKNET_TESTNET_RPC_URL is optional — see Networks)
 uv sync                       # creates .venv and installs everything from pyproject.toml
 ```
 
@@ -241,7 +280,9 @@ Key idea: every contract read and every user-visible string originates in `servi
 
 | Method | Path | Description |
 | --- | --- | --- |
+| GET | `/api/v1/networks` | Configured networks + which one is the default |
 | GET | `/api/v1/status` | Protocol + service health |
+| GET | `/api/v1/status/node` | RPC node sync state (cheap; safe to poll) |
 | GET | `/api/v1/validators/{addr}` | Full validator view (multi-pool + attestation) |
 | GET | `/api/v1/delegators/{addr}?pool=…` | Delegator position in one pool |
 | GET | `/api/v1/users/me/tracking` | List tracked pairs |
@@ -254,6 +295,8 @@ Key idea: every contract read and every user-visible string originates in `servi
 | GET | `/api/v1/users/me/yield-data` | Per-validator/delegator pool stake amounts for the Yield calculator tab; 60 s per-user cache, USD price falls back to `null` when CoinGecko has no listing |
 
 Every `/users/me/*` endpoint accepts either the `X-Telegram-Init-Data` header (Mini App mode) or a `?tg_id=<id>` query parameter (local dashboard mode), controlled by `API_AUTH_MODE`.
+
+Every data endpoint above also accepts `?network=mainnet|testnet` (see [Networks](#networks)). `/api/v1/networks`, `/api/v1/locales/*`, `/users/me/profile` and `/users/me/language` are network-agnostic and ignore it.
 
 ---
 

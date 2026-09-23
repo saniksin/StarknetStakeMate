@@ -9,6 +9,12 @@ Per-user opt-in via ``notification_config["attestation_alerts"]`` — off by
 default after a fresh validator add. State is kept in
 ``notification_config["_attestation_state"]`` so we don't re-spam the same
 "missed 3 epochs" message every cycle.
+
+Every configured network is watched, each on its own cycle with its own
+epoch cursor and its own subscription set (see
+``Users.get_notification_config(network)``). Alerts about a non-default
+network carry a badge in the first line so a DM can never be mistaken for
+a mainnet incident.
 """
 from __future__ import annotations
 
@@ -17,6 +23,7 @@ import os
 
 import aiohttp
 
+from data.contracts import DEFAULT_NETWORK, Network, available_networks
 from data.languages import translate
 from data.models import semaphore
 from data.tg_bot import BOT_TOKEN
@@ -49,6 +56,21 @@ def _addr_hex_norm(value) -> str:
 
 TELEGRAM_API_BASE = "https://api.telegram.org/bot"
 _INTERVAL = int(os.getenv("ATTESTATION_INTERVAL_SECONDS", "60"))
+
+
+def _network_badge(network: Network, locale: str) -> str:
+    """Leading line marking a non-default network, or ``""`` for mainnet.
+
+    Mainnet DMs keep their exact previous shape — users have months of
+    muscle memory for them — while a testnet DM announces itself before
+    the first word of the alert body.
+    """
+    if network == DEFAULT_NETWORK:
+        return ""
+    label = translate("network_testnet_badge", locale)
+    if not label or label == "network_testnet_badge":
+        label = "🧪 Testnet (Sepolia)"
+    return f"{label}\n"
 
 
 async def _send(chat_id: int, text: str) -> None:
@@ -90,7 +112,11 @@ def _resolve_subscribed_set(cfg: dict, validators: list[dict]) -> set[str]:
 
 
 async def _check_user(
-    user: Users, current_epoch: int, *, epoch_changed: bool
+    user: Users,
+    current_epoch: int,
+    *,
+    epoch_changed: bool,
+    network: Network | None = None,
 ) -> tuple[dict | None, dict | None]:
     """Run one attestation + operator-balance check for a single user.
 
@@ -107,13 +133,15 @@ async def _check_user(
     The attestation watcher itself stays continuous: missed epochs need a
     sub-minute alert SLA.
     """
-    cfg = user.get_notification_config()
-    doc = load_tracking(user.tracking_data)
+    net: Network = network or DEFAULT_NETWORK
+    cfg = user.get_notification_config(net)
+    doc = load_tracking(user.tracking_data, net)
     validators = doc.get("validators", [])
     if not validators:
         return None, None
 
     locale = user.user_language or "en"
+    badge = _network_badge(net, locale)
     subscribed_att = _resolve_subscribed_set(cfg, validators)
     balance_min = float(cfg.get("operator_balance_min_strk") or 0)
 
@@ -145,7 +173,7 @@ async def _check_user(
         if staker in subscribed_att:
             try:
                 status = await fetch_attestation_status(
-                    staker, current_epoch=current_epoch
+                    staker, current_epoch=current_epoch, network=net
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning(f"attestation fetch failed for {staker}: {exc}")
@@ -157,7 +185,7 @@ async def _check_user(
                     from services.i18n_plural import t_n
                     await _send(
                         user.user_id,
-                        t_n(
+                        badge + t_n(
                             "attestation_alert_missed", new_missed, locale,
                             label=label, count=new_missed,
                             epoch=status.current_epoch,
@@ -168,7 +196,8 @@ async def _check_user(
                 elif new_missed == 0 and old_missed > 0:
                     await _send(
                         user.user_id,
-                        translate("attestation_alert_recovered", locale, label=label),
+                        badge
+                        + translate("attestation_alert_recovered", locale, label=label),
                     )
                     att_state.pop(staker, None)
                     att_changed = True
@@ -183,7 +212,7 @@ async def _check_user(
         if not do_balance or staker not in subscribed_att:
             continue
         try:
-            staker_raw = await fetch_staker_raw(staker)
+            staker_raw = await fetch_staker_raw(staker, network=net)
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"staker_raw fetch failed for {staker}: {exc}")
             continue
@@ -193,7 +222,7 @@ async def _check_user(
         if not op_addr or op_addr == "0x0":
             continue
         try:
-            balance = await fetch_strk_balance(op_addr)
+            balance = await fetch_strk_balance(op_addr, network=net)
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"operator balance fetch failed for {op_addr}: {exc}")
             continue
@@ -211,7 +240,7 @@ async def _check_user(
         if is_below:
             await _send(
                 user.user_id,
-                translate(
+                badge + translate(
                     "operator_low_balance_alert", locale,
                     label=label, balance=balance_f, threshold=balance_min,
                     epoch=current_epoch,
@@ -223,7 +252,7 @@ async def _check_user(
         elif was_below:
             await _send(
                 user.user_id,
-                translate(
+                badge + translate(
                     "operator_balance_recovered", locale,
                     label=label, balance=balance_f, threshold=balance_min,
                     epoch=current_epoch,
@@ -237,30 +266,31 @@ async def _check_user(
             was_below_state if bal_changed else None)
 
 
-# In-memory cursor for "did the epoch number change since last cycle?".
-# Reset to 0 on process start so the first cycle after a restart always
-# counts as an epoch flip — that one wasted check is cheap, the
-# alternative (stashing the cursor in the DB) couples a notifier-only
+# In-memory cursor for "did the epoch number change since last cycle?",
+# one per network. Reset to 0 on process start so the first cycle after a
+# restart always counts as an epoch flip — that one wasted check is cheap,
+# the alternative (stashing the cursor in the DB) couples a notifier-only
 # concern to schema changes.
-_last_seen_epoch: int = 0
+_last_seen_epoch: dict[str, int] = {}
 
 
 def _reset_last_seen_epoch_for_tests() -> None:
-    """Test hook: clear the module-level epoch cursor between scenarios."""
-    global _last_seen_epoch
-    _last_seen_epoch = 0
+    """Test hook: clear the epoch cursors between scenarios."""
+    _last_seen_epoch.clear()
 
 
-async def _run_cycle() -> None:
-    global _last_seen_epoch
+async def _run_cycle(network: Network | None = None) -> None:
+    net: Network = network or DEFAULT_NETWORK
 
     users = await get_strk_notification_users()
     # Keep ``get_strk_notification_users`` as the broad-net query; filter
     # out non-subscribers here so the SQL stays simple. Subscription is
     # the union of attestation alerts (legacy bool or per-validator list)
-    # and the new operator-balance alert.
+    # and the new operator-balance alert — evaluated against *this*
+    # network's slice of the config, so a mainnet-only user costs one
+    # dict lookup per testnet cycle and nothing more.
     def _has_subscription(u: Users) -> bool:
-        cfg = u.get_notification_config()
+        cfg = u.get_notification_config(net)
         if cfg.get("attestation_alerts"):
             return True
         if cfg.get("attestation_alerts_for"):
@@ -275,28 +305,30 @@ async def _run_cycle() -> None:
 
     # One RPC for the whole cycle — current_epoch is the same for everyone.
     try:
-        current_epoch = await fetch_current_epoch()
+        current_epoch = await fetch_current_epoch(network=net)
     except Exception as exc:  # noqa: BLE001
-        logger.warning(f"attestation cycle: current_epoch fetch failed: {exc}")
+        logger.warning(f"attestation cycle [{net}]: current_epoch fetch failed: {exc}")
         return
 
-    epoch_changed = current_epoch != _last_seen_epoch
-    _last_seen_epoch = current_epoch
+    epoch_changed = current_epoch != _last_seen_epoch.get(net, 0)
+    _last_seen_epoch[net] = current_epoch
     if epoch_changed:
-        logger.info(f"epoch boundary tick: now {current_epoch}")
+        logger.info(f"epoch boundary tick [{net}]: now {current_epoch}")
 
     async def _process(u: Users) -> None:
         async with semaphore:
             try:
                 att_state, bal_state = await _check_user(
-                    u, current_epoch, epoch_changed=epoch_changed
+                    u, current_epoch, epoch_changed=epoch_changed, network=net
                 )
                 if att_state is not None:
-                    await update_attestation_state(u.user_id, att_state)
+                    await update_attestation_state(u.user_id, att_state, network=net)
                 if bal_state is not None:
-                    await update_operator_balance_was_below(u.user_id, bal_state)
+                    await update_operator_balance_was_below(
+                        u.user_id, bal_state, network=net
+                    )
             except Exception as exc:  # noqa: BLE001
-                logger.error(f"attestation_alerts({u.user_id}) failed: {exc}")
+                logger.error(f"attestation_alerts({u.user_id}) [{net}] failed: {exc}")
 
     await asyncio.gather(*(_process(u) for u in candidates))
 
@@ -310,13 +342,24 @@ def _sleep_until_next_boundary(interval: int) -> float:
 
 
 async def send_attestation_alerts() -> None:
-    """Wall-clock-aligned watcher — fires at xx:xx:00 every minute (UTC)."""
-    logger.info(f"attestation watcher started (interval={_INTERVAL}s)")
+    """Wall-clock-aligned watcher — fires at xx:xx:00 every minute (UTC).
+
+    Every configured network is checked in the same tick. They run
+    concurrently: a slow or unreachable testnet node must not delay the
+    mainnet alert, which is the one that costs real money.
+    """
+    networks = available_networks()
+    logger.info(
+        f"attestation watcher started (interval={_INTERVAL}s, "
+        f"networks={', '.join(networks)})"
+    )
     await asyncio.sleep(_sleep_until_next_boundary(_INTERVAL))
     while True:
-        try:
-            await _run_cycle()
-        except Exception as exc:  # noqa: BLE001
-            logger.error(f"attestation watcher cycle error: {exc!r}")
+        results = await asyncio.gather(
+            *(_run_cycle(net) for net in networks), return_exceptions=True
+        )
+        for net, result in zip(networks, results):
+            if isinstance(result, BaseException):
+                logger.error(f"attestation watcher cycle error [{net}]: {result!r}")
 
         await asyncio.sleep(_sleep_until_next_boundary(_INTERVAL))

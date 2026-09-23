@@ -404,5 +404,11 @@
     "yield_prices_label": "Aktuelle Preise",
     "yield_paid_in_strk": "Belohnungen in STRK",
     "webapp_tab_portfolio": "Portfolio",
-    "webapp_tab_yield": "Ertrag"
+    "webapp_tab_yield": "Ertrag",
+    "webapp_network_mainnet": "Mainnet",
+    "webapp_network_testnet": "Testnet",
+    "webapp_network_switch_aria": "Netzwerk",
+    "webapp_settings_network_scope": "Diese Benachrichtigungen gelten nur für {network} — das andere Netzwerk wird separat konfiguriert.",
+    "network_testnet_badge": "🧪 Testnet (Sepolia)",
+    "webapp_settings_hero_testnet": "Im Testnet überwachen wir Attestierungen und das Operator-Wallet. Belohnungs-Benachrichtigungen gibt es nur im Mainnet — Testnet-Token haben keinen Preis."
 }

@@ -14,75 +14,44 @@ from functools import lru_cache
 from typing import Iterable
 
 from loguru import logger
-from starknet_py.contract import Contract
 from starknet_py.net.client_errors import ClientError
 
+from data.contracts import DEFAULT_NETWORK, Network, get_network_addresses
 from services.rpc_client import get_client, with_retry
 from services.staking_dto import TokenInfo
 
 _TTL = int(os.getenv("TOKEN_CACHE_TTL", "3600"))
 
-# Minimal fragment of the ERC-20 view interface that we need. starknet-py can
-# parse it by itself; we hand-roll the ABI to avoid a round-trip for each token.
-_ERC20_ABI = [
-    {
-        "type": "interface",
-        "name": "IErc20Metadata",
-        "items": [
-            {
-                "type": "function",
-                "name": "symbol",
-                "inputs": [],
-                "outputs": [{"type": "core::felt252"}],
-                "state_mutability": "view",
-            },
-            {
-                "type": "function",
-                "name": "decimals",
-                "inputs": [],
-                "outputs": [{"type": "core::integer::u8"}],
-                "state_mutability": "view",
-            },
-            {
-                "type": "function",
-                "name": "balance_of",
-                "inputs": [{"name": "account", "type": "core::starknet::contract_address::ContractAddress"}],
-                "outputs": [{"type": "core::integer::u256"}],
-                "state_mutability": "view",
-            },
-        ],
-    }
-]
 
-
-# Mainnet STRK token. Hard-coded because operator-balance lookups need it
-# constantly and we want to avoid a DB / config detour.
+# STRK token. Hard-coded because operator-balance lookups need it constantly
+# and we want to avoid a DB / config detour. The address happens to be the
+# same on mainnet and Sepolia (STRK is a predeployed system token), but we
+# still route through ``get_network_addresses`` so a future divergence is a
+# one-line change rather than a hunt through this module.
 STRK_TOKEN_ADDRESS = "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d"
 
 
-@lru_cache(maxsize=1)
-def _strk_contract() -> "Contract":
-    """One cached starknet-py Contract for the STRK token (ABI parsed once).
-
-    Used only for the symbol/decimals lookups served by ``token_registry``;
-    ``balance_of`` goes through the raw ``client.call_contract`` path below
-    because the minimal hand-rolled ABI doesn't carry enough information
-    for starknet-py to decode a ``u256`` reliably across versions.
-    """
-    return Contract(
-        address=int(STRK_TOKEN_ADDRESS, 16),
-        abi=_ERC20_ABI,
-        provider=get_client(),
-    )
+def strk_token_address(network: Network | None = None) -> str:
+    return get_network_addresses(network or DEFAULT_NETWORK).strk_token
 
 
-# Selector for ``balance_of(account)`` — Starknet keccak of the function name.
-# Hard-coded so we don't need to import ``get_selector_from_name`` (purely
-# computed once; matches what an RPC call to ``starknet_call`` uses).
+# Starknet-keccak selectors, hard-coded so we don't pay for the hash on
+# every call. Everything in this module talks to tokens through
+# ``client.call_contract`` with these rather than through a starknet-py
+# ``Contract``: the minimal hand-written ABI we used to carry stopped
+# parsing under starknet-py 0.30 (the Cairo-1 parser wants ``impl``
+# entries, and silently produced a Contract with zero functions), which
+# made every ``symbol()`` / ``decimals()`` lookup fail closed. Only the
+# hard-coded ``_WELL_KNOWN`` table hid it on mainnet. Raw calls have no
+# ABI to drift.
 _BALANCE_OF_SELECTOR = 0x35a73cd311a05d46deda634c5ee045db92f811b4e74bca4437fcb5302b7af33
+_SYMBOL_SELECTOR = 0x216B05C387BAB9AC31918A3E61672F4618601F3C598A2F3F2710F37053E1EA4
+_DECIMALS_SELECTOR = 0x4C4FB1AB068F6039D5780C68DD0FA2F8742CCEB3426D19667778CA7F3518A9
 
 
-async def fetch_strk_balance(account_address: str) -> Decimal:
+async def fetch_strk_balance(
+    account_address: str, *, network: Network | None = None
+) -> Decimal:
     """Return ``account``'s on-chain STRK balance, scaled to whole tokens.
 
     Used for the operator-wallet low-balance alert: validators must keep
@@ -99,9 +68,10 @@ async def fetch_strk_balance(account_address: str) -> Decimal:
     """
     from starknet_py.net.client_models import Call  # local: cheap import
 
-    client = get_client()
+    net: Network = network or DEFAULT_NETWORK
+    client = get_client(net)
     call = Call(
-        to_addr=int(STRK_TOKEN_ADDRESS, 16),
+        to_addr=int(strk_token_address(net), 16),
         selector=_BALANCE_OF_SELECTOR,
         calldata=[int(account_address, 16)],
     )
@@ -155,14 +125,23 @@ def _normalize(address_hex: str) -> str:
 
 
 class TokenRegistry:
-    """Async-safe cache keyed by contract address."""
+    """Async-safe cache keyed by ``(network, contract address)``.
+
+    The network is part of the key because an address is only unique
+    *within* a chain: a Sepolia test wrapper can collide with a mainnet
+    token and would otherwise inherit its symbol and — worse — its
+    decimals, silently scaling every amount by 10^10.
+    """
 
     def __init__(self) -> None:
-        self._cache: dict[str, TokenInfo] = {}
-        self._locks: dict[str, asyncio.Lock] = {}
+        self._cache: dict[tuple[str, str], TokenInfo] = {}
+        self._locks: dict[tuple[str, str], asyncio.Lock] = {}
 
-    async def get(self, address: str | int) -> TokenInfo:
-        key = _normalize(hex(address) if isinstance(address, int) else address)
+    async def get(
+        self, address: str | int, *, network: Network | None = None
+    ) -> TokenInfo:
+        net: Network = network or DEFAULT_NETWORK
+        key = (net, _normalize(hex(address) if isinstance(address, int) else address))
         cached = self._cache.get(key)
         if cached is not None:
             return cached
@@ -173,36 +152,55 @@ class TokenRegistry:
             if cached is not None:
                 return cached
 
-            info = await self._fetch(key)
+            info = await self._fetch(key[1], net)
             self._cache[key] = info
             return info
 
-    async def prefetch(self, addresses: Iterable[str | int]) -> None:
+    async def prefetch(
+        self, addresses: Iterable[str | int], *, network: Network | None = None
+    ) -> None:
         """Warm the cache concurrently for a batch of token addresses."""
-        await asyncio.gather(*(self.get(a) for a in addresses), return_exceptions=True)
+        await asyncio.gather(
+            *(self.get(a, network=network) for a in addresses),
+            return_exceptions=True,
+        )
 
-    async def _fetch(self, address_hex: str) -> TokenInfo:
+    async def _fetch(self, address_hex: str, network: Network) -> TokenInfo:
+        # ``_WELL_KNOWN`` is a mainnet table. On other networks the same
+        # address means something else (or nothing), so we only trust it
+        # for the token that genuinely shares an address across both —
+        # STRK — and go on-chain for everything else.
         well_known = _WELL_KNOWN.get(address_hex)
-        if well_known is not None:
+        if well_known is not None and (
+            network == "mainnet" or address_hex == _normalize(strk_token_address(network))
+        ):
             symbol, decimals = well_known
             return TokenInfo(address=address_hex, symbol=symbol, decimals=decimals)
 
-        client = get_client()
-        contract = Contract(address=int(address_hex, 16), abi=_ERC20_ABI, provider=client)
+        client = get_client(network)
 
         async def _call_symbol() -> str | None:
             try:
-                (raw,) = await contract.functions["symbol"].call()
-                return _felt_to_ascii(raw)
-            except (ClientError, KeyError):
+                result = await _token_call(client, address_hex, _SYMBOL_SELECTOR)
+            except (ClientError, asyncio.TimeoutError):
                 return None
+            return _decode_symbol(result)
 
         async def _call_decimals() -> int:
             try:
-                (raw,) = await contract.functions["decimals"].call()
-                return int(raw)
-            except (ClientError, KeyError):
+                result = await _token_call(client, address_hex, _DECIMALS_SELECTOR)
+            except (ClientError, asyncio.TimeoutError):
                 return 18
+            if not result:
+                return 18
+            try:
+                value = int(result[0])
+            except (TypeError, ValueError):
+                return 18
+            # A token claiming 0 or >36 decimals is broken or hostile;
+            # believing it would scale a balance into nonsense. Fall back
+            # to the ERC-20 default instead.
+            return value if 0 < value <= 36 else 18
 
         try:
             symbol, decimals = await asyncio.gather(
@@ -213,7 +211,68 @@ class TokenRegistry:
             logger.warning(f"token metadata fetch failed for {address_hex}: {exc}")
             symbol, decimals = None, 18
 
+        if symbol is None:
+            logger.warning(f"token {address_hex} did not return a usable symbol")
+
         return TokenInfo(address=address_hex, symbol=symbol, decimals=decimals)
+
+
+async def _token_call(client, address_hex: str, selector: int) -> list[int]:
+    """One no-argument view call against a token, at the latest block."""
+    from starknet_py.net.client_models import Call  # local: cheap import
+
+    call = Call(to_addr=int(address_hex, 16), selector=selector, calldata=[])
+    return list(await client.call_contract(call=call, block_hash="latest"))
+
+
+def _decode_symbol(result: list[int]) -> str | None:
+    """Decode ``symbol()`` from either shape a Starknet token may return.
+
+    Older tokens answer with a single ``felt252`` short string. Tokens
+    built on the modern OpenZeppelin Cairo components answer with a
+    ``ByteArray``: ``[full_word_count, *full_words, pending_word,
+    pending_word_len]``. Both appear among the staking tokens, so we
+    sniff the shape by length rather than guessing per network.
+    """
+    if not result:
+        return None
+    if len(result) == 1:
+        return _felt_to_ascii(result[0])
+    try:
+        full_words = int(result[0])
+        words = result[1 : 1 + full_words]
+        pending_word = int(result[1 + full_words])
+        pending_len = int(result[2 + full_words])
+    except (IndexError, TypeError, ValueError):
+        return None
+    chunks: list[bytes] = []
+    for word in words:
+        # Every full word carries exactly 31 bytes.
+        chunks.append(int(word).to_bytes(31, "big"))
+    if pending_len:
+        try:
+            chunks.append(int(pending_word).to_bytes(pending_len, "big"))
+        except OverflowError:
+            return None
+    try:
+        text = b"".join(chunks).decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    return _printable(text)
+
+
+def _printable(text: str) -> str | None:
+    """Return ``text`` if it looks like a symbol a human would recognise.
+
+    A felt that happens to hold small integers decodes into control
+    characters; treating that as a symbol puts a tofu box in the pool
+    row. Anything not fully printable is reported as "unknown" instead,
+    which the renderer already handles.
+    """
+    text = text.strip()
+    if not text or not text.isprintable():
+        return None
+    return text
 
 
 def _felt_to_ascii(raw: int) -> str | None:
@@ -222,8 +281,7 @@ def _felt_to_ascii(raw: int) -> str | None:
         return None
     try:
         b = int(raw).to_bytes((int(raw).bit_length() + 7) // 8, "big")
-        text = b.decode("ascii").strip()
-        return text or None
+        return _printable(b.decode("ascii"))
     except (OverflowError, UnicodeDecodeError):
         return None
 

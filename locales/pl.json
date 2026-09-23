@@ -413,5 +413,11 @@
     "yield_prices_label": "Aktualne ceny",
     "yield_paid_in_strk": "nagrody w STRK",
     "webapp_tab_portfolio": "Portfolio",
-    "webapp_tab_yield": "Dochód"
+    "webapp_tab_yield": "Dochód",
+    "webapp_network_mainnet": "Mainnet",
+    "webapp_network_testnet": "Testnet",
+    "webapp_network_switch_aria": "Sieć",
+    "webapp_settings_network_scope": "Te powiadomienia dotyczą wyłącznie sieci {network} — druga sieć ma osobne ustawienia.",
+    "network_testnet_badge": "🧪 Testnet (Sepolia)",
+    "webapp_settings_hero_testnet": "W testnecie monitorujemy atestacje i portfel operatora. Powiadomienia o nagrodach działają tylko w mainnecie — tokeny testowe nie mają ceny."
 }

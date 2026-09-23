@@ -30,7 +30,65 @@ const state = {
   // Snapshot of entries[] taken when reorder mode is entered, used to
   // roll back the optimistic UI if the PUT /tracking/order call fails.
   reorderInitial: null,
+  // Which chain every /api/v1 read below is scoped to. ``networks`` is
+  // whatever the deployment actually serves (from /api/v1/networks);
+  // with a single entry the switch never appears.
+  network: null,
+  networks: null,
+  networkDefault: "mainnet",
 };
+
+// ---------------------------------------------------------------------------
+// Network selection
+//
+// The whole app is network-scoped: `api()` appends ?network= to every call,
+// so a view never has to think about it. Mainnet is the default and the one
+// the Telegram bot uses; testnet (Sepolia) exists only here in the Mini App.
+// ---------------------------------------------------------------------------
+
+const NETWORK_STORAGE_KEY = "stakemate_network";
+
+const NETWORK_LABELS = {
+  mainnet: () => t("webapp_network_mainnet", "Mainnet"),
+  sepolia: () => t("webapp_network_testnet", "Testnet"),
+};
+
+function networkLabel(net) {
+  const fn = NETWORK_LABELS[net];
+  return fn ? fn() : net;
+}
+
+function currentNetwork() {
+  return state.network || state.networkDefault || "mainnet";
+}
+
+// Accepts the same aliases as the backend's ``resolve_network`` so a URL
+// can say "testnet" while the wire protocol says "sepolia".
+function resolveNetworkName(value) {
+  if (!value) return null;
+  const key = String(value).trim().toLowerCase();
+  if (key === "testnet" || key === "test" || key === "sepolia") return "sepolia";
+  if (key === "mainnet" || key === "main") return "mainnet";
+  return null;
+}
+
+function readStoredNetwork() {
+  try {
+    return localStorage.getItem(NETWORK_STORAGE_KEY);
+  } catch {
+    // Private mode / blocked storage: fall through to the default. The
+    // switch still works, it just won't survive a reload.
+    return null;
+  }
+}
+
+function storeNetwork(net) {
+  try {
+    localStorage.setItem(NETWORK_STORAGE_KEY, net);
+  } catch {
+    /* non-fatal — see readStoredNetwork */
+  }
+}
 
 // ---------------------------------------------------------------------------
 // i18n
@@ -108,8 +166,20 @@ function appendAuthQuery(path) {
   return path + (path.includes("?") ? "&" : "?") + "tg_id=" + encodeURIComponent(id);
 }
 
+// Endpoints that mean the same thing on every chain. Appending ?network=
+// to them would be harmless (FastAPI ignores unknown query params) but it
+// pollutes the URLs and the browser cache for no gain.
+const _NETWORK_AGNOSTIC = /^\/api\/v1\/(networks|locales\/|users\/me\/(profile|language)$)/;
+
+function appendNetworkQuery(path) {
+  if (_NETWORK_AGNOSTIC.test(path)) return path;
+  const net = state.network;
+  if (!net) return path;
+  return path + (path.includes("?") ? "&" : "?") + "network=" + encodeURIComponent(net);
+}
+
 async function api(path, { method = "GET", body = null } = {}) {
-  const url = API_BASE + appendAuthQuery(path);
+  const url = API_BASE + appendAuthQuery(appendNetworkQuery(path));
   const res = await fetch(url, {
     method,
     headers: authHeaders(),
@@ -230,6 +300,11 @@ function totalUsd(bySymbol, prices) {
 async function loadPrices() {
   // CoinGecko free tier — no key required. Fallback gracefully on failure;
   // the UI just hides USD numbers.
+  //
+  // Testnet tokens have no market: quoting mainnet STRK against a Sepolia
+  // balance would invent a portfolio value that doesn't exist. Return null
+  // so every USD figure renders as "—" instead.
+  if (currentNetwork() !== "mainnet") return null;
   try {
     const ids = ["starknet", "wrapped-bitcoin", "lombard-staked-btc", "tbtc", "solv-protocol-solvbtc", "bitcoin"];
     const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(",")}&vs_currencies=usd`;
@@ -327,6 +402,113 @@ function bindCopyHandlers() {
       e.stopPropagation();
       copyText(el.dataset.copy);
     });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Network switch (bootstrap + UI)
+// ---------------------------------------------------------------------------
+
+// Reads which chains the backend actually serves. Called once per session,
+// before the first data request, so `api()` already knows what to append.
+// A failure degrades to "mainnet only" — the app then behaves exactly as
+// it did before testnet support existed.
+async function loadNetworks() {
+  if (state.networks) return;
+  let payload = null;
+  try {
+    payload = await api("/api/v1/networks");
+  } catch (err) {
+    console.warn("networks fetch failed", err);
+  }
+  const list = payload && Array.isArray(payload.networks) && payload.networks.length
+    ? payload.networks
+    : ["mainnet"];
+  state.networks = list;
+  state.networkDefault = (payload && payload.default) || list[0];
+
+  // Precedence: an explicit ?network= in the URL (deep links, and how
+  // the e2e check drives the testnet view), then the last choice this
+  // browser made, then the deployment default. A stored choice is only
+  // honoured while the backend still serves it — dropping the Sepolia
+  // endpoint must not leave returning users stuck on a tab that 503s.
+  const requested = new URLSearchParams(location.search).get("network");
+  const candidates = [resolveNetworkName(requested), readStoredNetwork()];
+  state.network = candidates.find((n) => n && list.includes(n)) || state.networkDefault;
+  applyNetworkChrome();
+}
+
+// Paints the page chrome for the active network: the `data-network`
+// attribute drives the accent colour, so a testnet screen is visibly a
+// testnet screen even in a screenshot.
+function applyNetworkChrome() {
+  const app = document.getElementById("app");
+  if (app) app.dataset.network = currentNetwork();
+}
+
+function renderNetbar() {
+  const bar = document.querySelector(".netbar");
+  if (!bar) return;
+  const list = state.networks || [];
+  // One chain configured → no switch at all.
+  if (list.length < 2) {
+    bar.hidden = true;
+    return;
+  }
+  bar.hidden = false;
+  bar.setAttribute("aria-label", t("webapp_network_switch_aria", "Network"));
+  const inner = bar.querySelector(".netbar-inner");
+  const active = currentNetwork();
+  inner.innerHTML = list
+    .map((net) => (
+      `<button type="button" class="seg-option${net === active ? " active" : ""}" ` +
+      `role="tab" aria-selected="${net === active}" data-network="${escapeHtml(net)}">` +
+      `${escapeHtml(networkLabel(net))}</button>`
+    ))
+    .join("");
+  for (const btn of inner.querySelectorAll("[data-network]")) {
+    btn.addEventListener("click", () => switchNetwork(btn.dataset.network));
+  }
+}
+
+// Routes that mean the same thing on either chain, so switching keeps
+// you where you are. Everything else (a validator detail page, the add
+// form) is about one specific address and doesn't survive the jump.
+const _NETWORK_STABLE_ROUTES = new Set(["dashboard", "yield", "settings"]);
+
+// Switching chains invalidates literally every cached read: status, the
+// tracked entries, the notification config and the prices. We drop them
+// all, then re-render — staying on the current screen when it exists on
+// both chains, falling back to the portfolio when it doesn't.
+function switchNetwork(net) {
+  if (!net || net === state.network) return;
+  if (!(state.networks || []).includes(net)) return;
+  state.network = net;
+  storeNetwork(net);
+  state.status = null;
+  state.entries = null;
+  state.notification = null;
+  state.prices = null;
+  state.reorderMode = false;
+  state.reorderInitial = null;
+  applyNetworkChrome();
+  renderNetbar();
+  // Drop any ?network= deep-link param, otherwise it would out-rank the
+  // choice we just stored on the next reload.
+  try {
+    const url = new URL(location.href);
+    if (url.searchParams.has("network")) {
+      url.searchParams.delete("network");
+      history.replaceState(null, "", url.toString());
+    }
+  } catch {
+    /* URL parsing is best-effort; the switch itself already took hold */
+  }
+  if (tg && tg.HapticFeedback) tg.HapticFeedback.selectionChanged();
+  if (_NETWORK_STABLE_ROUTES.has(parseRoute().name)) {
+    renderRoute().catch((err) => toast(err.message));
+  } else {
+    navigate("#/");
   }
 }
 
@@ -503,6 +685,11 @@ async function renderRoute() {
   if (state.locale === null) {
     await loadProfileAndLocale();
   }
+
+  // Must run before any network-scoped request: it decides what `api()`
+  // appends. Cheap and cached after the first call.
+  await loadNetworks();
+  renderNetbar();
 
   // Tab-bar visibility: show on top-level routes (dashboard, yield),
   // hide on detail / form / settings routes so the user sees a clear
@@ -2343,6 +2530,38 @@ async function renderSettings() {
   renderTemplate("tpl-settings");
   const $ = bindings();
 
+  // Reward-threshold alerts only exist on mainnet (see the same guard in
+  // services/yield_service.py). Off mainnet we hide the controls and say
+  // what IS watched, instead of letting the user arm a threshold the
+  // notifier will never read.
+  const rewardsAvailable = currentNetwork() === "mainnet";
+  if (!rewardsAvailable) {
+    if ($.rewardSection) $.rewardSection.hidden = true;
+    if ($.rewardCard) $.rewardCard.hidden = true;
+    if ($.settingsHero) {
+      $.settingsHero.textContent = t(
+        "webapp_settings_hero_testnet",
+        "On testnet we watch attestations and the operator wallet. Reward alerts are mainnet-only — testnet tokens have no price.",
+      );
+    }
+  }
+
+  // Alert subscriptions are stored per network, so a user who runs the same
+  // validator on both chains has two independent switches. Say so, once,
+  // right under the hero — otherwise "I enabled it and nothing happens"
+  // is the predictable support question.
+  if ((state.networks || []).length > 1) {
+    const scope = document.createElement("p");
+    scope.className = "muted small network-scope-note";
+    scope.textContent = t(
+      "webapp_settings_network_scope",
+      "These alerts apply to {network} only — the other network is configured separately.",
+      { network: networkLabel(currentNetwork()) },
+    );
+    const hero = viewEl.querySelector(".hero");
+    if (hero) hero.appendChild(scope);
+  }
+
   const cfg = await api("/api/v1/users/me/notification-config");
   state.notification = cfg;
 
@@ -2963,6 +3182,11 @@ function _buildEntryYield(entry, kind, strkApr, btcApr, strkPriceUsd) {
   const pools = entry.pools || [];
   const breakdown = [];
   let yearUsdTotal = 0;
+  // Whether ANY pool in this entry had a USD price. Without it the USD
+  // total stays 0 and would render as a confident "$0.00" — which on
+  // testnet (no market for the tokens) reads as "you earn nothing"
+  // rather than "we can't price this".
+  let usdKnown = false;
   // STRK-denominated reward total for this entry. We accumulate STRK
   // token counts directly (not via USD round-trip) so the Grand Total
   // STRK display stays stable across renders when prices fluctuate. For
@@ -3001,6 +3225,7 @@ function _buildEntryYield(entry, kind, strkApr, btcApr, strkPriceUsd) {
     }
 
     const yieldYearUsd = price !== null ? yieldYearToken * price : null;
+    if (price !== null) usdKnown = true;
     const ownYieldYearUsd = price !== null ? ownYieldYearToken * price : null;
     const commissionYieldYearUsd = price !== null ? commissionYieldYearToken * price : null;
     if (yieldYearUsd !== null) yearUsdTotal += yieldYearUsd;
@@ -3044,7 +3269,13 @@ function _buildEntryYield(entry, kind, strkApr, btcApr, strkPriceUsd) {
       isStrkPool,
     });
   }
-  return { breakdown, yearUsdTotal, yearStrkTotal };
+  return { breakdown, yearUsdTotal, yearStrkTotal, usdKnown };
+}
+
+
+// "$0.00" and "we don't know" are different answers; keep them apart.
+function fmtUsdOrDash(value, known) {
+  return known ? fmtUsd(value) : "—";
 }
 
 async function renderYieldView() {
@@ -3171,11 +3402,15 @@ async function renderYieldView() {
     // over. Diagnosed 2026-05-11 from user report "STRK Grand Total
     // прыгает 8k → 9k STRK/мес при обновлении цены".
     let grandYearStrk = 0;
+    // False when not a single pool could be priced — then the Grand
+    // Total leads with the STRK figure instead of a meaningless $0.00.
+    let grandUsdKnown = false;
 
     for (const v of validators) {
-      const { breakdown, yearUsdTotal, yearStrkTotal } = _buildEntryYield(v, "validator", strkApr, btcApr, strkPriceUsd);
+      const { breakdown, yearUsdTotal, yearStrkTotal, usdKnown } = _buildEntryYield(v, "validator", strkApr, btcApr, strkPriceUsd);
       grandYearUsd += yearUsdTotal;
       grandYearStrk += yearStrkTotal;
+      grandUsdKnown = grandUsdKnown || usdKnown;
       $.yieldCards.appendChild(_renderYieldCard({
         title: v.label || fmtAddr(v.address),
         subtitleKey: "yield_validator_card_subtitle",
@@ -3183,13 +3418,15 @@ async function renderYieldView() {
         address: v.address,
         breakdown,
         yearUsdTotal,
+        usdKnown,
         kind: "validator",
       }));
     }
     for (const d of delegators) {
-      const { breakdown, yearUsdTotal, yearStrkTotal } = _buildEntryYield(d, "delegator", strkApr, btcApr, strkPriceUsd);
+      const { breakdown, yearUsdTotal, yearStrkTotal, usdKnown } = _buildEntryYield(d, "delegator", strkApr, btcApr, strkPriceUsd);
       grandYearUsd += yearUsdTotal;
       grandYearStrk += yearStrkTotal;
+      grandUsdKnown = grandUsdKnown || usdKnown;
       const subtitleAddon = d.validator_label || (d.validator_address ? fmtAddr(d.validator_address) : "");
       $.yieldCards.appendChild(_renderYieldCard({
         title: d.label || fmtAddr(d.address),
@@ -3199,6 +3436,7 @@ async function renderYieldView() {
         address: d.address,
         breakdown,
         yearUsdTotal,
+        usdKnown,
         kind: "delegator",
       }));
     }
@@ -3212,10 +3450,17 @@ async function renderYieldView() {
       if (strkAmount === null || strkAmount === undefined || !Number.isFinite(strkAmount) || strkAmount === 0) return "";
       return ` ${t("yield_strk_equiv", "≈ {amount} STRK", { amount: fmtAmount(strkAmount, "") })}`;
     };
+    // Without prices the "≈ N STRK" suffix carries the whole answer, so
+    // promote it to the headline rather than prefixing a hollow "$0.00".
+    const grandTotal = (usd, strk) => (
+      grandUsdKnown
+        ? fmtUsd(usd) + strkEquiv(strk)
+        : fmtAmount(strk, "STRK")
+    );
     $.yieldGrandTotal.hidden = false;
-    $.yieldYearTotal.textContent = fmtUsd(grandYearUsd) + strkEquiv(grandYearStrk);
-    $.yieldMonthTotal.textContent = fmtUsd(grandYearUsd / 12) + strkEquiv(grandYearStrk / 12);
-    $.yieldDayTotal.textContent = fmtUsd(grandYearUsd / 365) + strkEquiv(grandYearStrk / 365);
+    $.yieldYearTotal.textContent = grandTotal(grandYearUsd, grandYearStrk);
+    $.yieldMonthTotal.textContent = grandTotal(grandYearUsd / 12, grandYearStrk / 12);
+    $.yieldDayTotal.textContent = grandTotal(grandYearUsd / 365, grandYearStrk / 365);
   }
 
   // Reactive recalc on input change. ``input`` event fires per keystroke
@@ -3232,7 +3477,7 @@ async function renderYieldView() {
   _renderAll();
 }
 
-function _renderYieldCard({ title, subtitleKey, subtitleFallback, subtitleAddon, address, breakdown, yearUsdTotal, kind }) {
+function _renderYieldCard({ title, subtitleKey, subtitleFallback, subtitleAddon, address, breakdown, yearUsdTotal, usdKnown = true, kind }) {
   const card = document.createElement("div");
   card.className = "yield-card card";
   card.dataset.expanded = "false";
@@ -3248,11 +3493,11 @@ function _renderYieldCard({ title, subtitleKey, subtitleFallback, subtitleAddon,
       <div class="muted small">${escapeHtml(subtitle)}</div>
     </div>
     <div class="yield-card-summary">
-      <div class="yield-card-year">${escapeHtml(fmtUsd(yearUsdTotal))}</div>
+      <div class="yield-card-year">${escapeHtml(fmtUsdOrDash(yearUsdTotal, usdKnown))}</div>
       <div class="muted small">
-        <span data-i18n-fallback>${escapeHtml(t("monthly", "Monthly"))}</span>: ${escapeHtml(fmtUsd(yearUsdTotal / 12))}
+        <span data-i18n-fallback>${escapeHtml(t("monthly", "Monthly"))}</span>: ${escapeHtml(fmtUsdOrDash(yearUsdTotal / 12, usdKnown))}
         ·
-        <span>${escapeHtml(t("daily", "Daily"))}</span>: ${escapeHtml(fmtUsd(yearUsdTotal / 365))}
+        <span>${escapeHtml(t("daily", "Daily"))}</span>: ${escapeHtml(fmtUsdOrDash(yearUsdTotal / 365, usdKnown))}
       </div>
     </div>
     <span class="yield-card-chevron" aria-hidden="true">▾</span>

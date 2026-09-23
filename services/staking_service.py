@@ -11,7 +11,7 @@ from starknet_py.contract import Contract
 from starknet_py.net.client_errors import ClientError
 from starknet_py.serialization.errors import InvalidValueException
 
-from data.contracts import STARKNET_NETWORK, get_network_addresses, load_abi
+from data.contracts import DEFAULT_NETWORK, Network, get_network_addresses, load_abi
 from services.attestation_service import (
     fetch_attestation_status,
     fetch_current_block_number,
@@ -49,30 +49,36 @@ def _unwrap_seconds(value: Any) -> int:
 # interface). Cache one instance per address so we pay that cost exactly
 # once per process. ``maxsize`` is generous to cover all the pools a single
 # user might track without thrashing.
-@lru_cache(maxsize=1)
-def _staking_contract() -> Contract:
-    addrs = get_network_addresses()
+@lru_cache(maxsize=None)
+def _staking_contract(network: Network | None = None) -> Contract:
+    net: Network = network or DEFAULT_NETWORK
+    addrs = get_network_addresses(net)
     return Contract(
         address=int(addrs.staking_contract, 16),
         abi=load_abi("l2_staking_contract"),
-        provider=get_client(),
+        provider=get_client(net),
     )
 
 
-_pool_cache: dict[str, Contract] = {}
+# Keyed by ``(network, pool address)``: pool addresses are only unique
+# within a chain, and handing a Sepolia pool a mainnet provider would
+# read the wrong contract (or none at all).
+_pool_cache: dict[tuple[str, str], Contract] = {}
 _pool_cache_lock = asyncio.Lock()
 
 
-def _build_pool_contract(address_hex: str) -> Contract:
+def _build_pool_contract(address_hex: str, network: Network) -> Contract:
     # ~2.3s of synchronous ABI parsing.
     return Contract(
         address=int(address_hex, 16),
         abi=load_abi("l2_pool_contract"),
-        provider=get_client(),
+        provider=get_client(network),
     )
 
 
-async def _pool_contract_async(address_hex: str) -> Contract:
+async def _pool_contract_async(
+    address_hex: str, network: Network | None = None
+) -> Contract:
     """Cached, off-thread pool Contract factory.
 
     The starknet-py constructor parses the full ABI synchronously and takes
@@ -82,34 +88,38 @@ async def _pool_contract_async(address_hex: str) -> Contract:
     can run in parallel, and we cache by address so each pool only parses
     once for the lifetime of the process.
     """
-    cached = _pool_cache.get(address_hex)
+    net: Network = network or DEFAULT_NETWORK
+    key = (net, address_hex)
+    cached = _pool_cache.get(key)
     if cached is not None:
         return cached
     async with _pool_cache_lock:
-        cached = _pool_cache.get(address_hex)
+        cached = _pool_cache.get(key)
         if cached is not None:
             return cached
-        contract = await asyncio.to_thread(_build_pool_contract, address_hex)
-        _pool_cache[address_hex] = contract
+        contract = await asyncio.to_thread(_build_pool_contract, address_hex, net)
+        _pool_cache[key] = contract
         return contract
 
 
-def _pool_contract(address_hex: str) -> Contract:
+def _pool_contract(address_hex: str, network: Network | None = None) -> Contract:
     """Sync accessor — only safe after the address has been warmed."""
-    cached = _pool_cache.get(address_hex)
+    net: Network = network or DEFAULT_NETWORK
+    key = (net, address_hex)
+    cached = _pool_cache.get(key)
     if cached is not None:
         return cached
-    contract = _build_pool_contract(address_hex)
-    _pool_cache[address_hex] = contract
+    contract = _build_pool_contract(address_hex, net)
+    _pool_cache[key] = contract
     return contract
 
 
-def warm_pool_abi() -> None:
+def warm_pool_abi(network: Network | None = None) -> None:
     """Pre-build a throwaway pool Contract so the parser hits its hot path
     before we accept user input. Doesn't help other addresses much (each
     address re-parses), but it does pay the very-first-parse tax up front.
     """
-    _pool_contract("0x" + "0" * 63 + "1")
+    _pool_contract("0x" + "0" * 63 + "1", network)
 
 
 def _addr_hex(value: Any) -> str:
@@ -132,14 +142,16 @@ def _parse_pool_info_v1(raw: dict | None) -> tuple[str, int, int] | None:
     )
 
 
-async def fetch_staker_raw(staker_address: str) -> dict | None:
+async def fetch_staker_raw(
+    staker_address: str, *, network: Network | None = None
+) -> dict | None:
     """Call ``get_staker_info_v1`` on the staking contract.
 
     Returns the decoded struct as a dict, or ``None`` if the staker does not
     exist. ``get_staker_info_v1`` returns ``Option<StakerInfoV1>``, so the
     ``None`` case is distinguishable from RPC failure.
     """
-    contract = _staking_contract()
+    contract = _staking_contract(network or DEFAULT_NETWORK)
 
     async def _call() -> dict | None:
         try:
@@ -163,14 +175,16 @@ async def fetch_staker_raw(staker_address: str) -> dict | None:
         return None
 
 
-async def fetch_staker_pools_raw(staker_address: str) -> dict | None:
+async def fetch_staker_pools_raw(
+    staker_address: str, *, network: Network | None = None
+) -> dict | None:
     """Call ``staker_pool_info`` and return the V2 multi-pool struct.
 
     Returns a dict with keys ``commission`` (``Option<u16>``) and ``pools``
     (list of ``{pool_contract, token_address, amount}``), or ``None`` if the
     staker does not exist.
     """
-    contract = _staking_contract()
+    contract = _staking_contract(network or DEFAULT_NETWORK)
 
     async def _call() -> dict | None:
         try:
@@ -196,8 +210,8 @@ async def fetch_staker_pools_raw(staker_address: str) -> dict | None:
         return None
 
 
-async def fetch_current_epoch() -> int:
-    contract = _staking_contract()
+async def fetch_current_epoch(*, network: Network | None = None) -> int:
+    contract = _staking_contract(network or DEFAULT_NETWORK)
 
     async def _call() -> int:
         (epoch,) = await contract.functions["get_current_epoch"].call()
@@ -206,7 +220,7 @@ async def fetch_current_epoch() -> int:
     return await with_retry(_call, description="get_current_epoch")
 
 
-async def fetch_epoch_info() -> dict | None:
+async def fetch_epoch_info(*, network: Network | None = None) -> dict | None:
     """Return the staking contract's ``EpochInfo`` struct.
 
     Shape::
@@ -226,7 +240,7 @@ async def fetch_epoch_info() -> dict | None:
     call per fetch_validator_info is negligible compared to the pool /
     attestation reads that already run in parallel.
     """
-    contract = _staking_contract()
+    contract = _staking_contract(network or DEFAULT_NETWORK)
 
     async def _call() -> dict:
         (info,) = await contract.functions["get_epoch_info"].call()
@@ -290,9 +304,9 @@ def _compute_epoch_timeline(
     )
 
 
-async def fetch_active_tokens() -> list[str]:
+async def fetch_active_tokens(*, network: Network | None = None) -> list[str]:
     """Return addresses of currently enabled staking tokens."""
-    contract = _staking_contract()
+    contract = _staking_contract(network or DEFAULT_NETWORK)
 
     async def _call() -> list[str]:
         (tokens,) = await contract.functions["get_active_tokens"].call()
@@ -306,14 +320,14 @@ async def fetch_active_tokens() -> list[str]:
 _SYNC_TOLERANCE_BLOCKS = 5
 
 
-async def fetch_node_sync() -> NodeSync | None:
+async def fetch_node_sync(*, network: Network | None = None) -> NodeSync | None:
     """Ask the RPC node whether it has caught up with the network.
 
     Never raises: the indicator is a nicety, and a failed probe must not
     take down the whole status endpoint. Returns ``None`` on failure so
     the UI can distinguish "not synced" from "could not tell".
     """
-    client = get_client()
+    client = get_client(network or DEFAULT_NETWORK)
     try:
         status = await client.get_syncing_status()
     except Exception as exc:  # noqa: BLE001
@@ -340,7 +354,7 @@ async def fetch_node_sync() -> NodeSync | None:
     )
 
 
-async def fetch_system_info() -> StakingSystemInfo:
+async def fetch_system_info(*, network: Network | None = None) -> StakingSystemInfo:
     """Return protocol-wide parameters (min stake, exit window, epoch, tokens).
 
     Also folds in the EpochInfo + chain head so the Mini App hero can
@@ -348,8 +362,9 @@ async def fetch_system_info() -> StakingSystemInfo:
     RPC. The two extra reads piggy-back on the same parallel gather, so
     the cost stays one round-trip.
     """
-    addrs = get_network_addresses()
-    contract = _staking_contract()
+    net: Network = network or DEFAULT_NETWORK
+    addrs = get_network_addresses(net)
+    contract = _staking_contract(net)
 
     async def _params() -> dict:
         (res,) = await contract.functions["contract_parameters_v1"].call()
@@ -357,11 +372,11 @@ async def fetch_system_info() -> StakingSystemInfo:
 
     params, epoch, active_tokens, epoch_info, current_block, node_sync = await asyncio.gather(
         with_retry(_params, description="contract_parameters_v1"),
-        fetch_current_epoch(),
-        fetch_active_tokens(),
-        fetch_epoch_info(),
-        fetch_current_block_number(),
-        fetch_node_sync(),
+        fetch_current_epoch(network=net),
+        fetch_active_tokens(network=net),
+        fetch_epoch_info(network=net),
+        fetch_current_block_number(network=net),
+        fetch_node_sync(network=net),
     )
 
     timeline = _compute_epoch_timeline(
@@ -372,7 +387,7 @@ async def fetch_system_info() -> StakingSystemInfo:
 
     min_stake = int(params.get("min_stake", 0))
     return StakingSystemInfo(
-        network=STARKNET_NETWORK,
+        network=net,
         staking_contract=addrs.staking_contract,
         attestation_contract=_addr_hex(params.get("attestation_contract", addrs.attestation_contract)),
         reward_supplier=_addr_hex(params.get("reward_supplier", 0)),
@@ -391,13 +406,15 @@ async def get_validator_info(
     *,
     with_attestation: bool = True,
     with_operator_balance: bool = True,
+    network: Network | None = None,
 ) -> ValidatorInfo | None:
     """Aggregate the V2 validator view (info + multi-pool + attestation +
     operator wallet STRK balance)."""
+    net: Network = network or DEFAULT_NETWORK
     staker_raw, pools_raw, epoch = await asyncio.gather(
-        fetch_staker_raw(staker_address),
-        fetch_staker_pools_raw(staker_address),
-        fetch_current_epoch(),
+        fetch_staker_raw(staker_address, network=net),
+        fetch_staker_pools_raw(staker_address, network=net),
+        fetch_current_epoch(network=net),
     )
     if staker_raw is None:
         return None
@@ -415,7 +432,7 @@ async def get_validator_info(
         for p in pools_list:
             token_hex = _addr_hex(p.get("token_address", 0))
             amount_raw = int(p.get("amount", 0))
-            token_meta = await token_registry.get(token_hex)
+            token_meta = await token_registry.get(token_hex, network=net)
             pools.append(
                 PoolInfoDto(
                     pool_contract=_addr_hex(p.get("pool_contract", 0)),
@@ -429,7 +446,9 @@ async def get_validator_info(
         # Fallback: pre-multi-token validators still report a single STRK pool
         # inside StakerInfoV1.pool_info. Use STRK decimals.
         pool_contract, amount_raw, commission_bps = legacy_pool
-        strk = await token_registry.get(get_network_addresses().strk_token)
+        strk = await token_registry.get(
+            get_network_addresses(net).strk_token, network=net
+        )
         pools.append(
             PoolInfoDto(
                 pool_contract=pool_contract,
@@ -460,6 +479,7 @@ async def get_validator_info(
                 staker_address,
                 current_epoch=epoch,
                 operational_address=operational_hex,
+                network=net,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"attestation lookup failed for {staker_address}: {exc}")
@@ -469,7 +489,7 @@ async def get_validator_info(
         if not with_operator_balance or not operational_hex or operational_hex == "0x0":
             return None
         try:
-            return await fetch_strk_balance(operational_hex)
+            return await fetch_strk_balance(operational_hex, network=net)
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"operator balance lookup failed for {operational_hex}: {exc}")
             return None
@@ -479,8 +499,8 @@ async def get_validator_info(
         # return None on failure; ``_compute_epoch_timeline`` then yields
         # None too and the renderer drops the tail.
         return await asyncio.gather(
-            fetch_epoch_info(),
-            fetch_current_block_number(),
+            fetch_epoch_info(network=net),
+            fetch_current_block_number(network=net),
         )
 
     attestation, operator_balance, timeline_inputs = await asyncio.gather(
@@ -512,9 +532,11 @@ async def get_validator_info(
     )
 
 
-async def fetch_pool_member_raw(pool_address: str, member_address: str) -> dict | None:
+async def fetch_pool_member_raw(
+    pool_address: str, member_address: str, *, network: Network | None = None
+) -> dict | None:
     """Call ``get_pool_member_info_v1`` on a pool contract."""
-    contract = await _pool_contract_async(pool_address)
+    contract = await _pool_contract_async(pool_address, network or DEFAULT_NETWORK)
 
     async def _call() -> dict | None:
         try:
@@ -540,9 +562,11 @@ async def fetch_pool_member_raw(pool_address: str, member_address: str) -> dict 
         return None
 
 
-async def fetch_pool_parameters_raw(pool_address: str) -> dict | None:
+async def fetch_pool_parameters_raw(
+    pool_address: str, *, network: Network | None = None
+) -> dict | None:
     """Call ``contract_parameters_v1`` on a pool contract (returns PoolContractInfoV1)."""
-    contract = await _pool_contract_async(pool_address)
+    contract = await _pool_contract_async(pool_address, network or DEFAULT_NETWORK)
 
     async def _call() -> dict | None:
         (result,) = await contract.functions["contract_parameters_v1"].call()
@@ -558,12 +582,13 @@ async def fetch_pool_parameters_raw(pool_address: str) -> dict | None:
 
 
 async def get_delegator_info(
-    pool_address: str, delegator_address: str
+    pool_address: str, delegator_address: str, *, network: Network | None = None
 ) -> DelegatorInfo | None:
     """Compose the delegator view, resolving the pool's token decimals."""
+    net: Network = network or DEFAULT_NETWORK
     member_raw, pool_params = await asyncio.gather(
-        fetch_pool_member_raw(pool_address, delegator_address),
-        fetch_pool_parameters_raw(pool_address),
+        fetch_pool_member_raw(pool_address, delegator_address, network=net),
+        fetch_pool_parameters_raw(pool_address, network=net),
     )
     if member_raw is None:
         return None
@@ -574,7 +599,7 @@ async def get_delegator_info(
     if isinstance(pool_params, dict) and pool_params.get("token_address"):
         token_hex = _addr_hex(pool_params["token_address"])
         try:
-            tok = await token_registry.get(token_hex)
+            tok = await token_registry.get(token_hex, network=net)
             decimals, symbol = tok.decimals, tok.symbol
         except Exception:  # noqa: BLE001
             pass
@@ -607,7 +632,7 @@ async def get_delegator_info(
 
 
 async def get_delegator_positions(
-    staker_address: str, delegator_address: str
+    staker_address: str, delegator_address: str, *, network: Network | None = None
 ) -> DelegatorMultiPositions:
     """Enumerate the staker's pools and return every one where the delegator
     is a member.
@@ -616,7 +641,8 @@ async def get_delegator_positions(
     multiple token pools (STRK + BTC wrappers). Asking the user for a
     specific pool address was a V1-era constraint.
     """
-    pools_raw = await fetch_staker_pools_raw(staker_address)
+    net: Network = network or DEFAULT_NETWORK
+    pools_raw = await fetch_staker_pools_raw(staker_address, network=net)
     if not pools_raw or not isinstance(pools_raw, dict):
         return DelegatorMultiPositions(
             delegator_address=_addr_hex(delegator_address),
@@ -630,7 +656,7 @@ async def get_delegator_positions(
 
     # Probe every pool in parallel; non-members get dropped.
     async def _probe(pool_addr: str) -> DelegatorInfo | None:
-        return await get_delegator_info(pool_addr, delegator_address)
+        return await get_delegator_info(pool_addr, delegator_address, network=net)
 
     results = await asyncio.gather(*(_probe(p) for p in pool_contracts))
     positions = [r for r in results if r is not None]

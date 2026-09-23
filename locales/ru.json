@@ -413,5 +413,11 @@
     "yield_prices_label": "Текущие цены",
     "yield_paid_in_strk": "награды в STRK",
     "webapp_tab_portfolio": "Портфолио",
-    "webapp_tab_yield": "Доход"
+    "webapp_tab_yield": "Доход",
+    "webapp_network_mainnet": "Основная",
+    "webapp_network_testnet": "Тестовая",
+    "webapp_network_switch_aria": "Сеть",
+    "webapp_settings_network_scope": "Эти уведомления относятся только к сети «{network}» — другая сеть настраивается отдельно.",
+    "network_testnet_badge": "🧪 Тестовая сеть (Sepolia)",
+    "webapp_settings_hero_testnet": "В тестовой сети отслеживаются аттестации и баланс кошелька оператора. Уведомления о наградах работают только в основной сети — у тестовых токенов нет цены."
 }

@@ -35,7 +35,7 @@ async def test_add_validator_invalid_address(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_add_validator_happy_path(monkeypatch) -> None:
-    async def _fake_info(addr, with_attestation=False):  # noqa: ARG001
+    async def _fake_info(addr, with_attestation=False, network=None):  # noqa: ARG001
         return SimpleNamespace(some_field=True)
 
     monkeypatch.setattr(
@@ -53,7 +53,7 @@ async def test_add_validator_happy_path(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_add_validator_label_truncated_to_40(monkeypatch) -> None:
-    async def _fake_info(addr, with_attestation=False):  # noqa: ARG001
+    async def _fake_info(addr, with_attestation=False, network=None):  # noqa: ARG001
         return SimpleNamespace()
 
     monkeypatch.setattr(
@@ -70,7 +70,7 @@ async def test_add_validator_label_truncated_to_40(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_add_validator_duplicate_case_insensitive(monkeypatch) -> None:
-    async def _fake_info(addr, with_attestation=False):  # noqa: ARG001
+    async def _fake_info(addr, with_attestation=False, network=None):  # noqa: ARG001
         return SimpleNamespace()
 
     monkeypatch.setattr(
@@ -87,7 +87,7 @@ async def test_add_validator_duplicate_case_insensitive(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_add_validator_not_a_staker(monkeypatch) -> None:
-    async def _fake_info(addr, with_attestation=False):  # noqa: ARG001
+    async def _fake_info(addr, with_attestation=False, network=None):  # noqa: ARG001
         return None
 
     monkeypatch.setattr(
@@ -101,7 +101,7 @@ async def test_add_validator_not_a_staker(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_add_validator_capacity(monkeypatch) -> None:
-    async def _fake_info(addr, with_attestation=False):  # noqa: ARG001
+    async def _fake_info(addr, with_attestation=False, network=None):  # noqa: ARG001
         return SimpleNamespace()
 
     monkeypatch.setattr(
@@ -123,7 +123,7 @@ async def test_add_validator_capacity(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_add_delegator_happy_path(monkeypatch) -> None:
-    async def _fake_positions(staker, delegator):  # noqa: ARG001
+    async def _fake_positions(staker, delegator, network=None):  # noqa: ARG001
         return SimpleNamespace(has_any=True, positions=[])
 
     monkeypatch.setattr(
@@ -146,7 +146,7 @@ async def test_add_delegator_happy_path(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_add_delegator_not_a_delegator(monkeypatch) -> None:
-    async def _fake_positions(staker, delegator):  # noqa: ARG001
+    async def _fake_positions(staker, delegator, network=None):  # noqa: ARG001
         return SimpleNamespace(has_any=False, positions=[])
 
     monkeypatch.setattr(
@@ -164,7 +164,7 @@ async def test_add_delegator_not_a_delegator(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_add_delegator_duplicate_pair(monkeypatch) -> None:
-    async def _fake_positions(staker, delegator):  # noqa: ARG001
+    async def _fake_positions(staker, delegator, network=None):  # noqa: ARG001
         return SimpleNamespace(has_any=True, positions=[])
 
     monkeypatch.setattr(
@@ -213,7 +213,7 @@ async def test_add_delegator_invalid_addresses(monkeypatch) -> None:
 async def test_add_delegator_capacity_counts_both_lists(monkeypatch) -> None:
     """``MAX_TRACKED_ENTRIES`` is the *total* across validators+delegations."""
 
-    async def _fake_positions(staker, delegator):  # noqa: ARG001
+    async def _fake_positions(staker, delegator, network=None):  # noqa: ARG001
         return SimpleNamespace(has_any=True, positions=[])
 
     monkeypatch.setattr(
