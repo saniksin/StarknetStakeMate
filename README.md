@@ -29,7 +29,7 @@ A Starknet staking companion: Telegram bot + REST API + Telegram Mini App / loca
 | Asset cache-busting (`?v=<mtime>`) | — | ✅ | survives Telegram WebView's aggressive cache |
 | Mainnet / testnet switch | — | ✅ | optional second RPC endpoint; see [Networks](#networks) |
 | Validator uptime | — | ✅ | Endur's `liveliness`, shown on the validator and delegation cards; see [Validator uptime](#validator-uptime) |
-| Auto-filled network APR | — | ✅ | Yield inputs prefill from the live gross rate; manual override lasts the session |
+| Auto-filled network APR | — | ✅ | Yield inputs prefill from the on-chain gross rate; manual override lasts the session |
 
 ---
 
@@ -115,30 +115,45 @@ we don't use it.
 ## Network APR (Yield calculator)
 
 The Yield inputs prefill from the live protocol rate instead of a
-hard-coded constant. `GET /api/v1/network-apr` reads it from the same
-Endur index as uptime.
+hard-coded constant. `GET /api/v1/network-apr` computes it straight off
+the staking contracts — APR is emission over stake and both sides are on
+chain, so no third party is involved:
 
-**Which validators' rate.** Endur quotes each validator's `apy` already
-net of that validator's commission, so the ones charging **0%** are
-quoting the gross figure — and the calculator needs gross, because it
-applies commission itself. Measured across all 15 commission tiers on
-mainnet, `apy == gross x (1 - commission)` reconstructs to four decimals,
-so this is exact rather than an approximation. If no zero-commission
-validator is active, the rate is back-calculated from one that charges
-and the response sets `derived: true`.
+```
+rewards_per_epoch = reward_supplier.calculate_current_epoch_rewards()
+epochs_per_year   = year / staking.get_epoch_info().epoch_duration
+APR_strk          = rewards.strk * epochs_per_year / staking.get_total_stake()
+```
+
+Cross-checked against Endur's published mainnet figure when this landed:
+7.4825% both ways, to four decimals. (On Sepolia the two diverge — 82.7%
+on chain against their 44.0% — which is an argument for reading the chain
+rather than an index of it.)
+
+**BTC pools are the one place a price is unavoidable.** The protocol pays
+their rewards in STRK too, sized against BTC collateral, so the percentage
+compares two different assets:
+
+```
+APR_btc = rewards.btc * epochs_per_year * price(STRK)
+          / (staking.get_current_total_staking_power().btc * price(BTC))
+```
+
+Without prices `btc_percent` is `null` rather than `0` — "we can't price
+this" is a different statement from "these pools yield nothing". The STRK
+rate never depends on a price.
 
 **Three states, all visible in the UI:**
 
 | `status` | what the user sees |
 | --- | --- |
-| `ok` | the rate, plus "from Endur, updated N ago / from validators charging 0%" |
-| `stale` | the last figure we successfully read, plus "Endur is unreachable - using the last known APR from N ago" |
+| `ok` | the rate, plus "from the staking contracts, updated N ago" |
+| `stale` | the last figure we computed, plus "couldn't read the chain - using the last known APR from N ago" |
 | `unavailable` | built-in constants, plus "couldn't fetch the network APR" |
 
-The `stale` path is what makes an outage harmless: APR barely moves, so
-yesterday's real number is a far better default than a constant from last
-spring. Readings are persisted to `files/apr_last_good.json` - inside the
-data volume, so they survive a container rebuild.
+Readings are persisted to `files/apr_last_good.json` - inside the data
+volume, so they survive a container rebuild. APR barely moves, so
+yesterday's real number beats a constant from last spring.
 
 **Manual override still works, and now expires.** Typing your own rate
 recalculates as before, but the value lives in `sessionStorage` keyed per
@@ -368,7 +383,7 @@ Key idea: every contract read and every user-visible string originates in `servi
 | GET | `/api/v1/status/node` | RPC node sync state (cheap; safe to poll) |
 | GET | `/api/v1/validators/{addr}` | Full validator view (multi-pool + attestation) |
 | GET | `/api/v1/validators/{addr}/uptime` | Attestation uptime from Endur; always 200, `status ∈ {ok, not_indexed, unavailable}` |
-| GET | `/api/v1/network-apr` | Gross staking APR for the Yield calculator; always 200, `status ∈ {ok, stale, unavailable}` |
+| GET | `/api/v1/network-apr` | Gross staking APR computed on chain; always 200, `status ∈ {ok, stale, unavailable}` |
 | GET | `/api/v1/delegators/{addr}?pool=…` | Delegator position in one pool |
 | GET | `/api/v1/users/me/tracking` | List tracked pairs |
 | PUT | `/api/v1/users/me/tracking` | Replace the tracking list |

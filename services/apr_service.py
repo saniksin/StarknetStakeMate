@@ -1,48 +1,61 @@
-"""Protocol-wide staking APR, read from Endur's validator index.
+"""Protocol-wide staking APR, computed from the staking contracts.
 
 The Yield calculator needs the **gross** rate — the one before any
-validator takes a commission — because it applies commission itself:
-a validator earns the full rate on its own stake plus the commission
-slice of what is delegated to it, a delegator earns the rate net of that
+validator takes a commission — because it applies commission itself: a
+validator earns the full rate on its own stake plus the commission slice
+of what is delegated to it, a delegator earns the rate net of that
 commission. Hand it a post-commission number and the cut gets counted
 twice.
 
-Endur publishes ``apy`` per validator already net of that validator's
-commission, so the validators charging **0%** are the ones quoting the
-gross figure. Measured across all 15 commission tiers on mainnet, their
-own numbers reconstruct to four decimals:
+Nothing third-party is involved. APR is just emission over stake, and
+both sides are on chain:
 
-    apy(validator) == gross * (1 - commission)
+    rewards_per_epoch = reward_supplier.calculate_current_epoch_rewards()
+    epochs_per_year   = year / staking.get_epoch_info().epoch_duration
+    APR_strk          = rewards.strk * epochs_per_year / staking.get_total_stake()
 
-so reading the zero-commission rows is exact, not an approximation. When
-none of them is active we fall back to un-applying the commission from a
-validator that charges one, and flag the result as ``derived``.
+Checked against Endur's published mainnet figure: 7.4825% both ways, to
+four decimals. (On Sepolia the two diverge — 82.7% on chain against their
+44.0% — which is a point in favour of reading the chain rather than an
+index of it.)
 
-Same failure discipline as :mod:`services.uptime_service`: always return
-a DTO, never ``None``, never raise. One thing is different, though — APR
-barely moves, so the *last figure we successfully read* is a far better
-answer than a constant baked in at build time. Every good reading is
-written to disk (``files/apr_last_good.json``, inside the data volume, so
-it survives a container restart) and served back with
-``status="stale"`` while the upstream is unreachable. The UI says which
-of the three it is showing rather than quietly passing one off as another.
+BTC pools are the one place a price is unavoidable. The protocol pays
+*their* rewards in STRK too, sized against BTC collateral, so turning
+that into a percentage means comparing two different assets:
+
+    APR_btc = rewards.btc * epochs_per_year * price(STRK)
+              / (btc_staking_power * price(BTC))
+
+Without prices the BTC figure is simply absent; the STRK one never is.
+
+Every successful reading is persisted to ``files/apr_last_good.json``
+(inside the data volume, so it survives a container rebuild) and served
+back with ``status="stale"`` if a later read fails. APR barely moves, so
+yesterday's real number beats a constant baked in at build time — as long
+as the UI says which of the two it is showing.
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import os
-import statistics
 import time
 from datetime import datetime, timezone
 
-import aiohttp
-
 from data.all_paths import FILES_DIR
-from data.contracts import DEFAULT_NETWORK, Network
+from data.contracts import DEFAULT_NETWORK, Network, get_network_addresses
 from services.staking_dto import NetworkApr
-from services.uptime_service import _ENDUR_BASE, _parse_dt
+from services.uptime_service import _parse_dt
 from utils.logger import logger
+
+_SECONDS_PER_YEAR = 365 * 24 * 3600
+
+# Starknet-keccak selectors, hard-coded so nothing has to parse an ABI we
+# don't ship. ``calculate_current_epoch_rewards`` lives on the reward
+# supplier, the other two on the staking contract.
+_EPOCH_REWARDS_SELECTOR = 0x28E40F9CA652DD3D88E10F80E876DC8363C85B4E2D08D96F8AAAB3A44F52887
+_TOTAL_STAKE_SELECTOR = 0x226FFC5DB8F68325947F4C4FCBEA7117624ED26D4A1354693F63DE203C453C8
+_TOTAL_STAKING_POWER_SELECTOR = 0x30E15D92E5EEFA441D334E87E43851F89FD69413DF3711C1739E883A1E66EA8
 
 # Last known good reading per network. Lives in the data volume next to
 # the SQLite DB, so a rebuilt container still starts with a real rate
@@ -54,14 +67,6 @@ _STORE_PATH = FILES_DIR / "apr_last_good.json"
 # the Yield tab from re-asking on every open.
 _TTL_SECONDS = int(os.getenv("APR_CACHE_TTL", "600"))
 _FAILURE_TTL_SECONDS = int(os.getenv("APR_FAILURE_CACHE_TTL", "60"))
-
-_TIMEOUT = aiohttp.ClientTimeout(total=float(os.getenv("APR_TIMEOUT", "8")))
-
-# Sorting by apy descending puts the zero-commission validators first —
-# gross is the same for everyone, so the largest post-commission number
-# is the one with no commission. Ten rows is enough to take a median from
-# and keeps the response small (~9 KB instead of ~440 KB for the full list).
-_SAMPLE_SIZE = 10
 
 _cache: dict[str, tuple[NetworkApr, float]] = {}
 _locks: dict[str, asyncio.Lock] = {}
@@ -91,8 +96,6 @@ def _save_reading(network: Network, apr: NetworkApr) -> None:
     store[network] = {
         "strk_percent": apr.strk_percent,
         "btc_percent": apr.btc_percent,
-        "derived": apr.derived,
-        "sample_size": apr.sample_size,
         "measured_at": apr.measured_at.isoformat() if apr.measured_at else None,
         "saved_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -127,8 +130,6 @@ def _last_good(network: Network, detail: str) -> NetworkApr:
         status="stale",
         strk_percent=strk,
         btc_percent=btc,
-        derived=bool(row.get("derived")),
-        sample_size=int(row.get("sample_size") or 0),
         measured_at=measured,
         detail=detail,
     )
@@ -151,118 +152,140 @@ def _as_rate(raw: object) -> float | None:
     return value
 
 
-def _pick(rows: list[dict], network: Network) -> NetworkApr:
-    """Choose the gross STRK / BTC rate out of a sorted validator sample."""
-    active = [r for r in rows if r.get("is_active")]
-    if not active:
-        return _unavailable(network, "no active validators in sample")
-
-    def _commission(row: dict) -> float | None:
-        try:
-            return float(row.get("commission"))
-        except (TypeError, ValueError):
-            return None
-
-    zero_commission = [
-        r for r in active
-        if _commission(r) == 0 and _as_rate(r.get("apy")) is not None
-    ]
-
-    if zero_commission:
-        strk_values = [_as_rate(r.get("apy")) for r in zero_commission]
-        # ``btc_apy`` can legitimately be 0 on a network with no BTC
-        # pools yet, so it is allowed through where ``apy`` is not.
-        btc_values = []
-        for r in zero_commission:
-            try:
-                btc_values.append(max(0.0, float(r.get("btc_apy") or 0)))
-            except (TypeError, ValueError):
-                btc_values.append(0.0)
-        return NetworkApr(
-            network=network,
-            status="ok",
-            strk_percent=statistics.median(strk_values),
-            btc_percent=statistics.median(btc_values),
-            derived=False,
-            sample_size=len(zero_commission),
-            measured_at=_parse_dt(zero_commission[0].get("updated_at")),
-        )
-
-    # Fallback: nobody is running at 0%. Un-apply the smallest commission
-    # we can see. Exact by the same identity, just one division away from
-    # the source, so the result is flagged.
-    best: tuple[float, dict] | None = None
-    for row in active:
-        commission = _commission(row)
-        rate = _as_rate(row.get("apy"))
-        if commission is None or rate is None or commission >= 100:
-            continue
-        if best is None or commission < best[0]:
-            best = (commission, row)
-    if best is None:
-        return _unavailable(network, "no validator quoted a usable apy")
-
-    commission, row = best
-    factor = 1 - commission / 100
+def _u256(felts: list[int], index: int) -> int | None:
+    """These getters return plain felts, not u256 pairs — but guard the
+    index anyway so a signature change is a ``None``, not an IndexError."""
     try:
-        btc_raw = max(0.0, float(row.get("btc_apy") or 0))
-    except (TypeError, ValueError):
-        btc_raw = 0.0
-    gross_strk = _as_rate(row.get("apy"))
-    if gross_strk is None:
-        return _unavailable(network, "no validator quoted a usable apy")
-    return NetworkApr(
-        network=network,
-        status="ok",
-        strk_percent=gross_strk / factor,
-        btc_percent=btc_raw / factor,
-        derived=True,
-        sample_size=1,
-        measured_at=_parse_dt(row.get("updated_at")),
-    )
+        return int(felts[index])
+    except (IndexError, TypeError, ValueError):
+        return None
+
+
+async def _call(client, address: str, selector: int) -> list[int]:
+    from starknet_py.net.client_models import Call  # local: cheap import
+
+    call = Call(to_addr=int(address, 16), selector=selector, calldata=[])
+    return list(await client.call_contract(call=call, block_hash="latest"))
 
 
 async def _fetch(network: Network) -> NetworkApr:
-    base = _ENDUR_BASE.get(network) or ""
-    if not base:
-        return _unavailable(network, f"no APR source configured for {network}")
-    origin = (
-        "https://dashboard.endur.fi"
-        if network == "mainnet"
-        else "https://sepolia.dashboard.endur.fi"
-    )
-    url = (
-        f"{base}/validators"
-        f"?page=1&per_page={_SAMPLE_SIZE}&sort_by=apy&sort_order=desc"
-    )
-    headers = {
-        "accept": "application/json, text/plain, */*",
-        "origin": origin,
-        "referer": origin + "/",
-    }
-    try:
-        async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
-            async with session.get(url, headers=headers) as response:
-                if response.status != 200:
-                    logger.warning(
-                        f"apr: {network} returned HTTP {response.status}"
-                    )
-                    return _unavailable(network, f"upstream HTTP {response.status}")
-                payload = await response.json(content_type=None)
-    except asyncio.TimeoutError:
-        logger.warning(f"apr fetch timed out [{network}]")
-        return _unavailable(network, "upstream timed out")
-    except aiohttp.ClientError as exc:
-        logger.warning(f"apr fetch failed [{network}]: {exc}")
-        return _unavailable(network, "upstream unreachable")
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(f"apr fetch errored [{network}]: {exc}")
-        return _unavailable(network, "unexpected upstream response")
+    """Read emission and stake off the chain and divide.
 
-    rows = (payload or {}).get("validators") if isinstance(payload, dict) else None
-    if not isinstance(rows, list) or not rows:
-        return _unavailable(network, "upstream returned no validators")
-    return _pick(rows, network)
+    Everything here runs against the same node the rest of the app uses,
+    so there is no separate outage mode: if this fails, the validator
+    cards are broken too.
+    """
+    from services.rpc_client import get_client
+    from services.staking_service import _staking_contract, fetch_epoch_info
+
+    addrs = get_network_addresses(network)
+    client = get_client(network)
+    contract = _staking_contract(network)
+
+    try:
+        async def _params() -> dict:
+            (res,) = await contract.functions["contract_parameters_v1"].call()
+            return res
+
+        params, epoch_info, total_raw, power_raw = await asyncio.gather(
+            _params(),
+            fetch_epoch_info(network=network),
+            _call(client, addrs.staking_contract, _TOTAL_STAKE_SELECTOR),
+            _call(client, addrs.staking_contract, _TOTAL_STAKING_POWER_SELECTOR),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"apr: staking reads failed [{network}]: {exc}")
+        return _unavailable(network, "staking contract unreachable")
+
+    duration = int((epoch_info or {}).get("epoch_duration") or 0)
+    if duration <= 0:
+        return _unavailable(network, "epoch duration unavailable")
+    epochs_per_year = _SECONDS_PER_YEAR / duration
+
+    total_staked = _u256(total_raw, 0)
+    if not total_staked:
+        return _unavailable(network, "total stake unavailable")
+
+    reward_supplier = params.get("reward_supplier")
+    if not reward_supplier:
+        return _unavailable(network, "reward supplier address unavailable")
+    supplier_hex = "0x" + format(int(reward_supplier), "064x")
+
+    try:
+        rewards_raw = await _call(client, supplier_hex, _EPOCH_REWARDS_SELECTOR)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"apr: epoch rewards read failed [{network}]: {exc}")
+        return _unavailable(network, "reward supplier unreachable")
+
+    # (rewards for STRK pools, rewards for BTC pools) — both denominated
+    # in STRK, split by the protocol's ``alpha``.
+    strk_rewards = _u256(rewards_raw, 0)
+    btc_rewards = _u256(rewards_raw, 1)
+    if strk_rewards is None:
+        return _unavailable(network, "epoch rewards unavailable")
+
+    strk_percent = _as_rate(
+        strk_rewards * epochs_per_year / total_staked * 100
+    )
+    if strk_percent is None:
+        return _unavailable(network, "computed STRK APR out of range")
+
+    return NetworkApr(
+        network=network,
+        status="ok",
+        strk_percent=strk_percent,
+        btc_percent=await _btc_percent(
+            network=network,
+            btc_rewards=btc_rewards,
+            epochs_per_year=epochs_per_year,
+            btc_power=_u256(power_raw, 1),
+        ),
+        measured_at=datetime.now(timezone.utc),
+    )
+
+
+async def _btc_percent(
+    *,
+    network: Network,
+    btc_rewards: int | None,
+    epochs_per_year: float,
+    btc_power: int | None,
+) -> float | None:
+    """BTC-pool APR, or ``None`` when it cannot honestly be stated.
+
+    The protocol pays BTC stakers in STRK, sized against BTC collateral,
+    so the percentage is a ratio between two assets and needs both
+    prices. ``None`` (rather than zero) when either is missing: the UI
+    then keeps its previous BTC figure instead of claiming the pools
+    yield nothing.
+    """
+    if not btc_rewards or not btc_power:
+        return None
+    from decimal import Decimal
+
+    from services.price_service import get_usd_prices
+
+    try:
+        prices = await get_usd_prices()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"apr: price fetch failed [{network}]: {exc}")
+        return None
+    strk_price = prices.get("STRK")
+    btc_price = prices.get("WBTC") or prices.get("BTC")
+    if not strk_price or not btc_price:
+        return None
+
+    # ``btc_power`` is the protocol's BTC stake normalised to 18 decimals,
+    # the same scale the STRK amounts use.
+    rewards_usd = (
+        Decimal(btc_rewards) / Decimal(10**18)
+        * Decimal(str(epochs_per_year))
+        * Decimal(str(strk_price))
+    )
+    collateral_usd = Decimal(btc_power) / Decimal(10**18) * Decimal(str(btc_price))
+    if collateral_usd <= 0:
+        return None
+    return _as_rate(float(rewards_usd / collateral_usd * 100))
 
 
 async def fetch_network_apr(network: Network | None = None) -> NetworkApr:

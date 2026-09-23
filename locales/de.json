@@ -429,11 +429,9 @@
     "webapp_hours_ago": "vor {n} Std.",
     "webapp_days_ago": "vor {n} T.",
     "yield_apr_reset": "Netzwerk-APR zurücksetzen",
-    "yield_apr_source": "Netzwerk-APR laut Endur",
-    "yield_apr_source_at": "Netzwerk-APR laut Endur, aktualisiert {ago}",
-    "yield_apr_source_stale": "Endur nicht erreichbar — letzter bekannter APR",
-    "yield_apr_source_stale_at": "Endur nicht erreichbar — letzter bekannter APR von {ago}",
-    "yield_apr_source_fallback": "Netzwerk-APR konnte nicht geladen werden — es gelten die eingebauten Standardwerte. Gib deinen eigenen ein, wenn du es genauer weißt.",
-    "yield_apr_zero_commission": "von Validatoren ohne Kommission",
-    "yield_apr_derived": "aus der Kommission eines Validators zurückgerechnet"
+    "yield_apr_source": "Netzwerk-APR aus den Staking-Verträgen",
+    "yield_apr_source_at": "Netzwerk-APR aus den Staking-Verträgen, aktualisiert {ago}",
+    "yield_apr_source_stale": "Chain nicht lesbar — letzter bekannter APR",
+    "yield_apr_source_stale_at": "Chain nicht lesbar — letzter bekannter APR von {ago}",
+    "yield_apr_source_fallback": "Netzwerk-APR konnte nicht geladen werden — es gelten die eingebauten Standardwerte. Gib deinen eigenen ein, wenn du es genauer weißt."
 }

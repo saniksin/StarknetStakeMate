@@ -429,11 +429,9 @@
     "webapp_hours_ago": "hace {n} h",
     "webapp_days_ago": "hace {n} d",
     "yield_apr_reset": "Restablecer APR de la red",
-    "yield_apr_source": "APR de la red según Endur",
-    "yield_apr_source_at": "APR de la red según Endur, actualizado {ago}",
-    "yield_apr_source_stale": "Endur no responde: se muestra el último APR conocido",
-    "yield_apr_source_stale_at": "Endur no responde: se muestra el último APR conocido de {ago}",
-    "yield_apr_source_fallback": "No se pudo obtener el APR de la red; se muestran los valores por defecto. Escribe el tuyo si lo sabes con más precisión.",
-    "yield_apr_zero_commission": "de validadores con 0% de comisión",
-    "yield_apr_derived": "recalculado a partir de la comisión de un validador"
+    "yield_apr_source": "APR de la red desde los contratos de staking",
+    "yield_apr_source_at": "APR de la red desde los contratos de staking, actualizado {ago}",
+    "yield_apr_source_stale": "No se pudo leer la cadena: se muestra el último APR conocido",
+    "yield_apr_source_stale_at": "No se pudo leer la cadena: se muestra el último APR conocido de {ago}",
+    "yield_apr_source_fallback": "No se pudo obtener el APR de la red; se muestran los valores por defecto. Escribe el tuyo si lo sabes con más precisión."
 }

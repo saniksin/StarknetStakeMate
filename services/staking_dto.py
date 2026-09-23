@@ -354,44 +354,32 @@ class NetworkApr(BaseModel):
     of commission. Feeding it a post-commission number would double-count
     the cut.
 
-    Endur publishes each validator's ``apy`` already net of that
-    validator's commission — which makes the validators charging **0%**
-    the ones quoting the gross figure, and they all agree to four
-    decimals. That is what we read. ``derived`` flags the fallback path
-    where no zero-commission validator was active and the rate had to be
-    un-applied from one that charges.
+    Read straight off the staking contracts — APR is emission over stake
+    and both sides are on chain. See :mod:`services.apr_service`.
 
-    Like :class:`ValidatorUptime`, this is always returned — ``status``
-    says how much to trust the numbers:
+    ``status`` says how much to trust the numbers:
 
-      - ``ok``          — fetched live just now.
-      - ``stale``       — upstream is failing, so this is the last figure
-                          we successfully read, persisted on disk and
-                          therefore surviving a restart. ``measured_at``
-                          is from that earlier reading, which is exactly
-                          what makes the staleness visible.
+      - ``ok``          — computed just now.
+      - ``stale``       — the chain reads failed, so this is the last
+                          figure we successfully computed, persisted on
+                          disk and therefore surviving a restart.
+                          ``measured_at`` is from that earlier reading,
+                          which is what makes the staleness visible.
       - ``unavailable`` — never had a reading; the client falls back to
                           its built-in constants and says so.
 
-    The distinction matters because APR barely moves: a figure from
-    yesterday is a far better default than a constant from last spring,
-    but only if the UI can tell the user which it is showing.
+    ``btc_percent`` is ``None`` rather than zero when it cannot be stated:
+    BTC pools are paid in STRK against BTC collateral, so that one figure
+    needs both prices. The STRK rate never depends on a price.
     """
 
     network: Literal["mainnet", "sepolia"]
     status: Literal["ok", "stale", "unavailable"]
     strk_percent: float | None = Field(default=None, ge=0, le=1000)
     btc_percent: float | None = Field(default=None, ge=0, le=1000)
-    derived: bool = Field(
-        default=False,
-        description="True when un-applied from a commission-charging validator.",
-    )
-    sample_size: int = Field(
-        default=0, description="Validators the figure was taken from."
-    )
     measured_at: datetime | None = None
     detail: str | None = None
-    source: Literal["endur"] = "endur"
+    source: Literal["chain"] = "chain"
 
     @property
     def has_data(self) -> bool:

@@ -420,11 +420,9 @@
     "webapp_hours_ago": "{n}시간 전",
     "webapp_days_ago": "{n}일 전",
     "yield_apr_reset": "네트워크 APR로 되돌리기",
-    "yield_apr_source": "Endur 기준 네트워크 APR",
-    "yield_apr_source_at": "Endur 기준 네트워크 APR, {ago} 업데이트",
-    "yield_apr_source_stale": "Endur에 연결할 수 없어 마지막으로 확인된 APR을 표시합니다",
-    "yield_apr_source_stale_at": "Endur에 연결할 수 없어 {ago}의 마지막 APR을 표시합니다",
-    "yield_apr_source_fallback": "네트워크 APR을 가져오지 못해 기본값을 표시합니다. 더 정확한 값을 알고 있다면 직접 입력하세요.",
-    "yield_apr_zero_commission": "수수료 0% 검증자 기준",
-    "yield_apr_derived": "검증자 수수료에서 역산"
+    "yield_apr_source": "스테이킹 컨트랙트 기준 네트워크 APR",
+    "yield_apr_source_at": "스테이킹 컨트랙트 기준 네트워크 APR, {ago} 업데이트",
+    "yield_apr_source_stale": "체인을 읽지 못해 마지막으로 확인된 APR을 표시합니다",
+    "yield_apr_source_stale_at": "체인을 읽지 못해 {ago}의 마지막 APR을 표시합니다",
+    "yield_apr_source_fallback": "네트워크 APR을 가져오지 못해 기본값을 표시합니다. 더 정확한 값을 알고 있다면 직접 입력하세요."
 }

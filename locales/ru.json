@@ -438,11 +438,9 @@
     "webapp_hours_ago": "{n} ч назад",
     "webapp_days_ago": "{n} д назад",
     "yield_apr_reset": "Вернуть APR сети",
-    "yield_apr_source": "APR сети по данным Endur",
-    "yield_apr_source_at": "APR сети по данным Endur, обновлено {ago}",
-    "yield_apr_source_stale": "Endur недоступен — показан последний известный APR",
-    "yield_apr_source_stale_at": "Endur недоступен — показан последний известный APR от {ago}",
-    "yield_apr_source_fallback": "Не удалось получить APR сети — показаны встроенные значения. Впиши своё, если знаешь точнее.",
-    "yield_apr_zero_commission": "с валидаторов без комиссии",
-    "yield_apr_derived": "пересчитан с комиссии валидатора"
+    "yield_apr_source": "APR сети из контрактов стейкинга",
+    "yield_apr_source_at": "APR сети из контрактов стейкинга, обновлено {ago}",
+    "yield_apr_source_stale": "Не удалось прочитать цепь — показан последний известный APR",
+    "yield_apr_source_stale_at": "Не удалось прочитать цепь — показан последний известный APR от {ago}",
+    "yield_apr_source_fallback": "Не удалось получить APR сети — показаны встроенные значения. Впиши своё, если знаешь точнее."
 }

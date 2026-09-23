@@ -438,11 +438,9 @@
     "webapp_hours_ago": "{n} godz. temu",
     "webapp_days_ago": "{n} dni temu",
     "yield_apr_reset": "Przywróć APR sieci",
-    "yield_apr_source": "APR sieci według Endur",
-    "yield_apr_source_at": "APR sieci według Endur, zaktualizowano {ago}",
-    "yield_apr_source_stale": "Endur niedostępny — pokazujemy ostatni znany APR",
-    "yield_apr_source_stale_at": "Endur niedostępny — pokazujemy ostatni znany APR z {ago}",
-    "yield_apr_source_fallback": "Nie udało się pobrać APR sieci — pokazane są wartości domyślne. Wpisz własną, jeśli znasz dokładniejszą.",
-    "yield_apr_zero_commission": "z walidatorów bez prowizji",
-    "yield_apr_derived": "przeliczony z prowizji walidatora"
+    "yield_apr_source": "APR sieci z kontraktów stakingu",
+    "yield_apr_source_at": "APR sieci z kontraktów stakingu, zaktualizowano {ago}",
+    "yield_apr_source_stale": "Nie udało się odczytać łańcucha — ostatni znany APR",
+    "yield_apr_source_stale_at": "Nie udało się odczytać łańcucha — ostatni znany APR z {ago}",
+    "yield_apr_source_fallback": "Nie udało się pobrać APR sieci — pokazane są wartości domyślne. Wpisz własną, jeśli znasz dokładniejszą."
 }

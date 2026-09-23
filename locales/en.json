@@ -429,11 +429,9 @@
     "webapp_hours_ago": "{n} h ago",
     "webapp_days_ago": "{n} d ago",
     "yield_apr_reset": "Reset to network APR",
-    "yield_apr_source": "Network APR from Endur",
-    "yield_apr_source_at": "Network APR from Endur, updated {ago}",
-    "yield_apr_source_stale": "Endur is unreachable — using the last known APR",
-    "yield_apr_source_stale_at": "Endur is unreachable — using the last known APR from {ago}",
-    "yield_apr_source_fallback": "Couldn't fetch the network APR — showing built-in defaults. Type your own if you know better.",
-    "yield_apr_zero_commission": "from validators charging 0% commission",
-    "yield_apr_derived": "back-calculated from a validator's commission"
+    "yield_apr_source": "Network APR from the staking contracts",
+    "yield_apr_source_at": "Network APR from the staking contracts, updated {ago}",
+    "yield_apr_source_stale": "Couldn't read the chain — using the last known APR",
+    "yield_apr_source_stale_at": "Couldn't read the chain — using the last known APR from {ago}",
+    "yield_apr_source_fallback": "Couldn't fetch the network APR — showing built-in defaults. Type your own if you know better."
 }

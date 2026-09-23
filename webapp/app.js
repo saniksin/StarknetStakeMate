@@ -3303,13 +3303,9 @@ function renderAprSource(info) {
           "Endur is unreachable — using the last known APR from {ago}", { ago })
       : t("yield_apr_source_stale", "Endur is unreachable — using the last known APR");
   }
-  const base = ago
-    ? t("yield_apr_source_at", "Network APR from Endur, updated {ago}", { ago })
-    : t("yield_apr_source", "Network APR from Endur");
-  const how = info.derived
-    ? t("yield_apr_derived", "back-calculated from a validator's commission")
-    : t("yield_apr_zero_commission", "from validators charging 0% commission");
-  return `${base} · ${how}`;
+  return ago
+    ? t("yield_apr_source_at", "Network APR from the staking contracts, updated {ago}", { ago })
+    : t("yield_apr_source", "Network APR from the staking contracts");
 }
 
 /** Pick a STRK USD price from the yield payload.
