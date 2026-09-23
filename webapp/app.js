@@ -835,6 +835,13 @@ async function renderDashboard() {
       ? ` · <span class="nowrap">${escapeHtml(t("webapp_incl_btc_pools", "incl. BTC pools"))}</span>`
       : "";
     $.totalStakeSecondary.innerHTML = `≈ ${escapeHtml(fmtUsd(stakedUsd))}${inclTag}`;
+  } else if (hasBtcPools) {
+    // No prices (testnet): the USD aggregate was the only thing telling
+    // the user those other pools existed. List them instead.
+    $.totalStakeSecondary.innerHTML = Object.entries(stakedTotal)
+      .filter(([sym, amt]) => sym !== "STRK" && Number(amt) > 0)
+      .map(([sym, amt]) => `<span class="nowrap">${escapeHtml(fmtAmount(amt, sym))}</span>`)
+      .join(" · ");
   } else {
     $.totalStakeSecondary.textContent = "";
   }
@@ -2218,16 +2225,34 @@ function renderTotalStakeHero(totalsBySym, prices) {
   if (Object.keys(nonZero).length === 0) return "";
 
   const usdAggregate = totalUsd(nonZero, prices);
-  const breakdown = Object.entries(nonZero)
-    .map(([sym, amt]) => fmtAmount(amt, sym))
+  const entries = Object.entries(nonZero);
+
+  // Each amount is one atom: "1,000.5 TBTC1" must never break between the
+  // number and its symbol when the line wraps.
+  const asChips = (list) => list
+    .map(([sym, amt]) => `<span class="nowrap">${escapeHtml(fmtAmount(amt, sym))}</span>`)
     .join(" · ");
 
   // Headline: USD aggregate (cross-token sum), prominent.
   // Subtitle: per-token breakdown so the user sees the actual mix.
-  // If we don't have a price for a symbol, fall back to showing the
-  // breakdown as the headline — better than rendering "—".
-  const headline = usdAggregate !== null ? `≈ ${fmtUsd(usdAggregate)}` : breakdown;
-  const sub = usdAggregate !== null ? breakdown : "";
+  //
+  // Without prices (testnet — the tokens have no market) there is no
+  // aggregate to lead with. Cramming the whole breakdown into the 24px
+  // headline is what used to happen, and with three or more pools it
+  // overflowed the card and gave the whole page a horizontal scrollbar.
+  // Lead with STRK instead — the same hierarchy the dashboard hero uses
+  // — and drop the rest into the subtitle.
+  let headlineHtml;
+  let subHtml;
+  if (usdAggregate !== null) {
+    headlineHtml = `<span class="nowrap">≈ ${escapeHtml(fmtUsd(usdAggregate))}</span>`;
+    subHtml = asChips(entries);
+  } else {
+    const primaryIdx = Math.max(0, entries.findIndex(([sym]) => sym === "STRK"));
+    const [primarySym, primaryAmt] = entries[primaryIdx];
+    headlineHtml = `<span class="nowrap">${escapeHtml(fmtAmount(primaryAmt, primarySym))}</span>`;
+    subHtml = asChips(entries.filter((_, i) => i !== primaryIdx));
+  }
 
   // ``hero-total-stake`` marker class scopes the visual rebalance CSS
   // (centered content, max-width clamp on wide screens) to JUST this
@@ -2236,8 +2261,8 @@ function renderTotalStakeHero(totalsBySym, prices) {
   return `
     <div class="hero hero-total-stake">
       <div class="muted small">${escapeHtml(t("webapp_total_stake_caption", "Total stake (own + delegations)"))}</div>
-      <div class="hero-value">${escapeHtml(headline)}</div>
-      ${sub ? `<div class="hero-sub muted small">${escapeHtml(sub)}</div>` : ""}
+      <div class="hero-value">${headlineHtml}</div>
+      ${subHtml ? `<div class="hero-sub muted small">${subHtml}</div>` : ""}
     </div>
   `;
 }
@@ -2534,16 +2559,17 @@ async function renderSettings() {
   // services/yield_service.py). Off mainnet we hide the controls and say
   // what IS watched, instead of letting the user arm a threshold the
   // notifier will never read.
-  const rewardsAvailable = currentNetwork() === "mainnet";
-  if (!rewardsAvailable) {
-    if ($.rewardSection) $.rewardSection.hidden = true;
-    if ($.rewardCard) $.rewardCard.hidden = true;
-    if ($.settingsHero) {
-      $.settingsHero.textContent = t(
-        "webapp_settings_hero_testnet",
-        "On testnet we watch attestations and the operator wallet. Reward alerts are mainnet-only — testnet tokens have no price.",
-      );
-    }
+  // Reward alerts work on every network, but the USD mode does not: a USD
+  // threshold needs a price and the tokens outside mainnet have no market.
+  // So off mainnet we keep the section, drop the USD option, and say the
+  // amounts carry no monetary value — rather than offering a control the
+  // notifier would silently skip.
+  const pricesAvailable = currentNetwork() === "mainnet";
+  if (!pricesAvailable && $.settingsHero) {
+    $.settingsHero.textContent = t(
+      "webapp_settings_hero_testnet",
+      "Reward alerts work here too, but only as token amounts — test tokens have no market, so their monetary value is 0.",
+    );
   }
 
   // Alert subscriptions are stored per network, so a user who runs the same
@@ -2654,6 +2680,15 @@ async function renderSettings() {
   const thresholdRow = document.getElementById("threshold-row");
   const segment = document.getElementById("mode-segment");
 
+  // Hide the USD mode where there are no prices. A config that somehow
+  // carries a USD threshold there (set on mainnet, then the same row read
+  // for testnet) falls back to "off" instead of selecting a hidden tab.
+  if (!pricesAvailable) {
+    const usdOption = segment.querySelector('[data-mode="usd"]');
+    if (usdOption) usdOption.hidden = true;
+    if (mode === "usd") mode = "off";
+  }
+
   function applyMode(next) {
     mode = next;
     for (const opt of segment.querySelectorAll(".seg-option")) {
@@ -2681,8 +2716,8 @@ async function renderSettings() {
     }
   }
 
-  applyMode(initialMode);
-  amountInput.value = initialAmount && initialAmount > 0 ? initialAmount : "";
+  applyMode(mode);
+  amountInput.value = mode !== "off" && initialAmount > 0 ? initialAmount : "";
 
   // Operator wallet low-balance threshold — independent of the reward
   // notification mode. 0 means "off". Gated on having at least one
@@ -3273,11 +3308,6 @@ function _buildEntryYield(entry, kind, strkApr, btcApr, strkPriceUsd) {
 }
 
 
-// "$0.00" and "we don't know" are different answers; keep them apart.
-function fmtUsdOrDash(value, known) {
-  return known ? fmtUsd(value) : "—";
-}
-
 async function renderYieldView() {
   setTopbar(t("yield_tab", "Yield"), "");
   renderTemplate("tpl-yield");
@@ -3418,6 +3448,7 @@ async function renderYieldView() {
         address: v.address,
         breakdown,
         yearUsdTotal,
+        yearStrkTotal,
         usdKnown,
         kind: "validator",
       }));
@@ -3436,6 +3467,7 @@ async function renderYieldView() {
         address: d.address,
         breakdown,
         yearUsdTotal,
+        yearStrkTotal,
         usdKnown,
         kind: "delegator",
       }));
@@ -3448,19 +3480,28 @@ async function renderYieldView() {
     // USD numbers — STRK stays anchored to the user's stake × APR.
     const strkEquiv = (strkAmount) => {
       if (strkAmount === null || strkAmount === undefined || !Number.isFinite(strkAmount) || strkAmount === 0) return "";
-      return ` ${t("yield_strk_equiv", "≈ {amount} STRK", { amount: fmtAmount(strkAmount, "") })}`;
+      return t("yield_strk_equiv", "≈ {amount} STRK", { amount: fmtAmount(strkAmount, "") });
     };
-    // Without prices the "≈ N STRK" suffix carries the whole answer, so
-    // promote it to the headline rather than prefixing a hollow "$0.00".
-    const grandTotal = (usd, strk) => (
-      grandUsdKnown
-        ? fmtUsd(usd) + strkEquiv(strk)
-        : fmtAmount(strk, "STRK")
-    );
+    // Two independent figures on one line ("$14,885 ≈ 349,899 STRK") do not
+    // fit a phone at headline size, and the base ``.hero-value`` rule used
+    // to cut the STRK half off with an ellipsis — the half that doesn't
+    // move when the price does. Emit each figure as its own unbreakable
+    // atom so the line wraps between them instead of truncating.
+    //
+    // Without prices the "≈ N STRK" part carries the whole answer, so it
+    // becomes the headline rather than a suffix to a hollow "$0.00".
+    const grandTotal = (usd, strk) => {
+      if (!grandUsdKnown) {
+        return `<span class="nowrap">${escapeHtml(fmtAmount(strk, "STRK"))}</span>`;
+      }
+      const equiv = strkEquiv(strk);
+      return `<span class="nowrap">${escapeHtml(fmtUsd(usd))}</span>`
+        + (equiv ? ` <span class="nowrap">${escapeHtml(equiv)}</span>` : "");
+    };
     $.yieldGrandTotal.hidden = false;
-    $.yieldYearTotal.textContent = grandTotal(grandYearUsd, grandYearStrk);
-    $.yieldMonthTotal.textContent = grandTotal(grandYearUsd / 12, grandYearStrk / 12);
-    $.yieldDayTotal.textContent = grandTotal(grandYearUsd / 365, grandYearStrk / 365);
+    $.yieldYearTotal.innerHTML = grandTotal(grandYearUsd, grandYearStrk);
+    $.yieldMonthTotal.innerHTML = grandTotal(grandYearUsd / 12, grandYearStrk / 12);
+    $.yieldDayTotal.innerHTML = grandTotal(grandYearUsd / 365, grandYearStrk / 365);
   }
 
   // Reactive recalc on input change. ``input`` event fires per keystroke
@@ -3477,12 +3518,21 @@ async function renderYieldView() {
   _renderAll();
 }
 
-function _renderYieldCard({ title, subtitleKey, subtitleFallback, subtitleAddon, address, breakdown, yearUsdTotal, usdKnown = true, kind }) {
+function _renderYieldCard({ title, subtitleKey, subtitleFallback, subtitleAddon, address, breakdown, yearUsdTotal, yearStrkTotal = 0, usdKnown = true, kind }) {
   const card = document.createElement("div");
   card.className = "yield-card card";
   card.dataset.expanded = "false";
 
   const subtitle = t(subtitleKey, subtitleFallback) + (subtitleAddon ? ` ${subtitleAddon}` : "");
+
+  // Card summary. With prices it's the USD figure, as always. Without them
+  // (testnet) the STRK total is the only thing we actually know — showing
+  // "—" there threw away a number we had computed.
+  const summary = (divisor) => (
+    usdKnown
+      ? fmtUsd(yearUsdTotal / divisor)
+      : fmtAmount(yearStrkTotal / divisor, "STRK")
+  );
 
   // Header (always visible)
   const header = document.createElement("div");
@@ -3493,11 +3543,11 @@ function _renderYieldCard({ title, subtitleKey, subtitleFallback, subtitleAddon,
       <div class="muted small">${escapeHtml(subtitle)}</div>
     </div>
     <div class="yield-card-summary">
-      <div class="yield-card-year">${escapeHtml(fmtUsdOrDash(yearUsdTotal, usdKnown))}</div>
+      <div class="yield-card-year">${escapeHtml(summary(1))}</div>
       <div class="muted small">
-        <span data-i18n-fallback>${escapeHtml(t("monthly", "Monthly"))}</span>: ${escapeHtml(fmtUsdOrDash(yearUsdTotal / 12, usdKnown))}
+        <span data-i18n-fallback>${escapeHtml(t("monthly", "Monthly"))}</span>: ${escapeHtml(summary(12))}
         ·
-        <span>${escapeHtml(t("daily", "Daily"))}</span>: ${escapeHtml(fmtUsdOrDash(yearUsdTotal / 365, usdKnown))}
+        <span>${escapeHtml(t("daily", "Daily"))}</span>: ${escapeHtml(summary(365))}
       </div>
     </div>
     <span class="yield-card-chevron" aria-hidden="true">▾</span>
@@ -3532,6 +3582,33 @@ function _renderYieldCard({ title, subtitleKey, subtitleFallback, subtitleAddon,
       // STRK price is unavailable ``rewardYearToken`` is null and the row
       // shows USD-only without a token amount.
       const renderFigures = (rewardYear, usdYear) => {
+        // On a network with no market (testnet) the USD half is not
+        // "temporarily unavailable" — it does not exist. Printing
+        // "/ Price unavailable" on every line, three times per pool, said
+        // nothing and buried the token figures that ARE exact. Drop the
+        // column and show only what we know.
+        if (!usdKnown) {
+          if (rewardYear === null) {
+            // BTC-style pools: the protocol pays their reward in STRK,
+            // sized by the USD value of the collateral. That conversion
+            // needs two prices and testnet has neither, so there is
+            // genuinely nothing to compute. Say WHY, once — three dashes
+            // read as "broken", and the commission rate above them got
+            // the blame.
+            return `
+              <div class="yield-pool-figures">
+                <div class="muted small">${escapeHtml(t("yield_needs_price", "Reward is sized in STRK from the pool's value — needs a token price"))}</div>
+              </div>
+            `;
+          }
+          return `
+            <div class="yield-pool-figures">
+              <div><span class="muted small">${escapeHtml(t("yearly", "Yearly"))}</span> ${escapeHtml(fmtAmount(rewardYear, p.rewardSymbol))}</div>
+              <div><span class="muted small">${escapeHtml(t("monthly", "Monthly"))}</span> ${escapeHtml(fmtAmount(rewardYear / 12, p.rewardSymbol))}</div>
+              <div><span class="muted small">${escapeHtml(t("daily", "Daily"))}</span> ${escapeHtml(fmtAmount(rewardYear / 365, p.rewardSymbol))}</div>
+            </div>
+          `;
+        }
         const usdYearStr = usdYear !== null ? fmtUsd(usdYear) : `<span class="muted">${escapeHtml(t("yield_price_unavailable", "Price unavailable"))}</span>`;
         const usdMonthStr = usdYear !== null ? fmtUsd(usdYear / 12) : "—";
         const usdDayStr = usdYear !== null ? fmtUsd(usdYear / 365) : "—";

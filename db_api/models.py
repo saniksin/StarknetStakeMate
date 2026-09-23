@@ -80,11 +80,13 @@ class Users(Base, AutoRepr):
         data.setdefault("delegations", [])
         return data
 
-    # Keys that are tracked separately for every network. Reward thresholds
-    # (``usd_threshold`` / ``token_thresholds``) deliberately stay global and
-    # mainnet-only: testnet STRK has no price, so a "you earned $5" DM about
-    # it would be pure noise.
+    # Keys tracked separately for every network. ``usd_threshold`` is
+    # deliberately NOT among them: a USD threshold needs a price, and the
+    # tokens outside mainnet have no market. Token-amount thresholds do
+    # work anywhere — you can ask to hear about 10 test-STRK — so those
+    # are per-network like everything else.
     _PER_NETWORK_KEYS = (
+        "token_thresholds",
         "attestation_alerts_for",
         "_attestation_state",
         "operator_balance_min_strk",
@@ -179,11 +181,15 @@ class Users(Base, AutoRepr):
         sub = (self._raw_notification_config().get("networks") or {}).get(network)
         sub = sub if isinstance(sub, dict) else {}
         return {
-            # Reward alerts never run off mainnet — report them as off so
-            # the Mini App's Settings screen can't arm something the
-            # notifier will ignore.
+            # A USD threshold needs a price and the tokens here have none,
+            # so it is reported as off — the Settings screen hides the USD
+            # mode rather than arming something the notifier would skip.
             "usd_threshold": 0.0,
-            "token_thresholds": {},
+            "token_thresholds": {
+                str(sym): float(amt)
+                for sym, amt in (sub.get("token_thresholds") or {}).items()
+                if amt and float(amt) > 0
+            },
             "attestation_alerts_for": list(sub.get("attestation_alerts_for") or []),
             "attestation_alerts": False,
             "_attestation_state": dict(sub.get("_attestation_state") or {}),
@@ -276,6 +282,11 @@ class Users(Base, AutoRepr):
     def _clean_network_slice(sub: dict) -> dict:
         """Normalize one per-network slice; ``{}`` when nothing is set."""
         out = {
+            "token_thresholds": {
+                str(sym): float(amt)
+                for sym, amt in (sub.get("token_thresholds") or {}).items()
+                if amt and float(amt) > 0
+            },
             "attestation_alerts_for": sorted({
                 str(a).lower() for a in (sub.get("attestation_alerts_for") or []) if a
             }),
@@ -293,7 +304,8 @@ class Users(Base, AutoRepr):
             },
         }
         if (
-            not out["attestation_alerts_for"]
+            not out["token_thresholds"]
+            and not out["attestation_alerts_for"]
             and not out["_attestation_state"]
             and out["operator_balance_min_strk"] <= 0
             and not out["_operator_balance_was_below"]

@@ -410,5 +410,7 @@
     "webapp_network_switch_aria": "Netzwerk",
     "webapp_settings_network_scope": "Diese Benachrichtigungen gelten nur für {network} — das andere Netzwerk wird separat konfiguriert.",
     "network_testnet_badge": "🧪 Testnet (Sepolia)",
-    "webapp_settings_hero_testnet": "Im Testnet überwachen wir Attestierungen und das Operator-Wallet. Belohnungs-Benachrichtigungen gibt es nur im Mainnet — Testnet-Token haben keinen Preis."
+    "webapp_settings_hero_testnet": "Belohnungs-Benachrichtigungen funktionieren auch hier, aber nur als Token-Mengen — Testnet-Token haben keinen Markt, ihr Geldwert ist 0.",
+    "testnet_no_value_note": "Testnet-Token — ihr Geldwert ist 0.",
+    "yield_needs_price": "Belohnung in STRK richtet sich nach dem Wert des Pools — Token-Preis nötig"
 }

@@ -260,7 +260,10 @@ main {
    words on narrow screens because each space was a regular break point.
    ``hero-secondary-tag`` keeps that phrase as a single inline unit so
    it either fits on one line or wraps as a unit, never mid-phrase. */
-.hero-sub .nowrap {
+/* Marker for "this run of text is one atom — wrap around it, not
+   through it". Used by the hero headlines and subtitles that compose
+   several figures into one line. */
+.nowrap {
   white-space: nowrap;
 }
 
@@ -669,11 +672,26 @@ main {
    when centered we want the long ``≈ $119,342`` line to remain a
    single block but ellipsis if it ever overflows the 360px clamp on
    a tiny phone. */
-.hero-total-stake .hero-value {
-  /* Override base nowrap+overflow so the centered headline never
-     truncates with an ellipsis on a wide enough number — at 360px
-     ``≈ $1,234,567,890`` still fits. */
+.hero-total-stake .hero-value,
+.yield-grand-total .hero-value {
+  /* Override the base ``nowrap + overflow:hidden + ellipsis``. Both of
+     these headlines are composed of several independent figures
+     ("$14,885 ≈ 349,899 STRK", or a list of pool tokens on a network
+     with no prices), and neither fits one phone-width line. The base
+     rule cut them off with an ellipsis; ``overflow: visible`` alone was
+     worse — the text escaped the card and gave the whole page a
+     horizontal scrollbar.
+
+     Wrapping is the honest answer. Each figure is emitted inside a
+     ``.nowrap`` span by the renderers, so a line can only break
+     *between* figures, never inside "1,000.5 TBTC1". */
+  white-space: normal;
   overflow: visible;
+  text-overflow: clip;
+  /* A single figure longer than the card (pathological, but a token
+     with 18 significant digits would do it) breaks rather than
+     overflowing. */
+  overflow-wrap: anywhere;
 }
 
 /* Centered title for the waiting-state banner — marker class set by

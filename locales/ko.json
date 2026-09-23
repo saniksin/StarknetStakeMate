@@ -401,5 +401,7 @@
     "webapp_network_switch_aria": "네트워크",
     "webapp_settings_network_scope": "이 알림은 {network}에만 적용됩니다. 다른 네트워크는 별도로 설정합니다.",
     "network_testnet_badge": "🧪 테스트넷 (Sepolia)",
-    "webapp_settings_hero_testnet": "테스트넷에서는 어테스테이션과 오퍼레이터 지갑을 모니터링합니다. 보상 알림은 메인넷 전용입니다 — 테스트넷 토큰에는 가격이 없습니다."
+    "webapp_settings_hero_testnet": "보상 알림은 여기서도 작동하지만 토큰 수량 기준으로만 동작합니다 — 테스트 토큰은 시장이 없어 금전적 가치가 0입니다.",
+    "testnet_no_value_note": "테스트 토큰 — 금전적 가치는 0입니다.",
+    "yield_needs_price": "보상은 담보 가치를 기준으로 STRK로 산정됩니다 — 토큰 가격 필요"
 }

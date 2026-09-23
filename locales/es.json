@@ -410,5 +410,7 @@
     "webapp_network_switch_aria": "Red",
     "webapp_settings_network_scope": "Estas alertas solo se aplican a {network}; la otra red se configura por separado.",
     "network_testnet_badge": "🧪 Testnet (Sepolia)",
-    "webapp_settings_hero_testnet": "En testnet vigilamos las atestaciones y la cartera del operador. Las alertas de recompensas son solo de mainnet: los tokens de testnet no tienen precio."
+    "webapp_settings_hero_testnet": "Las alertas de recompensas también funcionan aquí, pero solo por cantidad de tokens: los tokens de prueba no tienen mercado, su valor monetario es 0.",
+    "testnet_no_value_note": "Tokens de prueba: su valor monetario es 0.",
+    "yield_needs_price": "La recompensa en STRK se calcula sobre el valor del pool: requiere precio"
 }

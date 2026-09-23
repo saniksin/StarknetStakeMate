@@ -410,5 +410,7 @@
     "webapp_network_switch_aria": "Network",
     "webapp_settings_network_scope": "These alerts apply to {network} only — the other network is configured separately.",
     "network_testnet_badge": "🧪 Testnet (Sepolia)",
-    "webapp_settings_hero_testnet": "On testnet we watch attestations and the operator wallet. Reward alerts are mainnet-only — testnet tokens have no price."
+    "webapp_settings_hero_testnet": "Reward alerts work here too, but only as token amounts — test tokens have no market, so their monetary value is 0.",
+    "testnet_no_value_note": "Test tokens — their monetary value is 0.",
+    "yield_needs_price": "Reward is sized in STRK from the pool's value — needs a token price"
 }

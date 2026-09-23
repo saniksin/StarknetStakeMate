@@ -401,5 +401,7 @@
     "webapp_network_switch_aria": "网络",
     "webapp_settings_network_scope": "这些提醒仅适用于{network}，另一个网络需要单独设置。",
     "network_testnet_badge": "🧪 测试网 (Sepolia)",
-    "webapp_settings_hero_testnet": "在测试网中，我们监控证明和操作员钱包。奖励提醒仅适用于主网——测试网代币没有价格。"
+    "webapp_settings_hero_testnet": "奖励提醒在这里同样有效，但只按代币数量触发——测试代币没有市场，货币价值为 0。",
+    "testnet_no_value_note": "测试代币——货币价值为 0。",
+    "yield_needs_price": "奖励按抵押品价值以 STRK 计算——需要代币价格"
 }

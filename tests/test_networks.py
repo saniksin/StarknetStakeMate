@@ -190,14 +190,27 @@ def test_mainnet_save_keeps_testnet_subscriptions() -> None:
     assert user.get_notification_config()["usd_threshold"] == 5.0
 
 
-def test_reward_thresholds_report_as_off_on_testnet() -> None:
-    """Reward alerts never run off mainnet, so the testnet view must not
-    show an armed threshold the notifier will ignore."""
+def test_usd_threshold_is_never_armed_off_mainnet() -> None:
+    """A USD threshold needs a price and testnet tokens have no market, so
+    the testnet view reports it as off rather than arming something the
+    notifier would skip. Token-amount thresholds DO work there."""
     user = _user()
     user.set_notification_config({"usd_threshold": 5.0, "token_thresholds": {"STRK": 10}})
     testnet_cfg = user.get_notification_config("sepolia")
     assert testnet_cfg["usd_threshold"] == 0.0
+    # Mainnet's token threshold must not leak into testnet either.
     assert testnet_cfg["token_thresholds"] == {}
+
+
+def test_token_thresholds_are_per_network() -> None:
+    user = _user()
+    user.set_notification_config({"token_thresholds": {"STRK": 10}})
+    user.set_notification_config({"token_thresholds": {"STRK": 500}}, "sepolia")
+    assert user.get_notification_config()["token_thresholds"] == {"STRK": 10.0}
+    assert user.get_notification_config("sepolia")["token_thresholds"] == {"STRK": 500.0}
+    # And a USD-only mainnet save leaves the testnet amount alone.
+    user.set_notification_config({"usd_threshold": 5.0})
+    assert user.get_notification_config("sepolia")["token_thresholds"] == {"STRK": 500.0}
 
 
 def test_attestation_state_is_per_network() -> None:
@@ -232,3 +245,137 @@ def test_get_tracking_data_is_network_aware() -> None:
     )
     assert user.get_tracking_data()["validators"][0]["address"] == ADDR_A
     assert user.get_tracking_data("sepolia")["validators"][0]["address"] == ADDR_B
+
+
+# ---------------------------------------------------------------------------
+# Reward notifier across networks
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_reward_dm_on_testnet_is_badged_and_says_value_is_zero() -> None:
+    """Token-amount thresholds fire off mainnet too, but the DM has to say
+    what the number is worth: nothing."""
+    from decimal import Decimal
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, patch
+
+    from tasks import strk_notification as notifier
+
+    user = _user()
+    user.tracking_data = store_tracking(
+        None,
+        {"validators": [{"address": ADDR_B, "label": "Test V"}], "delegations": []},
+        "sepolia",
+    )
+    user.set_notification_config({"token_thresholds": {"STRK": 10}}, "sepolia")
+
+    entry = SimpleNamespace(
+        kind="validator", address=ADDR_B, label="Test V",
+        data=SimpleNamespace(
+            unclaimed_rewards_own_strk=Decimal("42"), attestation=None,
+        ),
+    )
+
+    async def _fake_entries(_tracking, network=None):
+        assert network == "sepolia"
+        return [entry]
+
+    with (
+        patch.object(notifier, "fetch_tracking_entries", _fake_entries),
+        patch.object(
+            notifier, "_unclaimed_by_symbol", lambda _e: {"STRK": Decimal("42")}
+        ),
+        patch.object(notifier, "_format_entry_alert", lambda _e, _l: "\nentry"),
+        patch.object(notifier, "send_message", new=AsyncMock()) as mock_send,
+    ):
+        await notifier.start_parse_and_send_notification(user, {}, "sepolia")
+
+    assert mock_send.await_count == 1
+    body = mock_send.await_args.args[1]
+    assert body.startswith("🧪")              # badge leads the message
+    assert "STRK 42.00 ≥ 10.00" in body       # the threshold that fired
+    # …and the last line states what that number is worth.
+    assert "0" in body.rstrip().rsplit("\n", 1)[-1]
+
+
+@pytest.mark.asyncio
+async def test_reward_dm_on_mainnet_keeps_its_previous_shape() -> None:
+    """No badge, no footer — months of muscle memory for this message."""
+    from decimal import Decimal
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, patch
+
+    from tasks import strk_notification as notifier
+
+    user = _user()
+    user.tracking_data = store_tracking(
+        None, {"validators": [{"address": ADDR_A, "label": "Main V"}], "delegations": []}
+    )
+    user.set_notification_config({"token_thresholds": {"STRK": 10}})
+
+    entry = SimpleNamespace(
+        kind="validator", address=ADDR_A, label="Main V",
+        data=SimpleNamespace(
+            unclaimed_rewards_own_strk=Decimal("42"), attestation=None,
+        ),
+    )
+
+    async def _fake_entries(_tracking, network=None):
+        return [entry]
+
+    with (
+        patch.object(notifier, "fetch_tracking_entries", _fake_entries),
+        patch.object(
+            notifier, "_unclaimed_by_symbol", lambda _e: {"STRK": Decimal("42")}
+        ),
+        patch.object(notifier, "_format_entry_alert", lambda _e, _l: "\nentry"),
+        patch.object(notifier, "send_message", new=AsyncMock()) as mock_send,
+    ):
+        await notifier.start_parse_and_send_notification(user, {}, None)
+
+    body = mock_send.await_args.args[1]
+    assert not body.startswith("🧪")
+    # No "their monetary value is 0" footer: the message must end on the
+    # threshold line, exactly as it did before testnet support existed.
+    assert "value is 0" not in body
+    assert body.rstrip().endswith("≥ 10.00")
+
+
+@pytest.mark.asyncio
+async def test_testnet_thresholds_do_not_fire_from_mainnet_config() -> None:
+    """A mainnet threshold must not arm the testnet notifier."""
+    from decimal import Decimal
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, patch
+
+    from tasks import strk_notification as notifier
+
+    user = _user()
+    user.tracking_data = store_tracking(
+        None,
+        {"validators": [{"address": ADDR_B, "label": "Test V"}], "delegations": []},
+        "sepolia",
+    )
+    # Threshold set on MAINNET only.
+    user.set_notification_config({"token_thresholds": {"STRK": 10}})
+
+    entry = SimpleNamespace(
+        kind="validator", address=ADDR_B, label="Test V",
+        data=SimpleNamespace(
+            unclaimed_rewards_own_strk=Decimal("42"), attestation=None,
+        ),
+    )
+
+    async def _fake_entries(_tracking, network=None):
+        return [entry]
+
+    with (
+        patch.object(notifier, "fetch_tracking_entries", _fake_entries),
+        patch.object(
+            notifier, "_unclaimed_by_symbol", lambda _e: {"STRK": Decimal("42")}
+        ),
+        patch.object(notifier, "send_message", new=AsyncMock()) as mock_send,
+    ):
+        await notifier.start_parse_and_send_notification(user, {}, "sepolia")
+
+    assert mock_send.await_count == 0

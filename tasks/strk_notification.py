@@ -10,6 +10,11 @@ when unclaimed rewards cross *any* of the user's thresholds:
 
 Also optionally flags missed attestation epochs when the feature flag
 ``ATTESTATION_MONITOR_ENABLED`` is set.
+
+Every configured network is walked. Off mainnet the tokens have no market,
+so the USD aggregate is skipped (no prices are fetched at all) and only
+token-amount thresholds can fire; those DMs carry a testnet badge and a
+line saying the amounts have no monetary value.
 """
 from __future__ import annotations
 
@@ -19,6 +24,7 @@ from decimal import Decimal
 
 import aiohttp
 
+from data.contracts import DEFAULT_NETWORK, Network, available_networks
 from data.languages import translate
 from data.models import get_admins, semaphore
 from data.tg_bot import BOT_TOKEN
@@ -151,17 +157,40 @@ def _format_missed_attestation(entry: TrackingEntry, locale: str) -> str:
     )
 
 
+def _network_badge(network: Network, locale: str) -> str:
+    """Leading line marking a non-default network, or ``""`` for mainnet."""
+    if network == DEFAULT_NETWORK:
+        return ""
+    label = translate("network_testnet_badge", locale)
+    if not label or label == "network_testnet_badge":
+        label = "🧪 Testnet (Sepolia)"
+    return f"{label}\n"
+
+
+def _no_value_note(network: Network, locale: str) -> str:
+    """Reminder that testnet amounts are not money, appended to its DMs."""
+    if network == DEFAULT_NETWORK:
+        return ""
+    note = translate("testnet_no_value_note", locale)
+    if not note or note == "testnet_no_value_note":
+        note = "Test tokens — their monetary value is 0."
+    return f"\n<i>{note}</i>"
+
+
 async def start_parse_and_send_notification(
-    user: Users, prices: dict[str, Decimal]
+    user: Users, prices: dict[str, Decimal], network: Network | None = None
 ) -> None:
+    net: Network = network or DEFAULT_NETWORK
     async with semaphore:
         try:
-            entries = await fetch_tracking_entries(user.tracking_data)
+            entries = await fetch_tracking_entries(user.tracking_data, net)
         except Exception as exc:  # noqa: BLE001
-            logger.error(f"notification fetch failed for {user.user_id}: {exc}")
+            logger.error(
+                f"notification fetch failed for {user.user_id} [{net}]: {exc}"
+            )
             return
 
-        cfg = user.get_notification_config()
+        cfg = user.get_notification_config(net)
         hits: list[tuple[TrackingEntry, list[str]]] = []
         for e in entries:
             reasons = _evaluate_thresholds(e, cfg, prices)
@@ -173,12 +202,14 @@ async def start_parse_and_send_notification(
         if not hits and not missed:
             return
 
-        body = f"{translate('strk_notification_msg', user.user_language)}\n"
+        body = _network_badge(net, user.user_language)
+        body += f"{translate('strk_notification_msg', user.user_language)}\n"
         for e, reasons in hits:
             body += _format_entry_alert(e, user.user_language)
             body += f"\n• 📌 {' · '.join(reasons)}\n"
         if missed:
             body += "\n" + "\n".join(missed)
+        body += _no_value_note(net, user.user_language)
 
         # No DB write here on purpose: this function only sends a message,
         # nothing on the user row changed. ``write_to_db`` would ``merge()``
@@ -218,11 +249,18 @@ async def send_strk_notification() -> None:
     await asyncio.sleep(_sleep_until_next_boundary(_REWARD_INTERVAL))
     while True:
         try:
+            networks = available_networks()
             users = await get_strk_notification_users()
             active: list[Users] = []
             for user in users or []:
-                doc = load_tracking(user.tracking_data)
-                if total_tracked(doc) == 0:
+                # "Nothing tracked" has to mean nothing on ANY network,
+                # otherwise a user who keeps only testnet addresses would
+                # get their config wiped and a "you track nothing" DM every
+                # hour.
+                if all(
+                    total_tracked(load_tracking(user.tracking_data, net)) == 0
+                    for net in networks
+                ):
                     # Stale snapshot says "no tracked addresses" — but the
                     # user might have re-added something since. Refetch and
                     # only clear if it's *still* empty; the helper writes a
@@ -240,13 +278,23 @@ async def send_strk_notification() -> None:
                     continue
                 active.append(user)
 
-            logger.info(f"notifications: {len(active)} users to check")
+            logger.info(
+                f"notifications: {len(active)} users to check "
+                f"across {', '.join(networks)}"
+            )
             if active:
-                # One CoinGecko fetch per cycle (cached for 5 min anyway).
+                # One CoinGecko fetch per cycle (cached for 5 min anyway),
+                # and only for mainnet — the other networks' tokens have no
+                # market, so there is nothing to price and no request to make.
                 prices = await get_usd_prices()
-                await asyncio.gather(
-                    *(start_parse_and_send_notification(u, prices) for u in active)
-                )
+                jobs = [
+                    start_parse_and_send_notification(
+                        u, prices if net == DEFAULT_NETWORK else {}, net
+                    )
+                    for net in networks
+                    for u in active
+                ]
+                await asyncio.gather(*jobs)
         except Exception as exc:  # noqa: BLE001
             admins = get_admins()
             logger.error(f"notification loop error: {exc!r}")
