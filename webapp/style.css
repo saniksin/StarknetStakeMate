@@ -1656,3 +1656,34 @@ body.with-tabbar main {
   padding-top: var(--s3);
   border-top: 0.5px solid var(--separator);
 }
+
+/* ---------- Validator uptime (third-party data) ----------
+   Mirrors the operator-wallet card: a caption, one big figure, a tone
+   stripe. The "unknown" variant is styled deliberately like a real
+   state rather than a hidden block — the whole point is that a failure
+   upstream stays visible instead of looking like "nothing to report". */
+
+.uptime-block {
+  margin-top: var(--s4);
+}
+
+.uptime-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+
+.uptime-block .hero-value {
+  margin-top: var(--s1);
+}
+
+.uptime-success { box-shadow: inset 3px 0 0 0 var(--green), var(--shadow-card); }
+.uptime-warn    { box-shadow: inset 3px 0 0 0 var(--orange), var(--shadow-card); }
+.uptime-danger  { box-shadow: inset 3px 0 0 0 var(--red), var(--shadow-card); }
+
+/* No stripe for the unknown state: it is not a verdict about the
+   validator, and colouring it would imply one. */
+.uptime-unknown .hero-value {
+  color: var(--hint);
+}

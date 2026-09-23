@@ -403,5 +403,20 @@
     "network_testnet_badge": "🧪 测试网 (Sepolia)",
     "webapp_settings_hero_testnet": "奖励提醒在这里同样有效，但只按代币数量触发——测试代币没有市场，货币价值为 0。",
     "testnet_no_value_note": "测试代币——货币价值为 0。",
-    "yield_needs_price": "奖励按抵押品价值以 STRK 计算——需要代币价格"
+    "yield_needs_price": "奖励按抵押品价值以 STRK 计算——需要代币价格",
+    "webapp_uptime_caption": "验证者在线率",
+    "webapp_uptime_chip_good": "正常",
+    "webapp_uptime_chip_fair": "偶有遗漏",
+    "webapp_uptime_chip_poor": "不可靠",
+    "webapp_uptime_chip_unknown": "无数据",
+    "webapp_uptime_chip_error": "不可用",
+    "webapp_uptime_not_indexed": "该验证者尚未被 Endur 收录。",
+    "webapp_uptime_unavailable": "暂时无法获取在线率数据。上面的链上数据不受影响。",
+    "webapp_uptime_source": "来源：Endur",
+    "webapp_uptime_source_at": "Endur，更新于{ago}",
+    "webapp_uptime_unstaking": "正在解除质押",
+    "webapp_just_now": "刚刚",
+    "webapp_minutes_ago": "{n} 分钟前",
+    "webapp_hours_ago": "{n} 小时前",
+    "webapp_days_ago": "{n} 天前"
 }

@@ -289,6 +289,62 @@ class NodeSync(BaseModel):
     synced: bool
 
 
+class ValidatorUptime(BaseModel):
+    """How reliably a validator has been attesting, per Endur's index.
+
+    The staking contracts expose ``get_last_epoch_attestation_done`` and
+    nothing else — enough to say "missed N epochs since the last one it
+    won", not enough for a percentage. Endur runs an indexer over the
+    attestation events and publishes the aggregate as ``liveliness``;
+    that is what this DTO carries.
+
+    **This object is always returned, never ``None``.** ``status`` says
+    whether the number is there and, when it isn't, why. That is
+    deliberate: a block that quietly disappears when a third party
+    changes their API looks exactly like a validator with nothing to
+    report, and the failure would go unnoticed for as long as nobody
+    happened to remember the feature existed. An explicit "couldn't
+    fetch this" is the whole point.
+
+      - ``ok``          — ``percent`` is set.
+      - ``not_indexed`` — upstream answered, but doesn't know this
+                          validator (normal right after registering).
+      - ``unavailable`` — upstream unreachable, too slow, or answering
+                          in a shape we don't recognise. ``detail``
+                          carries a short reason for the tooltip.
+
+    Two caveats are baked into the field names rather than left to the
+    reader. ``percent`` is *their* number, not ours: Endur does not
+    document the window it covers, so the UI attributes it instead of
+    presenting it as a measurement of our own. ``measured_at`` is when
+    their record was last refreshed (roughly every ten minutes, but not
+    uniformly across validators) — without it a stale 100% looks exactly
+    like a fresh one.
+    """
+
+    address: str
+    status: Literal["ok", "not_indexed", "unavailable"]
+    percent: float | None = Field(
+        default=None, ge=0, le=100, description="Endur's ``liveliness``, 0–100."
+    )
+    is_active: bool | None = None
+    is_unstaking: bool | None = None
+    name: str | None = None
+    logo_url: str | None = None
+    active_since: datetime | None = None
+    measured_at: datetime | None = Field(
+        default=None, description="When the upstream record was last refreshed."
+    )
+    detail: str | None = Field(
+        default=None, description="Short reason, only for ``unavailable``."
+    )
+    source: Literal["endur"] = "endur"
+
+    @property
+    def has_data(self) -> bool:
+        return self.status == "ok" and self.percent is not None
+
+
 class StakingSystemInfo(BaseModel):
     """Protocol-wide parameters; refreshed periodically."""
 

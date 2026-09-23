@@ -421,5 +421,20 @@
     "network_testnet_badge": "🧪 Тестовая сеть (Sepolia)",
     "webapp_settings_hero_testnet": "Уведомления о наградах работают и здесь, но только по количеству токенов — у тестовых токенов нет рынка, их денежная ценность равна 0.",
     "testnet_no_value_note": "Тестовые токены — их денежная ценность равна 0.",
-    "yield_needs_price": "Награда в STRK считается от стоимости залога — нужна цена токена"
+    "yield_needs_price": "Награда в STRK считается от стоимости залога — нужна цена токена",
+    "webapp_uptime_caption": "Аптайм валидатора",
+    "webapp_uptime_chip_good": "в норме",
+    "webapp_uptime_chip_fair": "есть пропуски",
+    "webapp_uptime_chip_poor": "ненадёжно",
+    "webapp_uptime_chip_unknown": "нет данных",
+    "webapp_uptime_chip_error": "недоступно",
+    "webapp_uptime_not_indexed": "Этого валидатора пока нет в индексе Endur.",
+    "webapp_uptime_unavailable": "Не удалось получить данные об аптайме. На цифры из сети выше это не влияет.",
+    "webapp_uptime_source": "источник: Endur",
+    "webapp_uptime_source_at": "Endur, обновлено {ago}",
+    "webapp_uptime_unstaking": "выходит из стейкинга",
+    "webapp_just_now": "только что",
+    "webapp_minutes_ago": "{n} мин назад",
+    "webapp_hours_ago": "{n} ч назад",
+    "webapp_days_ago": "{n} д назад"
 }

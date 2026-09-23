@@ -412,5 +412,20 @@
     "network_testnet_badge": "🧪 Testnet (Sepolia)",
     "webapp_settings_hero_testnet": "Reward alerts work here too, but only as token amounts — test tokens have no market, so their monetary value is 0.",
     "testnet_no_value_note": "Test tokens — their monetary value is 0.",
-    "yield_needs_price": "Reward is sized in STRK from the pool's value — needs a token price"
+    "yield_needs_price": "Reward is sized in STRK from the pool's value — needs a token price",
+    "webapp_uptime_caption": "Validator uptime",
+    "webapp_uptime_chip_good": "healthy",
+    "webapp_uptime_chip_fair": "some misses",
+    "webapp_uptime_chip_poor": "unreliable",
+    "webapp_uptime_chip_unknown": "no data",
+    "webapp_uptime_chip_error": "unavailable",
+    "webapp_uptime_not_indexed": "This validator isn't in Endur's index yet.",
+    "webapp_uptime_unavailable": "Couldn't fetch uptime data right now. The on-chain figures above are unaffected.",
+    "webapp_uptime_source": "source: Endur",
+    "webapp_uptime_source_at": "Endur, updated {ago}",
+    "webapp_uptime_unstaking": "unstaking",
+    "webapp_just_now": "just now",
+    "webapp_minutes_ago": "{n} min ago",
+    "webapp_hours_ago": "{n} h ago",
+    "webapp_days_ago": "{n} d ago"
 }

@@ -421,5 +421,20 @@
     "network_testnet_badge": "🧪 Testnet (Sepolia)",
     "webapp_settings_hero_testnet": "Powiadomienia o nagrodach działają również tutaj, ale wyłącznie według ilości tokenów — tokeny testowe nie mają rynku, ich wartość pieniężna wynosi 0.",
     "testnet_no_value_note": "Tokeny testowe — ich wartość pieniężna wynosi 0.",
-    "yield_needs_price": "Nagroda w STRK liczona jest od wartości puli — potrzebna cena tokena"
+    "yield_needs_price": "Nagroda w STRK liczona jest od wartości puli — potrzebna cena tokena",
+    "webapp_uptime_caption": "Uptime walidatora",
+    "webapp_uptime_chip_good": "w normie",
+    "webapp_uptime_chip_fair": "kilka pominięć",
+    "webapp_uptime_chip_poor": "zawodny",
+    "webapp_uptime_chip_unknown": "brak danych",
+    "webapp_uptime_chip_error": "niedostępne",
+    "webapp_uptime_not_indexed": "Tego walidatora nie ma jeszcze w indeksie Endur.",
+    "webapp_uptime_unavailable": "Nie udało się pobrać danych o uptime. Nie wpływa to na powyższe dane z łańcucha.",
+    "webapp_uptime_source": "źródło: Endur",
+    "webapp_uptime_source_at": "Endur, zaktualizowano {ago}",
+    "webapp_uptime_unstaking": "wycofuje stake",
+    "webapp_just_now": "przed chwilą",
+    "webapp_minutes_ago": "{n} min temu",
+    "webapp_hours_ago": "{n} godz. temu",
+    "webapp_days_ago": "{n} dni temu"
 }

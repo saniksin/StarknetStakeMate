@@ -403,5 +403,20 @@
     "network_testnet_badge": "🧪 테스트넷 (Sepolia)",
     "webapp_settings_hero_testnet": "보상 알림은 여기서도 작동하지만 토큰 수량 기준으로만 동작합니다 — 테스트 토큰은 시장이 없어 금전적 가치가 0입니다.",
     "testnet_no_value_note": "테스트 토큰 — 금전적 가치는 0입니다.",
-    "yield_needs_price": "보상은 담보 가치를 기준으로 STRK로 산정됩니다 — 토큰 가격 필요"
+    "yield_needs_price": "보상은 담보 가치를 기준으로 STRK로 산정됩니다 — 토큰 가격 필요",
+    "webapp_uptime_caption": "검증자 가동률",
+    "webapp_uptime_chip_good": "정상",
+    "webapp_uptime_chip_fair": "일부 누락",
+    "webapp_uptime_chip_poor": "불안정",
+    "webapp_uptime_chip_unknown": "데이터 없음",
+    "webapp_uptime_chip_error": "이용 불가",
+    "webapp_uptime_not_indexed": "이 검증자는 아직 Endur 인덱스에 없습니다.",
+    "webapp_uptime_unavailable": "가동률 데이터를 가져오지 못했습니다. 위의 온체인 수치에는 영향이 없습니다.",
+    "webapp_uptime_source": "출처: Endur",
+    "webapp_uptime_source_at": "Endur, {ago} 업데이트",
+    "webapp_uptime_unstaking": "언스테이킹 중",
+    "webapp_just_now": "방금",
+    "webapp_minutes_ago": "{n}분 전",
+    "webapp_hours_ago": "{n}시간 전",
+    "webapp_days_ago": "{n}일 전"
 }

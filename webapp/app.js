@@ -1616,6 +1616,13 @@ async function renderValidator(address) {
   // operator before missed attestations show up.
   $.operatorWalletBlock.innerHTML = renderOperatorWalletBlock(data, state);
 
+  // Uptime: third-party data, fetched after the card is painted so a slow
+  // upstream never delays the on-chain numbers. The slot is filled with a
+  // placeholder first and then always resolves to either a figure or an
+  // explicit "couldn't fetch it".
+  $.uptimeBlock.innerHTML = renderUptimeBlock(undefined);
+  loadUptimeInto($.uptimeBlock, entry.address);
+
   // Pools breakdown
   const pools = data.pools || [];
   if (pools.length) {
@@ -1712,6 +1719,14 @@ async function renderDelegator(delegatorAddr, stakerAddr) {
   // when it lands; on failure we just leave it blank (we don't want to
   // block the rest of the page on this one extra call).
   $.statusBanner.innerHTML = `<div class="banner muted">Loading validator status…</div>`;
+
+  // Uptime of the validator being delegated to. Unlike the operator's gas
+  // reserve (deliberately omitted below as noise a delegator can't act
+  // on), a poor attestation record IS actionable from here — it's the
+  // reason to move the delegation somewhere else.
+  $.uptimeBlock.innerHTML = renderUptimeBlock(undefined);
+  loadUptimeInto($.uptimeBlock, data.staker_address);
+
   api(`/api/v1/validators/${data.staker_address}`)
     .then((vinfo) => {
       $.statusBanner.innerHTML = renderValidatorStatusBanner(vinfo);
@@ -2265,6 +2280,130 @@ function renderTotalStakeHero(totalsBySym, prices) {
       ${subHtml ? `<div class="hero-sub muted small">${subHtml}</div>` : ""}
     </div>
   `;
+}
+
+// ---------------------------------------------------------------------------
+// Validator uptime (third-party: Endur)
+// ---------------------------------------------------------------------------
+
+// Rough "N minutes ago" for a timestamp. Uptime is someone else's number
+// refreshed on someone else's schedule, so how OLD it is matters as much
+// as what it says — a stale 100% looks identical to a fresh one.
+function timeAgo(iso) {
+  if (!iso) return null;
+  const then = Date.parse(iso);
+  if (!Number.isFinite(then)) return null;
+  const mins = Math.max(0, Math.round((Date.now() - then) / 60000));
+  if (mins < 1) return t("webapp_just_now", "just now");
+  if (mins < 60) return t("webapp_minutes_ago", "{n} min ago", { n: mins });
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return t("webapp_hours_ago", "{n} h ago", { n: hours });
+  return t("webapp_days_ago", "{n} d ago", { n: Math.round(hours / 24) });
+}
+
+// Thresholds for the colour badge. A validator that attests every epoch
+// sits at 100; the protocol tolerates the odd miss, so "good" has to be
+// a band rather than an exact number.
+const _UPTIME_GOOD = 99.5;
+const _UPTIME_WARN = 95;
+
+function renderUptimeBlock(uptime) {
+  const caption = escapeHtml(t("webapp_uptime_caption", "Validator uptime"));
+
+  // Loading / not-yet-fetched. Drawn so the block never pops into
+  // existence after the rest of the card has settled.
+  if (uptime === undefined) {
+    return `
+      <div class="hero uptime-block">
+        <div class="muted small">${caption}</div>
+        <div class="hero-value muted">…</div>
+      </div>
+    `;
+  }
+
+  // Every non-ok state gets the same shape: a caption, a dash where the
+  // number goes, and a sentence saying why. Never an empty slot.
+  if (!uptime || uptime.status !== "ok" || uptime.percent === null || uptime.percent === undefined) {
+    const notIndexed = uptime && uptime.status === "not_indexed";
+    const explain = notIndexed
+      ? t("webapp_uptime_not_indexed", "This validator isn't in Endur's index yet.")
+      : t("webapp_uptime_unavailable", "Couldn't fetch uptime data right now. The on-chain figures above are unaffected.");
+    // The machine-readable reason goes in the tooltip, not the copy —
+    // useful when debugging a change on their side, noise otherwise.
+    const why = (uptime && uptime.detail) ? ` title="${escapeHtml(uptime.detail)}"` : "";
+    return `
+      <div class="hero uptime-block uptime-unknown"${why}>
+        <div class="uptime-head">
+          <div class="muted small">${caption}</div>
+          <span class="chip">${escapeHtml(notIndexed
+            ? t("webapp_uptime_chip_unknown", "no data")
+            : t("webapp_uptime_chip_error", "unavailable"))}</span>
+        </div>
+        <div class="hero-value muted">—</div>
+        <div class="muted small">${escapeHtml(explain)}</div>
+      </div>
+    `;
+  }
+
+  const pct = Number(uptime.percent);
+  // Two decimals below 100 so "99.99" and "99.5" stay distinguishable;
+  // a clean "100%" for the common case.
+  const pctStr = pct >= 100 ? "100%" : `${pct.toFixed(2)}%`;
+  let chip;
+  let tone;
+  if (pct >= _UPTIME_GOOD) {
+    chip = t("webapp_uptime_chip_good", "healthy");
+    tone = "success";
+  } else if (pct >= _UPTIME_WARN) {
+    chip = t("webapp_uptime_chip_fair", "some misses");
+    tone = "warn";
+  } else {
+    chip = t("webapp_uptime_chip_poor", "unreliable");
+    tone = "danger";
+  }
+
+  const bits = [];
+  if (uptime.name) bits.push(escapeHtml(uptime.name));
+  const ago = timeAgo(uptime.measured_at);
+  bits.push(escapeHtml(
+    ago
+      ? t("webapp_uptime_source_at", "Endur, updated {ago}", { ago })
+      : t("webapp_uptime_source", "source: Endur")
+  ));
+  if (uptime.is_unstaking) {
+    bits.push(escapeHtml(t("webapp_uptime_unstaking", "unstaking")));
+  }
+
+  return `
+    <div class="hero uptime-block uptime-${tone}">
+      <div class="uptime-head">
+        <div class="muted small">${caption}</div>
+        <span class="chip ${tone === "success" ? "success" : tone === "danger" ? "danger" : "warn"}">${escapeHtml(chip)}</span>
+      </div>
+      <div class="hero-value">${escapeHtml(pctStr)}</div>
+      <div class="muted small">${bits.join(" · ")}</div>
+    </div>
+  `;
+}
+
+// Fills the uptime slot out of band: it's a third-party HTTP call and
+// must not hold up the on-chain card. ``renderValidator`` has already
+// painted the loading state, so this only ever swaps content in.
+async function loadUptimeInto(slot, address) {
+  if (!slot) return;
+  let payload;
+  try {
+    payload = await api(`/api/v1/validators/${encodeURIComponent(address)}/uptime`);
+  } catch (err) {
+    // The endpoint is built to answer 200 even when the upstream is
+    // down, so landing here means OUR API failed. Same visible outcome.
+    console.warn("uptime fetch failed", err);
+    payload = { status: "unavailable", detail: String(err && err.message || err) };
+  }
+  // The user may have navigated away mid-flight; only paint if the slot
+  // is still on screen.
+  if (!slot.isConnected) return;
+  slot.innerHTML = renderUptimeBlock(payload);
 }
 
 function renderOperatorWalletBlock(data, state) {

@@ -28,6 +28,7 @@ A Starknet staking companion: Telegram bot + REST API + Telegram Mini App / loca
 | Local dashboard mode | — | ✅ | no HMAC, uses `?tg_id=` |
 | Asset cache-busting (`?v=<mtime>`) | — | ✅ | survives Telegram WebView's aggressive cache |
 | Mainnet / testnet switch | — | ✅ | optional second RPC endpoint; see [Networks](#networks) |
+| Validator uptime | — | ✅ | Endur's `liveliness`, shown on the validator and delegation cards; see [Validator uptime](#validator-uptime) |
 
 ---
 
@@ -65,6 +66,48 @@ be mistaken for a mainnet incident.
 
 The watcher runs one cycle per configured network per minute,
 concurrently — a slow testnet node can't delay the mainnet alert.
+
+---
+
+## Validator uptime
+
+The staking contracts expose `get_last_epoch_attestation_done` and nothing
+else — enough for "missed N epochs since the last one it won", not enough
+for a percentage. [Endur](https://endur.fi) indexes the attestation events
+and publishes the aggregate as `liveliness` (0–100); the Mini App shows it
+on the validator card, and on a delegation card for the validator being
+delegated to.
+
+No key, no configuration: `ENDUR_API_URL_MAINNET` / `ENDUR_API_URL_SEPOLIA`
+exist only to point at a mirror or to switch the feature off with an empty
+value. Results are cached for 5 minutes (30 s for failures, so the card
+recovers as soon as the upstream does).
+
+**The block always renders.** `GET /api/v1/validators/{addr}/uptime`
+answers 200 with a `status` of `ok`, `not_indexed` or `unavailable` rather
+than an error or a null, and the UI draws a state for each. A block that
+quietly disappears when a third party changes their API is a break nobody
+notices.
+
+Two things worth knowing about the number itself:
+
+- **It is a lifetime average, not an outage alarm.** A validator active
+  for a year sits on ~30k epochs, so one missed epoch moves it by ~0.003
+  points and it would take **four days fully offline** to fall below 99%.
+  Use it to judge a validator's track record. For "my node is down right
+  now", the per-minute missed-epoch alert is the signal — that one reads
+  the chain directly and fires within a minute.
+- **Endur doesn't document the window**, so the UI attributes the figure
+  to them rather than presenting it as our own measurement, and shows
+  when their record was last refreshed. A stale 100% otherwise looks
+  exactly like a fresh one.
+
+Voyager publishes the same field at `/api/staking/validator-details`, but
+behind Cloudflare's bot challenge: it needs a `cf_clearance` cookie bound
+to one browser session (IP + TLS fingerprint + user agent) that expires
+within hours. Replaying one from a server gets the interstitial back. A
+dependency that breaks on its own schedule is worse than no dependency, so
+we don't use it.
 
 ---
 
@@ -284,6 +327,7 @@ Key idea: every contract read and every user-visible string originates in `servi
 | GET | `/api/v1/status` | Protocol + service health |
 | GET | `/api/v1/status/node` | RPC node sync state (cheap; safe to poll) |
 | GET | `/api/v1/validators/{addr}` | Full validator view (multi-pool + attestation) |
+| GET | `/api/v1/validators/{addr}/uptime` | Attestation uptime from Endur; always 200, `status ∈ {ok, not_indexed, unavailable}` |
 | GET | `/api/v1/delegators/{addr}?pool=…` | Delegator position in one pool |
 | GET | `/api/v1/users/me/tracking` | List tracked pairs |
 | PUT | `/api/v1/users/me/tracking` | Replace the tracking list |
